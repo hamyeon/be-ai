@@ -1,0 +1,12 @@
+{
+  "keywords_searched": 26,
+  "raw_items_seen": 3311,
+  "new_records_saved": 2761,
+  "duplicates_skipped": 550,
+  "dropped_missing_price_or_disallowed": 0,
+  "duplicate_rate": 0.166,
+  "missing_brand_guess_rate": 0.559,
+  "missing_condition_grade_rate": 0.702,
+  "missing_box_included_rate": 0.905,
+  "elapsed_seconds": 63.44
+}
