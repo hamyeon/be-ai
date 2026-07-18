@@ -5,7 +5,7 @@ from . import config
 KST = timezone(timedelta(hours=9))
 
 
-def normalize_item(raw_item: dict, matched_keyword: str, source_html: str, disallow_checker) -> dict:
+def normalize_item(raw_item: dict, matched_keyword: str, region_name: str, source_html: str, disallow_checker) -> dict:
     url = raw_item.get("url")
     if not url:
         return None
@@ -24,6 +24,7 @@ def normalize_item(raw_item: dict, matched_keyword: str, source_html: str, disal
 
     return {
         "source": "DAANGN",
+        "region_query": region_name,
         "matched_keyword": matched_keyword,
         "brand_guess": _guess_brand(text),
         "price_krw": price,

@@ -5,8 +5,8 @@ import requests
 from . import config
 
 
-def fetch_search_html(keyword: str, session: requests.Session) -> str:
-    params = {"search": keyword}
+def fetch_search_html(keyword: str, region_in_param: str, session: requests.Session) -> str:
+    params = {"search": keyword, "in": region_in_param}
     headers = {"User-Agent": config.USER_AGENT}
 
     last_error = None
@@ -25,4 +25,4 @@ def fetch_search_html(keyword: str, session: requests.Session) -> str:
             last_error = error
             time.sleep(config.REQUEST_DELAY_SECONDS * attempt)
 
-    raise RuntimeError(f"'{keyword}' 검색 페이지 요청 실패") from last_error
+    raise RuntimeError(f"'{region_in_param}' / '{keyword}' 검색 페이지 요청 실패") from last_error

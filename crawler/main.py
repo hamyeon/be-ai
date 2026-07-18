@@ -16,34 +16,54 @@ def run() -> None:
     total_raw_items = 0
     duplicates = 0
     dropped = 0
+    region_stats = []
 
-    for index, keyword in enumerate(config.SEARCH_KEYWORDS, start=1):
-        print(f"[{index}/{len(config.SEARCH_KEYWORDS)}] '{keyword}' 검색 중...")
+    for region in config.REGIONS:
+        region_started_at = time.monotonic()
+        region_new = 0
+        region_raw = 0
+        region_duplicates = 0
 
-        try:
-            html = fetch.fetch_search_html(keyword, session)
-        except RuntimeError as error:
-            print(f"  실패: {error}")
-            continue
+        for index, keyword in enumerate(config.SEARCH_KEYWORDS, start=1):
+            print(f"[{region['name']} {index}/{len(config.SEARCH_KEYWORDS)}] '{keyword}' 검색 중...")
 
-        raw_items = parse.extract_ld_json_items(html)
-        total_raw_items += len(raw_items)
-
-        for raw_item in raw_items:
-            url = raw_item.get("url")
-            if url and url in seen_urls:
-                duplicates += 1
+            try:
+                html = fetch.fetch_search_html(keyword, region["in_param"], session)
+            except RuntimeError as error:
+                print(f"  실패: {error}")
                 continue
 
-            record = normalize.normalize_item(raw_item, keyword, html, parse.is_crawl_disallowed)
-            if record is None:
-                dropped += 1
-                continue
+            raw_items = parse.extract_ld_json_items(html)
+            region_raw += len(raw_items)
+            total_raw_items += len(raw_items)
 
-            seen_urls.add(record["item_url"])
-            new_records.append(record)
+            for raw_item in raw_items:
+                url = raw_item.get("url")
+                if url and url in seen_urls:
+                    duplicates += 1
+                    region_duplicates += 1
+                    continue
 
-        time.sleep(config.REQUEST_DELAY_SECONDS)
+                record = normalize.normalize_item(
+                    raw_item, keyword, region["name"], html, parse.is_crawl_disallowed
+                )
+                if record is None:
+                    dropped += 1
+                    continue
+
+                seen_urls.add(record["item_url"])
+                new_records.append(record)
+                region_new += 1
+
+            time.sleep(config.REQUEST_DELAY_SECONDS)
+
+        region_stats.append({
+            "region": region["name"],
+            "raw_items_seen": region_raw,
+            "new_records_saved": region_new,
+            "duplicates_skipped": region_duplicates,
+            "elapsed_seconds": round(time.monotonic() - region_started_at, 2),
+        })
 
     storage.append_jsonl(config.RAW_JSONL_PATH, new_records)
 
@@ -53,6 +73,7 @@ def run() -> None:
     missing_box = sum(1 for r in new_records if r["box_included_guess"] is None)
 
     metrics = {
+        "regions_searched": len(config.REGIONS),
         "keywords_searched": len(config.SEARCH_KEYWORDS),
         "raw_items_seen": total_raw_items,
         "new_records_saved": new_count,
@@ -63,6 +84,7 @@ def run() -> None:
         "missing_condition_grade_rate": round(missing_condition / new_count, 3) if new_count else None,
         "missing_box_included_rate": round(missing_box / new_count, 3) if new_count else None,
         "elapsed_seconds": round(time.monotonic() - started_at, 2),
+        "by_region": region_stats,
     }
 
     config.METRICS_PATH.parent.mkdir(parents=True, exist_ok=True)
