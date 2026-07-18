@@ -1,12 +1,29 @@
 {
+  "regions_searched": 2,
   "keywords_searched": 26,
-  "raw_items_seen": 3311,
-  "new_records_saved": 2761,
-  "duplicates_skipped": 550,
+  "raw_items_seen": 4716,
+  "new_records_saved": 3402,
+  "duplicates_skipped": 1314,
   "dropped_missing_price_or_disallowed": 0,
-  "duplicate_rate": 0.166,
-  "missing_brand_guess_rate": 0.559,
-  "missing_condition_grade_rate": 0.702,
-  "missing_box_included_rate": 0.905,
-  "elapsed_seconds": 63.44
+  "duplicate_rate": 0.279,
+  "missing_brand_guess_rate": 0.68,
+  "missing_condition_grade_rate": 0.731,
+  "missing_box_included_rate": 0.908,
+  "elapsed_seconds": 117.3,
+  "by_region": [
+    {
+      "region": "대현동",
+      "raw_items_seen": 2011,
+      "new_records_saved": 1332,
+      "duplicates_skipped": 679,
+      "elapsed_seconds": 56.76
+    },
+    {
+      "region": "방배동",
+      "raw_items_seen": 2705,
+      "new_records_saved": 2070,
+      "duplicates_skipped": 635,
+      "elapsed_seconds": 60.42
+    }
+  ]
 }
