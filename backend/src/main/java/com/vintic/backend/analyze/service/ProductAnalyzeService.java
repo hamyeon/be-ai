@@ -1,25 +1,24 @@
 package com.vintic.backend.analyze.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.vintic.backend.ai.service.OpenAiService;
+import com.vintic.backend.ai.vision.dto.VisionAnalysisRequest;
+import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
+import com.vintic.backend.ai.vision.service.VisionAnalysisService;
 import com.vintic.backend.analyze.dto.AnalyzeResponse;
-import com.vintic.backend.common.exception.AiApiException;
 import com.vintic.backend.common.exception.InvalidImageException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
 import java.util.List;
 
+// 이미지 검증 -> S3 업로드 -> Vision 분석 순서로 흐름만 제어하는 오케스트레이터.
+// 실제 Vision 호출/응답 변환 책임은 VisionAnalysisService 쪽에 있다.
 @Service
 @RequiredArgsConstructor
 public class ProductAnalyzeService {
 
     private final S3UploaderService s3Service;
-    private final OpenAiService openAiService;
-    private final ObjectMapper objectMapper;
+    private final VisionAnalysisService visionAnalysisService;
 
     public AnalyzeResponse processImageAndAnalyze(List<MultipartFile> imageFiles) {
 
@@ -28,26 +27,19 @@ public class ProductAnalyzeService {
             throw new InvalidImageException("이미지 파일이 존재하지 않습니다.");
         }
 
-        try {
-            // S3에 여러 이미지 업로드 후 URL 리스트 반환
-            List<String> imageUrls = s3Service.uploadImages(imageFiles);
-            // URL 리스트를 AI 서비스로 전달
-            String aiAnalysisResult = openAiService.analyzeProductImages(imageUrls);
+        // S3에 여러 이미지 업로드 후 URL 리스트 반환
+        List<String> imageUrls = s3Service.uploadImages(imageFiles);
 
-            AnalyzeResponse response = objectMapper.readValue(aiAnalysisResult, AnalyzeResponse.class);
+        VisionAnalysisResult result = visionAnalysisService.analyze(new VisionAnalysisRequest(imageUrls));
 
-            return new AnalyzeResponse(
-                    imageUrls, // 변경된 리스트 타입 삽입
-                    response.brand(),
-                    response.modelName(),
-                    response.color(),
-                    response.size(),
-                    response.conditionDescription(),
-                    response.conditionGrade()
-            );
-
-        } catch (JsonProcessingException e) {
-            throw new AiApiException("AI 분석 응답을 처리하는 중 오류가 발생했습니다.");
-        }
+        return new AnalyzeResponse(
+                imageUrls,
+                result.brand(),
+                result.modelName(),
+                result.color(),
+                result.size(),
+                result.conditionDescription(),
+                result.conditionGrade() != null ? result.conditionGrade().name() : null
+        );
     }
 }

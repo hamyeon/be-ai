@@ -6,7 +6,9 @@ import com.vintic.backend.product.dto.CalculatePriceResponse;
 import com.vintic.backend.product.dto.CreateProductRequest;
 import com.vintic.backend.product.dto.ProductListResponse;
 import com.vintic.backend.product.dto.ProductResponse;
-import com.vintic.backend.product.service.PriceCalculationService;
+import com.vintic.backend.product.pricing.PricingRequest;
+import com.vintic.backend.product.pricing.PricingResult;
+import com.vintic.backend.product.pricing.PricingService;
 import com.vintic.backend.product.service.ProductRegistrationService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -18,14 +20,14 @@ import java.util.List;
 @RequestMapping("/api/products")
 public class ProductController {
 
-    private final PriceCalculationService priceCalculationService;
+    private final PricingService pricingService;
     private final ProductRegistrationService productRegistrationService;
 
     public ProductController(
-            PriceCalculationService priceCalculationService,
+            PricingService pricingService,
             ProductRegistrationService productRegistrationService
     ) {
-        this.priceCalculationService = priceCalculationService;
+        this.pricingService = pricingService;
         this.productRegistrationService = productRegistrationService;
     }
 
@@ -33,8 +35,49 @@ public class ProductController {
     public ResponseEntity<ApiResponse<CalculatePriceResponse>> calculatePrice(
             @Valid @RequestBody CalculatePriceRequest request
     ) {
-        CalculatePriceResponse response = priceCalculationService.calculate(request);
+        PricingRequest pricingRequest = new PricingRequest(
+                request.brand(),
+                request.modelName(),
+                request.color(),
+                request.size(),
+                request.conditionGrade(),
+                request.componentStatus()
+        );
+
+        PricingResult result = pricingService.calculate(pricingRequest);
+
+        CalculatePriceResponse response = new CalculatePriceResponse(
+                result.recommendedPrice(),
+                result.baseMarketPrice(),
+                result.kreamAveragePrice(),
+                result.ebayAveragePrice(),
+                result.minRecommendedPrice(),
+                result.maxRecommendedPrice(),
+                result.priceRange(),
+                result.reason(),
+                toCalculateMatches(result.kreamMatches()),
+                toCalculateMatches(result.ebayMatches())
+        );
+
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    private List<CalculatePriceResponse.MatchedMarketPrice> toCalculateMatches(
+            List<PricingResult.MatchedMarketPrice> matches
+    ) {
+        return matches.stream()
+                .map(match -> new CalculatePriceResponse.MatchedMarketPrice(
+                        match.source(),
+                        match.brand(),
+                        match.modelName(),
+                        match.color(),
+                        match.size(),
+                        match.conditionGrade(),
+                        match.componentStatus(),
+                        match.price(),
+                        match.url()
+                ))
+                .toList();
     }
 
     @PostMapping

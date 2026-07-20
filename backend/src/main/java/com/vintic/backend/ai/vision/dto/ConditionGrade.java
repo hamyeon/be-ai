@@ -1,4 +1,4 @@
-package com.vintic.backend.ai.dto;
+package com.vintic.backend.ai.vision.dto;
 
 public enum ConditionGrade {
     DS,
