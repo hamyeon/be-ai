@@ -1,9 +1,9 @@
-package com.vintic.backend.ai.service;
+package com.vintic.backend.ai.vision.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.vintic.backend.ai.dto.VisionAnalysisRequest;
-import com.vintic.backend.ai.dto.VisionAnalysisResult;
+import com.vintic.backend.ai.vision.dto.VisionAnalysisRequest;
+import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
 import com.vintic.backend.common.exception.AiApiException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
