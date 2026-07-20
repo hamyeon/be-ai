@@ -1,9 +1,9 @@
 package com.vintic.backend.ai.dto;
 
-public record ProductAnalysisCandidate(
+public record VisionAnalysisCandidate(
         String brand,
         String modelName,
-        String colorway,
+        String color,
         Double confidence
 ) {
 }
