@@ -1,9 +1,9 @@
 package com.vintic.backend.analyze.service;
 
-import com.vintic.backend.ai.dto.ConditionGrade;
-import com.vintic.backend.ai.dto.VisionAnalysisRequest;
-import com.vintic.backend.ai.dto.VisionAnalysisResult;
-import com.vintic.backend.ai.service.VisionAnalysisService;
+import com.vintic.backend.ai.vision.dto.ConditionGrade;
+import com.vintic.backend.ai.vision.dto.VisionAnalysisRequest;
+import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
+import com.vintic.backend.ai.vision.service.VisionAnalysisService;
 import com.vintic.backend.analyze.dto.AnalyzeResponse;
 import com.vintic.backend.common.exception.InvalidImageException;
 import org.junit.jupiter.api.Test;

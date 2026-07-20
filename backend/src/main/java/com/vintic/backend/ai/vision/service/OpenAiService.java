@@ -1,4 +1,4 @@
-package com.vintic.backend.ai.service;
+package com.vintic.backend.ai.vision.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
