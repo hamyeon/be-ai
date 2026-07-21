@@ -1,6 +1,8 @@
 package com.vintic.backend.product;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vintic.backend.analyze.domain.ProductAnalysisSession;
+import com.vintic.backend.analyze.domain.ProductAnalysisSessionRepository;
 import com.vintic.backend.product.dto.CalculatePriceRequest;
 import com.vintic.backend.product.pricing.PricingRequest;
 import com.vintic.backend.product.pricing.PricingResult;
@@ -14,6 +16,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -36,10 +39,18 @@ class ProductControllerTest {
     @MockitoBean
     private ProductRegistrationService productRegistrationService;
 
+    @MockitoBean
+    private ProductAnalysisSessionRepository sessionRepository;
+
     @Test
     void 가격계산_API_요청_응답_형식이_유지된다() throws Exception {
+        ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.startVisionProcessing();
+        session.completeVision("{}");
+        when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
+
         CalculatePriceRequest request = new CalculatePriceRequest(
-                "Nike", "Air Jordan 1 Retro High OG", "Chicago Lost and Found", 270, "B", "PARTIAL"
+                1L, "Nike", "Air Jordan 1 Retro High OG", "Chicago Lost and Found", 270, "B", "PARTIAL"
         );
 
         PricingResult.MatchedMarketPrice matchedPrice = new PricingResult.MatchedMarketPrice(

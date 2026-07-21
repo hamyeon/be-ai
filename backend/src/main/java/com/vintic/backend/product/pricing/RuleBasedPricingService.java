@@ -19,6 +19,7 @@ public class RuleBasedPricingService implements PricingService {
     @Override
     public PricingResult calculate(PricingRequest request) {
         CalculatePriceRequest calculateRequest = new CalculatePriceRequest(
+                null,
                 request.brand(),
                 request.modelName(),
                 request.color(),

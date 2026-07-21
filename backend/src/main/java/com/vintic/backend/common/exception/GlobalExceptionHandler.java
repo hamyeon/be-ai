@@ -47,6 +47,20 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail(50003, e.getMessage()));
     }
 
+    // 존재하지 않는 분석 세션 (404 Not Found)
+    @ExceptionHandler(AnalysisSessionNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAnalysisSessionNotFoundException(AnalysisSessionNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40401, e.getMessage()));
+    }
+
+    // 잘못된 분석 상태에서의 요청 (400 Bad Request)
+    @ExceptionHandler(InvalidAnalysisStatusException.class)
+    public ResponseEntity<ApiResponse<Void>> handleInvalidAnalysisStatusException(InvalidAnalysisStatusException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.fail(40003, e.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleException(Exception exception) {
         // 1. 에러 내용을 콘솔에 강제로 출력

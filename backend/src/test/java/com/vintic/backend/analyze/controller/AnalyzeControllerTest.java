@@ -32,6 +32,7 @@ class AnalyzeControllerTest {
         MockMultipartFile image = new MockMultipartFile("images", "shoe.jpg", "image/jpeg", new byte[]{1, 2, 3});
 
         AnalyzeResponse response = new AnalyzeResponse(
+                1L,
                 List.of("https://bucket.s3.amazonaws.com/shoe.jpg"),
                 "Nike",
                 "Air Jordan 1 Retro High OG",
@@ -45,6 +46,7 @@ class AnalyzeControllerTest {
         mockMvc.perform(multipart("/api/products/analyze").file(image))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.analysisId").value(1))
                 .andExpect(jsonPath("$.data.imageUrls[0]").value("https://bucket.s3.amazonaws.com/shoe.jpg"))
                 .andExpect(jsonPath("$.data.brand").value("Nike"))
                 .andExpect(jsonPath("$.data.modelName").value("Air Jordan 1 Retro High OG"))
