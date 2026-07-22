@@ -35,6 +35,7 @@ class ProductAnalysisSessionRepositoryTest {
         session.startVisionProcessing();
         session.completeVision("{\"brand\":\"Nike\"}");
         session.startPricing();
+        session.recordConfirmedInput("{\"brand\":\"Nike\",\"conditionGrade\":\"B\"}");
         session.completePricing("{\"recommendedPrice\":300000}");
 
         ProductAnalysisSession saved = sessionRepository.save(session);
@@ -44,7 +45,23 @@ class ProductAnalysisSessionRepositoryTest {
 
         assertThat(found.getStatus()).isEqualTo(AnalysisStatus.COMPLETED);
         assertThat(found.getVisionResultJson()).isEqualTo("{\"brand\":\"Nike\"}");
+        assertThat(found.getConfirmedInputJson()).isEqualTo("{\"brand\":\"Nike\",\"conditionGrade\":\"B\"}");
         assertThat(found.getPricingResultJson()).isEqualTo("{\"recommendedPrice\":300000}");
         assertThat(found.getCompletedAt()).isNotNull();
+    }
+
+    @Test
+    void 이미지_업로드_실패_상태가_저장된다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.failImageUpload("S3 업로드 실패");
+
+        ProductAnalysisSession saved = sessionRepository.save(session);
+        sessionRepository.flush();
+
+        ProductAnalysisSession found = sessionRepository.findById(saved.getId()).orElseThrow();
+
+        assertThat(found.getStatus()).isEqualTo(AnalysisStatus.IMAGE_UPLOAD_FAILED);
+        assertThat(found.getFailureStage()).isEqualTo(AnalysisFailureStage.IMAGE_UPLOAD);
+        assertThat(found.getFailureMessage()).isEqualTo("S3 업로드 실패");
     }
 }

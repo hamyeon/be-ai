@@ -45,6 +45,11 @@ public class ProductAnalysisSession {
     @Column(name = "vision_result_json")
     private String visionResultJson;
 
+    // 판매자가 Vision 결과를 확인/수정해 Pricing 요청에 실제로 전달한 최종 입력값
+    @Lob
+    @Column(name = "confirmed_input_json")
+    private String confirmedInputJson;
+
     @Lob
     @Column(name = "pricing_result_json")
     private String pricingResultJson;
@@ -73,6 +78,12 @@ public class ProductAnalysisSession {
         this.status = AnalysisStatus.IMAGE_UPLOADED;
     }
 
+    public void failImageUpload(String message) {
+        this.status = AnalysisStatus.IMAGE_UPLOAD_FAILED;
+        this.failureStage = AnalysisFailureStage.IMAGE_UPLOAD;
+        this.failureMessage = message;
+    }
+
     public void startVisionProcessing() {
         this.status = AnalysisStatus.VISION_PROCESSING;
     }
@@ -95,6 +106,10 @@ public class ProductAnalysisSession {
             );
         }
         this.status = AnalysisStatus.PRICING_PROCESSING;
+    }
+
+    public void recordConfirmedInput(String confirmedInputJson) {
+        this.confirmedInputJson = confirmedInputJson;
     }
 
     public void completePricing(String pricingResultJson) {

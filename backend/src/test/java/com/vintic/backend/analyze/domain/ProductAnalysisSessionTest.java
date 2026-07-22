@@ -29,6 +29,28 @@ class ProductAnalysisSessionTest {
     }
 
     @Test
+    void 이미지_업로드_실패하면_IMAGE_UPLOAD_FAILED_상태이고_실패_단계와_메시지가_저장된다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create();
+
+        session.failImageUpload("S3 업로드 실패");
+
+        assertThat(session.getStatus()).isEqualTo(AnalysisStatus.IMAGE_UPLOAD_FAILED);
+        assertThat(session.getFailureStage()).isEqualTo(AnalysisFailureStage.IMAGE_UPLOAD);
+        assertThat(session.getFailureMessage()).isEqualTo("S3 업로드 실패");
+    }
+
+    @Test
+    void Pricing_요청에_전달한_확정_입력값을_기록할_수_있다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.startVisionProcessing();
+        session.completeVision("{}");
+
+        session.recordConfirmedInput("{\"brand\":\"Nike\",\"conditionGrade\":\"B\"}");
+
+        assertThat(session.getConfirmedInputJson()).isEqualTo("{\"brand\":\"Nike\",\"conditionGrade\":\"B\"}");
+    }
+
+    @Test
     void Vision_시작하면_VISION_PROCESSING_상태이다() {
         ProductAnalysisSession session = ProductAnalysisSession.create();
 

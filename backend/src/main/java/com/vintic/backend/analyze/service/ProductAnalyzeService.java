@@ -11,6 +11,7 @@ import com.vintic.backend.analyze.dto.AnalyzeResponse;
 import com.vintic.backend.common.exception.AiApiException;
 import com.vintic.backend.common.exception.InvalidImageException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -20,6 +21,7 @@ import java.util.List;
 // 실제 Vision 호출/응답 변환 책임은 VisionAnalysisService 쪽에 있다.
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ProductAnalyzeService {
 
     private static final int FAILURE_MESSAGE_MAX_LENGTH = 1000;
@@ -27,6 +29,7 @@ public class ProductAnalyzeService {
     private final S3UploaderService s3Service;
     private final VisionAnalysisService visionAnalysisService;
     private final ProductAnalysisSessionRepository sessionRepository;
+    private final AnalysisFailureRecorder failureRecorder;
     private final ObjectMapper objectMapper;
 
     public AnalyzeResponse processImageAndAnalyze(List<MultipartFile> imageFiles) {
@@ -40,7 +43,14 @@ public class ProductAnalyzeService {
         sessionRepository.save(session);
 
         // S3에 여러 이미지 업로드 후 URL 리스트 반환
-        List<String> imageUrls = s3Service.uploadImages(imageFiles);
+        List<String> imageUrls;
+        try {
+            imageUrls = s3Service.uploadImages(imageFiles);
+        } catch (RuntimeException e) {
+            recordFailureSafely(() -> failureRecorder.recordImageUploadFailure(session.getId(), truncate(e.getMessage())));
+            throw e;
+        }
+
         session.markImageUploaded(imageUrls);
         sessionRepository.save(session);
 
@@ -51,8 +61,7 @@ public class ProductAnalyzeService {
         try {
             result = visionAnalysisService.analyze(new VisionAnalysisRequest(imageUrls));
         } catch (RuntimeException e) {
-            session.failVision(truncate(e.getMessage()));
-            sessionRepository.save(session);
+            recordFailureSafely(() -> failureRecorder.recordVisionFailure(session.getId(), truncate(e.getMessage())));
             throw e;
         }
 
@@ -69,6 +78,16 @@ public class ProductAnalyzeService {
                 result.conditionDescription(),
                 result.conditionGrade() != null ? result.conditionGrade().name() : null
         );
+    }
+
+    // 실패 상태 기록 중 추가 오류가 나도, 원래 발생한 S3/Vision 예외가 덮어써지면 안 되므로
+    // 여기서 삼키고 로그만 남긴다. 호출부는 항상 원래 예외를 다시 던진다.
+    private void recordFailureSafely(Runnable recordAction) {
+        try {
+            recordAction.run();
+        } catch (RuntimeException recordingError) {
+            log.error("분석 세션 실패 상태 기록 중 추가 오류가 발생했습니다.", recordingError);
+        }
     }
 
     private String toJson(Object value) {
