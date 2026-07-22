@@ -2,7 +2,6 @@ package com.vintic.backend.ai.vision.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.vintic.backend.ai.prompt.ProductAnalysisPrompt;
 import com.vintic.backend.common.exception.AiApiException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,7 +21,7 @@ public class OpenAiService {
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate = new RestTemplate();
 
-    public String analyzeProductImages(List<String> imageUrls) { // List 파라미터로 변경
+    public String analyzeProductImages(List<String> imageUrls, String systemPrompt) {
         try {
             String url = "https://api.openai.com/v1/chat/completions";
 
@@ -35,7 +34,7 @@ public class OpenAiService {
 
             Map<String, Object> systemMessage = new HashMap<>();
             systemMessage.put("role", "system");
-            systemMessage.put("content", ProductAnalysisPrompt.SYSTEM_PROMPT);
+            systemMessage.put("content", systemPrompt);
 
             // 전달받은 URL 리스트를 순회하며 요청에 담을 Content 객체 리스트 생성
             List<Map<String, Object>> contentList = new ArrayList<>();
