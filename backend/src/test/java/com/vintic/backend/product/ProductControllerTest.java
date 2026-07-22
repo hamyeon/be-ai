@@ -1,10 +1,9 @@
 package com.vintic.backend.product;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vintic.backend.analyze.service.ProductPricingService;
 import com.vintic.backend.product.dto.CalculatePriceRequest;
-import com.vintic.backend.product.pricing.PricingRequest;
-import com.vintic.backend.product.pricing.PricingResult;
-import com.vintic.backend.product.pricing.PricingService;
+import com.vintic.backend.product.dto.CalculatePriceResponse;
 import com.vintic.backend.product.service.ProductRegistrationService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,12 +14,14 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-// 리팩터링 전후로 /api/products/calculate-price의 요청/응답 형식이 그대로인지 확인하는 회귀 테스트
+// Controller는 요청 수신/응답 반환만 담당하므로, ProductPricingService를 모킹해
+// /api/products/calculate-price의 요청/응답 형식이 그대로인지만 확인하는 얇은 회귀 테스트
 @WebMvcTest(ProductController.class)
 class ProductControllerTest {
 
@@ -31,7 +32,7 @@ class ProductControllerTest {
     private ObjectMapper objectMapper;
 
     @MockitoBean
-    private PricingService pricingService;
+    private ProductPricingService productPricingService;
 
     @MockitoBean
     private ProductRegistrationService productRegistrationService;
@@ -39,22 +40,20 @@ class ProductControllerTest {
     @Test
     void 가격계산_API_요청_응답_형식이_유지된다() throws Exception {
         CalculatePriceRequest request = new CalculatePriceRequest(
-                "Nike", "Air Jordan 1 Retro High OG", "Chicago Lost and Found", 270, "B", "PARTIAL"
+                1L, "Nike", "Air Jordan 1 Retro High OG", "Chicago Lost and Found", 270, "B", "PARTIAL"
         );
 
-        PricingResult.MatchedMarketPrice matchedPrice = new PricingResult.MatchedMarketPrice(
+        CalculatePriceResponse.MatchedMarketPrice matchedPrice = new CalculatePriceResponse.MatchedMarketPrice(
                 "KREAM", "Nike", "Air Jordan 1 Retro High OG", "Chicago Lost and Found",
                 270, "DS", "FULL", 400000, "https://kream.co.kr/products/1"
         );
-        PricingResult pricingResult = new PricingResult(
+        CalculatePriceResponse response = new CalculatePriceResponse(
                 300000, 350000, 400000, 300000, 285000, 315000,
                 "285,000원 ~ 315,000원", "테스트 사유",
                 List.of(matchedPrice), List.of()
         );
 
-        when(pricingService.calculate(new PricingRequest(
-                "Nike", "Air Jordan 1 Retro High OG", "Chicago Lost and Found", 270, "B", "PARTIAL"
-        ))).thenReturn(pricingResult);
+        when(productPricingService.calculatePrice(any())).thenReturn(response);
 
         mockMvc.perform(post("/api/products/calculate-price")
                         .contentType(MediaType.APPLICATION_JSON)
