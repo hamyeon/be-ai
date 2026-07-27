@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.ai.search.document.SearchDocument;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
 import java.util.Map;
@@ -56,7 +58,7 @@ class OpenAiEmbeddingPoCTest {
 
     @Test
     void 임베딩_생성_저장_후_벡터_검색과_문자열_검색을_비교한다() throws Exception {
-        EmbeddingClient embeddingClient = new OpenAiEmbeddingClient(new ObjectMapper());
+        EmbeddingClient embeddingClient = createEmbeddingClient();
         InMemoryEmbeddingStore embeddingStore = new InMemoryEmbeddingStore();
 
         for (SearchDocument document : SAMPLE_DOCUMENTS) {
@@ -114,6 +116,14 @@ class OpenAiEmbeddingPoCTest {
             }
         }
         return -1;
+    }
+
+    // 이 테스트는 @SpringBootTest가 아니라서 @Value("${openai.api.key}")가 주입되지 않는다.
+    // System.getenv에서 직접 읽어 리플렉션으로 채워야 실제 요청에 API 키가 실린다.
+    private EmbeddingClient createEmbeddingClient() {
+        OpenAiEmbeddingClient client = new OpenAiEmbeddingClient(new ObjectMapper(), new RestTemplate());
+        ReflectionTestUtils.setField(client, "apiKey", System.getenv("OPENAI_API_KEY"));
+        return client;
     }
 
     // 지금 실제 서비스에 쓰는 방식과 동일한 수준(단순 부분 문자열 포함 여부)의 비교 기준선
