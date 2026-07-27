@@ -66,28 +66,54 @@ class OpenAiEmbeddingPoCTest {
         }
         assertThat(embeddingStore.size()).isEqualTo(SAMPLE_DOCUMENTS.size());
 
-        int vectorHits = 0;
+        int hitAt1 = 0;
+        int hitAt3 = 0;
+        double reciprocalRankSum = 0.0;
+
+        System.out.println("=".repeat(100));
         for (TestQuery testQuery : TEST_QUERIES) {
             float[] queryVector = embeddingClient.embed(testQuery.query());
             List<ScoredChunk> vectorResult = embeddingStore.search(queryVector, 3);
             List<String> stringResult = stringSearch(testQuery.query());
 
-            boolean vectorFound = !vectorResult.isEmpty() && vectorResult.get(0).chunkId().equals(testQuery.expectedTopDocumentId());
-            if (vectorFound) {
-                vectorHits++;
+            int rank = rankOf(vectorResult, testQuery.expectedTopDocumentId()); // 1,2,3 or -1
+            boolean top1 = rank == 1;
+            boolean top3 = rank != -1;
+            if (top1) {
+                hitAt1++;
             }
+            if (top3) {
+                hitAt3++;
+            }
+            reciprocalRankSum += (rank == -1) ? 0.0 : (1.0 / rank);
 
-            System.out.printf(
-                    "질의: \"%s\" | 기대: %s | 벡터 1위: %s (score=%.3f) | 문자열 검색 결과: %s%n",
-                    testQuery.query(),
-                    testQuery.expectedTopDocumentId(),
-                    vectorResult.isEmpty() ? "없음" : vectorResult.get(0).chunkId(),
-                    vectorResult.isEmpty() ? 0.0 : vectorResult.get(0).score(),
-                    stringResult.isEmpty() ? "없음(문자열 매칭 실패)" : stringResult
-            );
+            System.out.printf("질의: \"%s\" (기대: %s)%n", testQuery.query(), testQuery.expectedTopDocumentId());
+            for (int i = 0; i < vectorResult.size(); i++) {
+                ScoredChunk scored = vectorResult.get(i);
+                System.out.printf("  %d위: %s (score=%.3f)%s%n",
+                        i + 1, scored.chunkId(), scored.score(),
+                        scored.chunkId().equals(testQuery.expectedTopDocumentId()) ? "  <- 기대 상품" : "");
+            }
+            System.out.printf("  문자열 검색 결과: %s | Top-1=%s Top-3=%s%n",
+                    stringResult.isEmpty() ? "없음(문자열 매칭 실패)" : stringResult, top1, top3);
+            System.out.println("-".repeat(100));
         }
 
-        System.out.printf("벡터 검색이 기대한 문서를 1위로 찾은 비율: %d/%d%n", vectorHits, TEST_QUERIES.size());
+        double mrr = reciprocalRankSum / TEST_QUERIES.size();
+        System.out.printf("Hit@1: %d/%d (%.0f%%)%n", hitAt1, TEST_QUERIES.size(), 100.0 * hitAt1 / TEST_QUERIES.size());
+        System.out.printf("Hit@3: %d/%d (%.0f%%)%n", hitAt3, TEST_QUERIES.size(), 100.0 * hitAt3 / TEST_QUERIES.size());
+        System.out.printf("MRR: %.3f%n", mrr);
+        System.out.println("=".repeat(100));
+    }
+
+    // vectorResult 안에서 expectedDocumentId의 순위(1부터 시작)를 반환, 없으면 -1
+    private int rankOf(List<ScoredChunk> vectorResult, String expectedDocumentId) {
+        for (int i = 0; i < vectorResult.size(); i++) {
+            if (vectorResult.get(i).chunkId().equals(expectedDocumentId)) {
+                return i + 1;
+            }
+        }
+        return -1;
     }
 
     // 지금 실제 서비스에 쓰는 방식과 동일한 수준(단순 부분 문자열 포함 여부)의 비교 기준선

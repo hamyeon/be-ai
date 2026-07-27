@@ -103,15 +103,58 @@ public interface EmbeddingStore {
 
 각 질의는 의도적으로 **원본 텍스트에 없는 동의어/의미 표현**으로 만들었다 — 문자열 검색이 실패하고 벡터 검색만 성공하는 케이스가 있어야 벡터 검색의 실익을 판단할 수 있기 때문.
 
+## 6-1. OpenAI Embedding 검색 결과
+
+> `OPENAI_API_KEY`를 설정하고 `./gradlew test --tests "*OpenAiEmbeddingPoCTest" --info`를 직접 실행한 뒤,
+> 콘솔 출력을 보고 아래 표와 지표를 채운다. (이 세션은 API 키가 없어 직접 실행하지 못했음 — **TODO: 실행 후 채우기**)
+
+- 사용 모델: `text-embedding-3-small`
+- 테스트 질의: 10개
+- 검색 방식: cosine similarity, Top-3
+- 저장 방식: `InMemoryEmbeddingStore`
+
+| 질의 | 기대 상품 | Top-1 결과 | Top-3 포함 | 판단 |
+| --- | --- | --- | --- | --- |
+| 발볼 넓은 편한 신발 찾아요 | product-3 | TODO | TODO | TODO |
+| 박스 있는 새 신발 | product-1 | TODO | TODO | TODO |
+| 아직 한 번도 안 신은 신발 | product-1 | TODO | TODO | TODO |
+| 사용감 있고 저렴한 신발 | product-2 | TODO | TODO | TODO |
+| 하얀색 계열 신발 | product-5 | TODO | TODO | TODO |
+| 빨간색 포인트 신발 | product-4 | TODO | TODO | TODO |
+| 가벼운 러닝화 | product-3 | TODO | TODO | TODO |
+| 클래식한 가죽 스니커즈 | product-2 | TODO | TODO | TODO |
+| 여름에 신기 좋은 신발 | product-5 | TODO | TODO | TODO |
+| 발이 편안한 쿠션 좋은 신발 | product-3 | TODO | TODO | TODO |
+
+**지표** (테스트가 콘솔에 자동 출력함 — `Hit@1`, `Hit@3`, `MRR` 값을 그대로 옮겨 적으면 됨)
+
+- Hit@1: `TODO`/10 (`TODO`%)
+- Hit@3: `TODO`/10 (`TODO`%)
+- MRR: `TODO`
+- 오검색(전혀 관계없는 상품이 상위 등장) 사례: `TODO`
+
 ## 7. Redis Vector 실제 도입 필요성 재평가 — 실행 방법
 
 1. `OPENAI_API_KEY`를 실제 값으로 설정하고 `OpenAiEmbeddingPoCTest`를 실행한다.
-2. 콘솔에 출력되는 "벡터 검색이 기대한 문서를 1위로 찾은 비율"과, 문자열 검색 결과가 실패하는 질의가 실제로 몇 개인지 확인한다.
+2. 콘솔에 출력되는 Hit@1/Hit@3/MRR과, 문자열 검색 결과가 실패하는 질의가 실제로 몇 개인지 확인한다.
 3. 아래 중 하나라도 확인되면 #14에서 정의한 도입 조건이 충족된 것이므로 Redis Vector 도입을 다시 논의한다:
    - 벡터 검색이 문자열 검색으로는 못 찾는 질의를 유의미하게 더 많이 찾아낸다
    - 실제 상품 수가 늘어나 `InMemoryEmbeddingStore`의 O(n) 브루트포스 검색이 느려진다 (체감 지연 또는 실측 응답 시간 기준)
    - 자연어 검색/취향 기반 추천 기능을 실제로 만들기로 결정한다
 4. 그 전까지는 `InMemoryEmbeddingStore` + MySQL 필터 조합으로 충분하다고 보고, Redis 설치는 보류한다.
+
+## 8. 최종 결론
+
+**이번 PoC 결과가 좋게 나오더라도, 지금 당장 Redis를 구축하지 않는다.**
+
+```
+OpenAI Embedding 및 Vector 검색 가능성 확인
+  → 인메모리 PoC 성공
+  → 운영 저장소는 아직 필요하지 않음
+  → 실제 추천·유사 상품 검색 API를 구현하는 시점에 Redis Vector 재검토
+```
+
+이번 작업의 목표는 "Redis를 구축하는 것"이 아니라 **"벡터 검색이 이 프로젝트에서 실제로 의미가 있는지 확인하는 것"**이었다. PoC가 성공적이어도 실 사용처(추천 API, 유사 상품 검색 API)가 구현되기 전까지는 운영 인프라 도입을 보류한다.
 
 ## 포함 / 제외 범위
 
