@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 공유 RDS. EC2로 SSH 포트포워딩을 열어두고 접속한다.
+    url: ${DEV_DB_URL}
+    username: ${DEV_DB_USERNAME}
+    password: ${DEV_DB_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: update # 자바 코드로 테이블을 정의하면 DB에 알아서 테이블을 만들어주는 옵션
+    show-sql: true

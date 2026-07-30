@@ -1,0 +1,17 @@
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # docker-compose.local.yml로 띄운 로컬 MySQL. 공유 RDS와 완전히 분리된 연결.
+    url: jdbc:mysql://localhost:3306/autique_local?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    username: ${LOCAL_DB_USERNAME:root}
+    password: ${LOCAL_DB_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+  data:
+    redis:
+      host: ${LOCAL_REDIS_HOST:localhost}
+      port: ${LOCAL_REDIS_PORT:6379}
