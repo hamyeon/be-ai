@@ -84,7 +84,24 @@ public class ProductAnalysisSession {
         this.failureMessage = message;
     }
 
+    public void markQueued() {
+        this.status = AnalysisStatus.QUEUED;
+    }
+
+    public void failQueueing(String message) {
+        this.status = AnalysisStatus.QUEUE_FAILED;
+        this.failureStage = AnalysisFailureStage.QUEUE;
+        this.failureMessage = message;
+    }
+
+    // Consumer가 큐 메시지를 처리할 때 호출한다. QUEUED 상태가 아니면 이미 처리됐거나(중복 전달)
+    // 아직 큐 적재 전인 것이므로, 같은 Vision 분석이 두 번 실행되지 않도록 여기서 막는다.
     public void startVisionProcessing() {
+        if (status != AnalysisStatus.QUEUED) {
+            throw new InvalidAnalysisStatusException(
+                    "Vision 분석을 시작할 수 없는 분석 상태입니다. 현재 상태: " + status
+            );
+        }
         this.status = AnalysisStatus.VISION_PROCESSING;
     }
 
