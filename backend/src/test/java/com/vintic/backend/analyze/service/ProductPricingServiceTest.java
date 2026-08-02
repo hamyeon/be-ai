@@ -52,6 +52,7 @@ class ProductPricingServiceTest {
 
     private ProductAnalysisSession awaitingConfirmationSession() {
         ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markQueued();
         session.startVisionProcessing();
         session.completeVision("{}");
         return session;

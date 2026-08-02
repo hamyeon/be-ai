@@ -18,27 +18,15 @@ USER_AGENT = (
 
 BRANDS = [
     {"canonical": "Nike", "tokens": ["나이키", "nike"]},
-    {"canonical": "Jordan", "tokens": ["조던", "jordan"]},
     {"canonical": "Adidas", "tokens": ["아디다스", "adidas"]},
     {"canonical": "New Balance", "tokens": ["뉴발란스", "new balance", "뉴발"]},
-    {"canonical": "Converse", "tokens": ["컨버스", "converse"]},
-    {"canonical": "Vans", "tokens": ["반스", "vans"]},
-    {"canonical": "Asics", "tokens": ["아식스", "asics"]},
-    {"canonical": "Salomon", "tokens": ["살로몬", "salomon"]},
-    {"canonical": "Puma", "tokens": ["푸마", "퓨마", "puma"]},
-    {"canonical": "Reebok", "tokens": ["리복", "reebok"]},
+    {"canonical": "OOFOS", "tokens": ["우포스", "oofos"]},
     {"canonical": "Crocs", "tokens": ["크록스", "crocs"]},
-    {"canonical": "Timberland", "tokens": ["팀버랜드", "timberland"]},
-    {"canonical": "Dr. Martens", "tokens": ["닥터마틴", "dr martens", "dr. martens"]},
-    {"canonical": "Under Armour", "tokens": ["언더아머", "under armour"]},
-    {"canonical": "Hoka", "tokens": ["호카", "hoka"]},
-    {"canonical": "Brooks", "tokens": ["브룩스", "brooks"]},
-    {"canonical": "On", "tokens": ["온러닝", "on running"]},
-    {"canonical": "Fila", "tokens": ["휠라", "fila"]},
-    {"canonical": "Skechers", "tokens": ["스케쳐스", "스케처스", "skechers"]},
     {"canonical": "Hunter", "tokens": ["헌터", "hunter"]},
-    {"canonical": "Onitsuka Tiger", "tokens": ["오니츠카", "onitsuka"]},
-    {"canonical": "TOMS", "tokens": ["탐스", "toms"]},
+    {"canonical": "Puma", "tokens": ["푸마", "퓨마", "puma"]},
+    {"canonical": "Asics", "tokens": ["아식스", "asics"]},
+    {"canonical": "Dr. Martens", "tokens": ["닥터마틴", "dr martens", "dr. martens"]},
+    {"canonical": "Salomon", "tokens": ["살로몬", "salomon"]},
 ]
 
 GENERIC_KEYWORDS = [

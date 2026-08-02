@@ -33,8 +33,19 @@ def normalize_item(raw_item: dict, matched_keyword: str, region_name: str, sourc
         "item_url": url,
         "item_title": title,
         "description": description,
+        "image_urls": _parse_images(raw_item.get("image")),
         "collected_at": datetime.now(KST).date().isoformat(),
     }
+
+
+def _parse_images(raw_image):
+    if raw_image is None:
+        return []
+    if isinstance(raw_image, str):
+        return [raw_image]
+    if isinstance(raw_image, list):
+        return [url for url in raw_image if isinstance(url, str)]
+    return []
 
 
 def _parse_price(raw_price):

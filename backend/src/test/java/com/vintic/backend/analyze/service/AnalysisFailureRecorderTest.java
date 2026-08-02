@@ -36,6 +36,7 @@ class AnalysisFailureRecorderTest {
     @Test
     void 상위_트랜잭션이_롤백되어도_REQUIRES_NEW로_기록한_실패_상태는_커밋된_채로_남는다() {
         ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markQueued();
         session.startVisionProcessing();
         ProductAnalysisSession saved = sessionRepository.save(session);
         Long sessionId = saved.getId();

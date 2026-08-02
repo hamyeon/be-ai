@@ -40,8 +40,31 @@ class ProductAnalysisSessionTest {
     }
 
     @Test
+    void 큐에_적재하면_QUEUED_상태이다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/a.jpg"));
+
+        session.markQueued();
+
+        assertThat(session.getStatus()).isEqualTo(AnalysisStatus.QUEUED);
+    }
+
+    @Test
+    void 큐_적재가_실패하면_QUEUE_FAILED_상태이고_실패_단계와_메시지가_저장된다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/a.jpg"));
+
+        session.failQueueing("Redis 연결 실패");
+
+        assertThat(session.getStatus()).isEqualTo(AnalysisStatus.QUEUE_FAILED);
+        assertThat(session.getFailureStage()).isEqualTo(AnalysisFailureStage.QUEUE);
+        assertThat(session.getFailureMessage()).isEqualTo("Redis 연결 실패");
+    }
+
+    @Test
     void Pricing_요청에_전달한_확정_입력값을_기록할_수_있다() {
         ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markQueued();
         session.startVisionProcessing();
         session.completeVision("{}");
 
@@ -51,8 +74,9 @@ class ProductAnalysisSessionTest {
     }
 
     @Test
-    void Vision_시작하면_VISION_PROCESSING_상태이다() {
+    void QUEUED_상태에서_Vision_시작하면_VISION_PROCESSING_상태이다() {
         ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markQueued();
 
         session.startVisionProcessing();
 
@@ -60,8 +84,29 @@ class ProductAnalysisSessionTest {
     }
 
     @Test
+    void QUEUED가_아닌_상태에서_Vision_시작하면_예외가_발생한다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create();
+
+        assertThatThrownBy(session::startVisionProcessing)
+                .isInstanceOf(InvalidAnalysisStatusException.class);
+    }
+
+    @Test
+    void 이미_처리된_세션에서_Vision을_다시_시작하면_예외가_발생한다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markQueued();
+        session.startVisionProcessing();
+        session.completeVision("{}");
+
+        // Consumer가 같은 메시지를 중복으로 전달받은 상황을 흉내낸다 - 재실행되면 안 된다.
+        assertThatThrownBy(session::startVisionProcessing)
+                .isInstanceOf(InvalidAnalysisStatusException.class);
+    }
+
+    @Test
     void Vision_성공하면_AWAITING_USER_CONFIRMATION_상태이고_결과가_저장된다() {
         ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markQueued();
         session.startVisionProcessing();
 
         session.completeVision("{\"brand\":\"Nike\"}");
@@ -73,6 +118,7 @@ class ProductAnalysisSessionTest {
     @Test
     void Vision_실패하면_VISION_FAILED_상태이고_실패_단계와_메시지가_저장된다() {
         ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markQueued();
         session.startVisionProcessing();
 
         session.failVision("OpenAI 호출 실패");
@@ -85,6 +131,7 @@ class ProductAnalysisSessionTest {
     @Test
     void AWAITING_USER_CONFIRMATION_상태에서_Pricing_시작하면_PRICING_PROCESSING_상태이다() {
         ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markQueued();
         session.startVisionProcessing();
         session.completeVision("{}");
 
@@ -104,6 +151,7 @@ class ProductAnalysisSessionTest {
     @Test
     void 이미_완료된_세션에서_Pricing을_다시_시작하면_예외가_발생한다() {
         ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markQueued();
         session.startVisionProcessing();
         session.completeVision("{}");
         session.startPricing();
@@ -116,6 +164,7 @@ class ProductAnalysisSessionTest {
     @Test
     void Pricing_성공하면_COMPLETED_상태이고_결과와_완료시각이_저장된다() {
         ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markQueued();
         session.startVisionProcessing();
         session.completeVision("{}");
         session.startPricing();
@@ -130,6 +179,7 @@ class ProductAnalysisSessionTest {
     @Test
     void Pricing_실패하면_PRICING_FAILED_상태이고_실패_단계와_메시지가_저장된다() {
         ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markQueued();
         session.startVisionProcessing();
         session.completeVision("{}");
         session.startPricing();

@@ -27,6 +27,13 @@ public class AnalysisFailureRecorder {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordQueueingFailure(Long sessionId, String message) {
+        ProductAnalysisSession session = findSession(sessionId);
+        session.failQueueing(message);
+        sessionRepository.save(session);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordVisionFailure(Long sessionId, String message) {
         ProductAnalysisSession session = findSession(sessionId);
         session.failVision(message);

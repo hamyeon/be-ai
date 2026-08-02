@@ -7,6 +7,11 @@ spring:
       max-file-size: 50MB      # 파일 한 개당 최대 용량 제한 (기본값: 1MB)
       max-request-size: 100MB   # 한 번의 요청(여러 파일 합계)당 최대 용량 제한 (기본값: 10MB)
 
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+
 cloud:
   aws:
     credentials:
@@ -20,6 +25,13 @@ cloud:
 openai:
   api:
     key: ${OPENAI_API_KEY}
+
+# Vision 분석 작업을 Worker에게 전달하는 Redis Stream 설정
+analysis:
+  stream:
+    key: ${ANALYSIS_STREAM_KEY:ai:analysis:requests}
+    group: ${ANALYSIS_STREAM_GROUP:ai-analysis-workers}
+    consumer-prefix: ${ANALYSIS_STREAM_CONSUMER_PREFIX:worker}
 
 logging:
   level:

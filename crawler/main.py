@@ -71,6 +71,7 @@ def run() -> None:
     missing_brand = sum(1 for r in new_records if r["brand_guess"] is None)
     missing_condition = sum(1 for r in new_records if r["condition_grade_guess"] == "UNKNOWN")
     missing_box = sum(1 for r in new_records if r["box_included_guess"] is None)
+    missing_image = sum(1 for r in new_records if not r["image_urls"])
 
     metrics = {
         "regions_searched": len(config.REGIONS),
@@ -83,6 +84,7 @@ def run() -> None:
         "missing_brand_guess_rate": round(missing_brand / new_count, 3) if new_count else None,
         "missing_condition_grade_rate": round(missing_condition / new_count, 3) if new_count else None,
         "missing_box_included_rate": round(missing_box / new_count, 3) if new_count else None,
+        "missing_image_rate": round(missing_image / new_count, 3) if new_count else None,
         "elapsed_seconds": round(time.monotonic() - started_at, 2),
         "by_region": region_stats,
     }

@@ -61,6 +61,13 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail(40003, e.getMessage()));
     }
 
+    // 분석 작업을 Redis Stream에 적재하지 못한 경우 (500 Internal Server Error)
+    @ExceptionHandler(AnalysisQueueException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAnalysisQueueException(AnalysisQueueException e) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.fail(50004, e.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleException(Exception exception) {
         // 1. 에러 내용을 콘솔에 강제로 출력
