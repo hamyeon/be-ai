@@ -222,3 +222,6 @@ CLAUDE.local.md
 application-secret.yml
 
 .idea
+
+# FruitsFamily 크롤러 이미지 (용량이 커서 git에는 jsonl/csv 메타데이터만 커밋)
+crawler/data/images/
