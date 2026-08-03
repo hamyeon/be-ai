@@ -1,0 +1,12 @@
+<!--
+합성(synthetic) fixture이지만 실제 확인된 값을 반영했다. 전체 10개 브랜드
+크롤링 이후 OOFOS 브랜드에서 status="sold"인 실제 품절 상품을 다수
+확인했다 (README 참고). status가 "selling"이 아닐 때 is_sold=True로
+해석되는지 검증하기 위한 fixture다.
+-->
+<html>
+<head><title>FruitsFamily™</title></head>
+<body>
+<script id="__APOLLO_STATE__" type="application/json">{"ROOT_QUERY":{"__typename":"Query","seeProductResponse({\"id\":8888888})":{"__typename":"SeeProductResponse","code":200,"seeProduct":{"__ref":"ProductNotMine:8888888"}}},"ProductNotMine:8888888":{"__typename":"ProductNotMine","id":"8888888","category":"신발","title":"테스트용 판매완료 신발","price":100000,"original_price":null,"status":"sold","brand":"Nike","size":"270","description":"테스트","resizedSmallImages":["https://image.production.fruitsfamily.com/test.jpg"]}}</script>
+</body>
+</html>

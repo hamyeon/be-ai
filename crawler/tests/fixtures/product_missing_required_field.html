@@ -1,0 +1,11 @@
+<!--
+합성(synthetic) fixture. 실제 사이트에서 상품명 또는 가격이 비는 경우를
+직접 찾지 못해, DOM 구조가 바뀌어 필수 필드가 빠졌을 때를 재현하기 위해
+__APOLLO_STATE__의 title을 의도적으로 비워 만들었다.
+-->
+<html>
+<head><title>FruitsFamily™</title></head>
+<body>
+<script id="__APOLLO_STATE__" type="application/json">{"ROOT_QUERY":{"__typename":"Query","seeProductResponse({\"id\":9999999})":{"__typename":"SeeProductResponse","code":200,"seeProduct":{"__ref":"ProductNotMine:9999999"}}},"ProductNotMine:9999999":{"__typename":"ProductNotMine","id":"9999999","category":"신발","title":"","price":null,"status":"selling","brand":"Nike","resizedSmallImages":[]}}</script>
+</body>
+</html>
