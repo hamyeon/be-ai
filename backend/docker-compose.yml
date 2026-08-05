@@ -8,6 +8,8 @@ services:
       redis:
         condition: service_healthy
     environment:
+      - SPRING_PROFILES_ACTIVE=dev
+
       # AWS S3 설정
       - AWS_ACCESS_KEY=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_KEY=${AWS_SECRET_ACCESS_KEY}
