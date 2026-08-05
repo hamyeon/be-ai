@@ -42,16 +42,16 @@ public class ProductAnalysisSession {
     private List<String> imageUrls = new ArrayList<>();
 
     @Lob
-    @Column(name = "vision_result_json")
+    @Column(name = "vision_result_json", columnDefinition = "LONGTEXT")
     private String visionResultJson;
 
     // 판매자가 Vision 결과를 확인/수정해 Pricing 요청에 실제로 전달한 최종 입력값
     @Lob
-    @Column(name = "confirmed_input_json")
+    @Column(name = "confirmed_input_json", columnDefinition = "LONGTEXT")
     private String confirmedInputJson;
 
     @Lob
-    @Column(name = "pricing_result_json")
+    @Column(name = "pricing_result_json", columnDefinition = "LONGTEXT")
     private String pricingResultJson;
 
     @Enumerated(EnumType.STRING)
