@@ -185,7 +185,7 @@ class ProductAnalyzeServiceTest {
 
         VisionAnalysisResult visionResult = new VisionAnalysisResult(
                 "Nike", "Air Jordan 1 Retro High OG", "Chicago Lost and Found", 270,
-                "사용감이 거의 없습니다.", ConditionGrade.B, true, 0.82, false, List.of(), List.of()
+                "사용감이 거의 없습니다.", ConditionGrade.B, true, 0.82, false, List.of(), List.of(), List.of(), List.of()
         );
         session.completeVision(objectMapper.writeValueAsString(visionResult));
         when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));

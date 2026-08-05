@@ -19,7 +19,7 @@ class VisionHarnessScorerTest {
     private VisionAnalysisResult resultWith(String brand, String modelName, Integer size,
                                             Boolean boxIncluded, ConditionGrade grade) {
         return new VisionAnalysisResult(brand, modelName, null, size, null, grade, boxIncluded,
-                null, null, List.of(), List.of());
+                null, null, List.of(), List.of(), List.of(), List.of());
     }
 
     @Test

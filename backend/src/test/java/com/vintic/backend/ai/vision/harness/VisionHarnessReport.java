@@ -19,8 +19,19 @@ public record VisionHarnessReport(
         int failureCount,
         long averageLatencyMs,
         Map<Field, FieldStat> fieldStats,
-        List<CaseScore> caseScores
+        List<CaseScore> caseScores,
+        Usage usage
 ) {
+
+    // 호출 비용을 재기 위한 집계. 정확도가 올라도 비용이 몇 배로 뛰면 채택할 수 없으므로 같이 본다.
+    public record Usage(int apiCalls, int promptTokens, int completionTokens) {
+
+        public static final Usage EMPTY = new Usage(0, 0, 0);
+
+        public int totalTokens() {
+            return promptTokens + completionTokens;
+        }
+    }
 
     public record FieldStat(int correct, int near, int wrong, int abstained, int notLabeled) {
 
@@ -49,6 +60,10 @@ public record VisionHarnessReport(
     }
 
     public static VisionHarnessReport aggregate(String label, List<CaseScore> caseScores) {
+        return aggregate(label, caseScores, Usage.EMPTY);
+    }
+
+    public static VisionHarnessReport aggregate(String label, List<CaseScore> caseScores, Usage usage) {
         Map<Field, int[]> counters = new EnumMap<>(Field.class);
         for (Field field : Field.values()) {
             counters.put(field, new int[Outcome.values().length]);
@@ -70,14 +85,22 @@ public record VisionHarnessReport(
         long averageLatencyMs = caseScores.isEmpty() ? 0L
                 : Math.round(caseScores.stream().mapToLong(CaseScore::latencyMs).average().orElse(0.0));
 
-        return new VisionHarnessReport(label, caseScores.size(), failureCount, averageLatencyMs, fieldStats, caseScores);
+        return new VisionHarnessReport(
+                label, caseScores.size(), failureCount, averageLatencyMs, fieldStats, caseScores, usage);
     }
 
     public String toText() {
         List<String> lines = new ArrayList<>();
         lines.add("=".repeat(96));
         lines.add("Vision 하네스 결과: " + label);
-        lines.add("케이스 %d건 / 호출 실패 %d건 / 평균 응답시간 %dms".formatted(caseCount, failureCount, averageLatencyMs));
+        lines.add("케이스 %d건 / 호출 실패 %d건 / 케이스당 평균 응답시간 %dms".formatted(
+                caseCount, failureCount, averageLatencyMs));
+        if (usage != null && usage.apiCalls() > 0) {
+            lines.add("API 호출 %d회 (케이스당 %.1f회) / 토큰 %,d (입력 %,d + 출력 %,d), 케이스당 %,d".formatted(
+                    usage.apiCalls(), caseCount == 0 ? 0.0 : (double) usage.apiCalls() / caseCount,
+                    usage.totalTokens(), usage.promptTokens(), usage.completionTokens(),
+                    caseCount == 0 ? 0 : usage.totalTokens() / caseCount));
+        }
         lines.add("-".repeat(96));
         lines.add("%-16s %7s %5s %5s %6s %8s %8s %8s %8s".formatted(
                 "필드", "채점대상", "정답", "근사", "오답", "기권", "응답률", "응답정확도", "전체정확도"));
