@@ -46,5 +46,13 @@ tasks.named('test') {
 		// 하네스는 실제 API를 호출해 매번 새 수치를 내는 게 목적이다.
 		// UP-TO-DATE로 건너뛰면 두 번째 실행부터 아무것도 안 하고 성공만 찍힌다.
 		outputs.upToDateWhen { false }
+
+		// Gradle은 테스트의 System.out을 기본으로 숨긴다. 하네스는 출력이 곧 결과물이라
+		// 이걸 켜지 않으면 수 분을 기다린 끝에 BUILD SUCCESSFUL만 보게 된다.
+		testLogging {
+			showStandardStreams = true
+			// 케이스마다 몇 초씩 걸려서, 진행 표시가 없으면 멈춘 것처럼 보인다.
+			events 'started', 'passed', 'failed'
+		}
 	}
 }

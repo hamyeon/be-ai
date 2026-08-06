@@ -33,8 +33,16 @@ public class OpenAiVisionClient {
 
     private static final String URL = "https://api.openai.com/v1/chat/completions";
 
+    // 429(분당 토큰 한도)와 5xx는 잠시 뒤 다시 부르면 대개 성공하는 일시적 오류다.
+    // 한 번 실패했다고 분석 전체를 실패로 떨어뜨리면 사용자는 처음부터 다시 올려야 한다.
+    private static final int MAX_ATTEMPTS = 4;
+
     @Value("${openai.api.key}")
     private String apiKey;
+
+    // 재시도 간격. 테스트에서 짧게 줄일 수 있도록 설정값으로 뺐다.
+    @Value("${openai.vision.retry-backoff-ms:1000}")
+    private long retryBackoffMs = 1000L;
 
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
@@ -43,10 +51,45 @@ public class OpenAiVisionClient {
         Map<String, Object> body = buildRequestBody(request);
 
         long startedAt = System.currentTimeMillis();
-        ResponseEntity<String> response = callChatCompletionsApi(body, request);
+        ResponseEntity<String> response = callWithRetry(body, request);
         long latencyMs = System.currentTimeMillis() - startedAt;
 
         return extractResponse(response.getBody(), latencyMs);
+    }
+
+    private ResponseEntity<String> callWithRetry(Map<String, Object> body, VisionChatRequest request) {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return callChatCompletionsApi(body, request);
+            } catch (AiApiException e) {
+                if (attempt >= MAX_ATTEMPTS || !isRetryable(e)) {
+                    throw e;
+                }
+                long waitMs = retryBackoffMs * (1L << (attempt - 1)); // 1s, 2s, 4s
+                log.warn("Vision 호출을 재시도합니다. attempt={}/{}, waitMs={}, reason={}",
+                        attempt, MAX_ATTEMPTS, waitMs, e.getMessage());
+                sleep(waitMs);
+            }
+        }
+    }
+
+    private boolean isRetryable(AiApiException e) {
+        if (e.getCause() instanceof HttpStatusCodeException statusError) {
+            // 429는 분당 한도, 5xx는 OpenAI 쪽 일시 장애. 4xx 나머지(잘못된 스키마, 인증 실패 등)는
+            // 다시 불러도 같은 결과라 재시도하면 안 된다.
+            return statusError.getStatusCode().value() == 429 || statusError.getStatusCode().is5xxServerError();
+        }
+        // 연결 실패나 타임아웃도 일시적일 수 있다.
+        return e.getCause() instanceof ResourceAccessException;
+    }
+
+    private void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AiApiException("Vision 호출 재시도 대기 중 중단되었습니다.", e);
+        }
     }
 
     private Map<String, Object> buildRequestBody(VisionChatRequest request) {

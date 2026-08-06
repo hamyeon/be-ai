@@ -65,17 +65,26 @@ class VisionPromptHarnessTest {
 
                 visionClient.reset();
                 List<VisionHarnessScorer.CaseScore> caseScores = new ArrayList<>();
+                int caseCount = fixtures.cases().size();
 
-                for (VisionHarnessCase harnessCase : fixtures.cases()) {
+                System.out.printf("[하네스] agent=%s image=%s - %d건 시작%n", agent, variant, caseCount);
+
+                for (int i = 0; i < caseCount; i++) {
+                    VisionHarnessCase harnessCase = fixtures.cases().get(i);
                     List<String> imageUrls = variant.apply(harnessCase.imageBaseUrls());
                     long startedAt = System.currentTimeMillis();
                     try {
                         VisionAnalysisResult result = service.analyze(new VisionAnalysisRequest(imageUrls));
                         caseScores.add(VisionHarnessScorer.score(harnessCase, result, elapsedSince(startedAt)));
+                        // 케이스마다 수십 초씩 걸려서, 진행 표시가 없으면 멈춘 것처럼 보인다.
+                        System.out.printf("  [%d/%d] %s - %dms%n",
+                                i + 1, caseCount, harnessCase.id(), elapsedSince(startedAt));
                     } catch (RuntimeException e) {
                         // 한 건이 실패해도 나머지는 계속 재야 비교 가능한 표가 나온다.
                         caseScores.add(VisionHarnessScorer.CaseScore.failed(
                                 harnessCase.id(), elapsedSince(startedAt), e.getMessage()));
+                        System.out.printf("  [%d/%d] %s - 실패: %s%n",
+                                i + 1, caseCount, harnessCase.id(), e.getMessage());
                     }
                 }
 
