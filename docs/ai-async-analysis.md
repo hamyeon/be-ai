@@ -70,16 +70,33 @@ Vision 분석 결과를 확인하려면 응답으로 받은 `analysisId`로 `GET
   "brand": "Nike",
   "modelName": "Dunk Low",
   "color": "Panda",
-  "size": 270,
+  "size": null,
+  "boxIncluded": true,
   "conditionDescription": "...",
   "conditionGrade": "B",
+  "defects": [
+    {"type": "crease", "location": "toe_box", "severity": "moderate", "description": "앞코에 주름이 있습니다."}
+  ],
+  "candidates": [],
+  "confidence": 0.6,
+  "needsUserConfirmation": true,
+  "warnings": ["사이즈 표기를 읽어낸 근거가 없어 값을 비웠습니다. 라벨이나 밑창 사진을 추가해 주세요."],
   "failureStage": null,
   "failureMessage": null
 }
 ```
 
 `status`가 `QUEUED`/`VISION_PROCESSING`이면 `brand` 등은 전부 `null`이고, `*_FAILED` 상태면
-`failureStage`/`failureMessage`가 채워진다.
+`failureStage`/`failureMessage`가 채워진다. 리스트 필드(`defects`/`candidates`/`warnings`)는
+분석 전에도 `null`이 아니라 빈 배열로 나간다.
+
+`warnings`와 `needsUserConfirmation`이 실려 나가는 이유는 #21의 근거 검증 때문이다. Vision이 근거
+없이 채운 값은 저장 전에 제거되는데(`VisionEvidenceValidator`), 그러면 프론트 입장에서는 그냥 `null`로만
+보인다. 위 예시처럼 `size`가 비었을 때 **왜 비었고 사용자에게 뭘 요청해야 하는지**는 `warnings`에만
+들어 있다. 자세한 내용은 `docs/vision-agent.md` 참고.
+
+판단 근거(`evidence`)는 일부러 응답에 넣지 않았다. 항목마다 한국어 문장이 붙어 응답이 커지는데 폴링으로
+반복 호출되는 API이고, 사용자에게 보여줄 정보도 아니다. 필요하면 `vision_result_json`에 그대로 있다.
 
 ## Redis Streams 설정
 
