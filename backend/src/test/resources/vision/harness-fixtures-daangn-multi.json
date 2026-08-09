@@ -1,0 +1,322 @@
+{
+  "version": "2026-08-06",
+  "description": "당근마켓 매물 중 이미지가 여러 장인 것만 모은 평가 셋. 크롤러는 검색 결과 페이지만 읽어 대표 이미지 1장만 갖고 있지만, 파일명이 {해시}_0.webp 형태라 _1, _2...를 404가 날 때까지 찔러보면 상세 페이지를 열지 않고도 나머지 사진을 알아낼 수 있다. 원본 해상도 + 여러 장이라는 조합은 이 셋에서만 만들 수 있어, detail low/high 비교의 유일한 근거가 된다. (daangn 셋은 1장이라 라벨이 안 보이고, fruitsfamily 셋은 620px 고정이라 해상도를 못 바꾼다) 사이즈가 범위로 적힌 매물과 브랜드 추정이 틀린 매물은 제외했다.",
+  "supportsImageVariants": true,
+  "cases": [
+    {
+      "id": "adidas-dimension-low-275",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202603/082d183ba576824ffddecaecc7fa60fed8bb479bbb5152cf4c14ca142c3950b4_0.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202603/082d183ba576824ffddecaecc7fa60fed8bb479bbb5152cf4c14ca142c3950b4_1.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202603/082d183ba576824ffddecaecc7fa60fed8bb479bbb5152cf4c14ca142c3950b4_2.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202603/082d183ba576824ffddecaecc7fa60fed8bb479bbb5152cf4c14ca142c3950b4_3.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202603/082d183ba576824ffddecaecc7fa60fed8bb479bbb5152cf4c14ca142c3950b4_4.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202603/082d183ba576824ffddecaecc7fa60fed8bb479bbb5152cf4c14ca142c3950b4_5.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EC%95%84%EB%94%94%EB%8B%A4%EC%8A%A4-%EB%94%94%EB%A9%98%EC%85%98-%EB%A1%9C%EC%9A%B0-%ED%81%B4%EB%9D%BC%EC%9A%B0%EB%93%9C-%ED%99%94%EC%9D%B4%ED%8A%B8-%EB%82%A8%EC%84%B1%EC%8A%A4%EB%8B%88%EC%BB%A4%EC%A6%88-275-4fjp25ug4m9j/",
+      "expected": {
+        "brand": [
+          "Adidas"
+        ],
+        "modelKeywords": [
+          "dimension"
+        ],
+        "size": 275,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "판매글: 라벨사이즈 275 / 상태 양호"
+    },
+    {
+      "id": "adidas-golf-adipower-230",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202601/00e7e73856c71af92b91c0d1d6e68e37f3b732cbd65df9defc5d22e7b9f434c0_0.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202601/00e7e73856c71af92b91c0d1d6e68e37f3b732cbd65df9defc5d22e7b9f434c0_1.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202601/00e7e73856c71af92b91c0d1d6e68e37f3b732cbd65df9defc5d22e7b9f434c0_2.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202601/00e7e73856c71af92b91c0d1d6e68e37f3b732cbd65df9defc5d22e7b9f434c0_3.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EC%95%84%EB%94%94%EB%8B%A4%EC%8A%A4%EA%B3%A8%ED%94%84-%EC%95%84%EB%94%94%ED%8C%8C%EC%9B%8C-%ED%8F%AC%EC%A7%80%EB%93%9C-%EB%B3%B4%EC%95%84-%EB%B6%80%EC%8A%A4%ED%8A%B8-%EC%97%AC%EC%84%B1%EA%B3%A8%ED%94%84%ED%99%94-230-1itngwweb2yk/",
+      "expected": {
+        "brand": [
+          "Adidas"
+        ],
+        "modelKeywords": null,
+        "size": 230,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "판매글: 라벨사이즈 230 / 상태 양호"
+    },
+    {
+      "id": "adidas-nmd-r1v2-275",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202606/d795a2423dbfc4cbebc4e8bba7eadd5082b0d86ebc9580a88c36d03baa309c73_0.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/d795a2423dbfc4cbebc4e8bba7eadd5082b0d86ebc9580a88c36d03baa309c73_1.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/d795a2423dbfc4cbebc4e8bba7eadd5082b0d86ebc9580a88c36d03baa309c73_2.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/d795a2423dbfc4cbebc4e8bba7eadd5082b0d86ebc9580a88c36d03baa309c73_3.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/d795a2423dbfc4cbebc4e8bba7eadd5082b0d86ebc9580a88c36d03baa309c73_4.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EC%95%84%EB%94%94%EB%8B%A4%EC%8A%A4-nmd-r1-v2-%EB%82%A8%EC%84%B1%EC%8A%A4%EB%8B%88%EC%BB%A4%EC%A6%88-275-7jtzjkh7h4tg/",
+      "expected": {
+        "brand": [
+          "Adidas"
+        ],
+        "modelKeywords": [
+          "nmd"
+        ],
+        "size": 275,
+        "boxIncluded": null,
+        "conditionGrade": "C"
+      },
+      "groundTruthSource": "판매글: 라벨사이즈 275 / 사용감 많음"
+    },
+    {
+      "id": "asics-metarun-255-multi",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202606/f5c30e975ab9f5fbf77c25f3f381d7dccb01311fd16376ed28fca30b64d2b9f4_0.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/f5c30e975ab9f5fbf77c25f3f381d7dccb01311fd16376ed28fca30b64d2b9f4_1.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/f5c30e975ab9f5fbf77c25f3f381d7dccb01311fd16376ed28fca30b64d2b9f4_2.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/f5c30e975ab9f5fbf77c25f3f381d7dccb01311fd16376ed28fca30b64d2b9f4_3.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/f5c30e975ab9f5fbf77c25f3f381d7dccb01311fd16376ed28fca30b64d2b9f4_4.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/f5c30e975ab9f5fbf77c25f3f381d7dccb01311fd16376ed28fca30b64d2b9f4_5.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EC%95%84%EC%8B%9D%EC%8A%A4-%EB%A9%94%ED%83%80%EB%9F%B0-%EB%82%A8%EC%84%B1%EB%9F%AC%EB%8B%9D%ED%99%94-255-27bmmi3dqp5b/",
+      "expected": {
+        "brand": [
+          "Asics"
+        ],
+        "modelKeywords": [
+          "metarun"
+        ],
+        "size": 255,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "판매글: 라벨사이즈 255 / 상태 양호"
+    },
+    {
+      "id": "jordan-black-230",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202602/5510e2147e7ce953deb94a0aface010bb20fe4dbf1f22a395746b4632a953cef_0.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202602/5510e2147e7ce953deb94a0aface010bb20fe4dbf1f22a395746b4632a953cef_1.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202602/5510e2147e7ce953deb94a0aface010bb20fe4dbf1f22a395746b4632a953cef_2.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202602/5510e2147e7ce953deb94a0aface010bb20fe4dbf1f22a395746b4632a953cef_3.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202602/5510e2147e7ce953deb94a0aface010bb20fe4dbf1f22a395746b4632a953cef_4.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202602/5510e2147e7ce953deb94a0aface010bb20fe4dbf1f22a395746b4632a953cef_5.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EC%A1%B0%EB%8D%98-%EB%B8%94%EB%9E%99-%EC%9A%B4%EB%8F%99%ED%99%94-230mm-qwpucw3kioe5/",
+      "expected": {
+        "brand": [
+          "Nike",
+          "Jordan"
+        ],
+        "modelKeywords": null,
+        "size": 230,
+        "boxIncluded": null,
+        "conditionGrade": "B"
+      },
+      "groundTruthSource": "판매글: 사이즈 230mm / 밑창 사용감"
+    },
+    {
+      "id": "newbalance-530-230-multi",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202601/6759a8d3985b0d3df93d06a9b9408867cb77c7f61eb29209f3d456953f61fa67_0.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202601/6759a8d3985b0d3df93d06a9b9408867cb77c7f61eb29209f3d456953f61fa67_1.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202601/6759a8d3985b0d3df93d06a9b9408867cb77c7f61eb29209f3d456953f61fa67_2.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EB%89%B4%EB%B0%9C%EB%9E%80%EC%8A%A4-530%EB%AA%A8%EB%8D%B8-%EC%9A%B4%EB%8F%99%ED%99%94-230mm-hgd8f1o59eb9/",
+      "expected": {
+        "brand": [
+          "New Balance"
+        ],
+        "modelKeywords": [
+          "530"
+        ],
+        "size": 230,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "판매글: 사이즈 230mm / 상태 양호"
+    },
+    {
+      "id": "newbalance-1906d-230",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202511/f848210584e14a6f064cc1de22581d5d1ca008a3d93dc812004f35fe192a14de_0.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202511/f848210584e14a6f064cc1de22581d5d1ca008a3d93dc812004f35fe192a14de_1.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202511/f848210584e14a6f064cc1de22581d5d1ca008a3d93dc812004f35fe192a14de_2.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EC%83%88%EC%8B%A0%EB%B0%9C-%EB%89%B4%EB%B0%9C%EB%9E%80%EC%8A%A4-1906d-%ED%9A%8C%EC%83%89-%EC%9A%B4%EB%8F%99%ED%99%94-230mm-fk992entc69h/",
+      "expected": {
+        "brand": [
+          "New Balance"
+        ],
+        "modelKeywords": [
+          "1906"
+        ],
+        "size": 230,
+        "boxIncluded": null,
+        "conditionGrade": "DS"
+      },
+      "groundTruthSource": "판매글: 사이즈 230mm / 새 제품"
+    },
+    {
+      "id": "newbalance-574-275",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202504/cbdd16652a7b14b6f740c5fd07cc2704853588c48415618fced920c13c8e9422_0.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202504/cbdd16652a7b14b6f740c5fd07cc2704853588c48415618fced920c13c8e9422_1.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202504/cbdd16652a7b14b6f740c5fd07cc2704853588c48415618fced920c13c8e9422_2.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202504/cbdd16652a7b14b6f740c5fd07cc2704853588c48415618fced920c13c8e9422_3.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EC%B5%9C%EC%A2%85%EA%B0%80%EA%B2%A9-%EB%89%B4%EB%B0%9C%EB%9E%80%EC%8A%A4-574-%ED%8F%AC%ED%84%B0%EB%A6%AC-%EA%B7%B8%EB%A0%88%EC%9D%B4-275-pav1fyphduo9/",
+      "expected": {
+        "brand": [
+          "New Balance"
+        ],
+        "modelKeywords": [
+          "574"
+        ],
+        "size": 275,
+        "boxIncluded": null,
+        "conditionGrade": "DS"
+      },
+      "groundTruthSource": "판매글: 사이즈 275 / 10분 실내착용, 택·박스 보관"
+    },
+    {
+      "id": "nike-cortez-240",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202607/d410aeecbfd50addb71054de1e8b64a0230ccbae98d61368d0ed6added2c3ecd_0.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202607/d410aeecbfd50addb71054de1e8b64a0230ccbae98d61368d0ed6added2c3ecd_1.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202607/d410aeecbfd50addb71054de1e8b64a0230ccbae98d61368d0ed6added2c3ecd_2.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EB%82%98%EC%9D%B4%ED%82%A4-%ED%81%B4%EB%9E%98%EC%8B%9D-%EC%BD%94%EB%A5%B4%ED%85%8C%EC%A6%88-%EC%97%AC%EC%84%B1-%EC%8A%A4%EB%8B%88%EC%BB%A4%EC%A6%88-230-ccbub797gog4/",
+      "expected": {
+        "brand": [
+          "Nike"
+        ],
+        "modelKeywords": [
+          "cortez"
+        ],
+        "size": 240,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "판매글: 라벨사이즈 240 / 상태 양호"
+    },
+    {
+      "id": "nike-huarache-220",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202607/7f64038ece2d7b7b3e4d55e0f75c7f5b1a1e9a3927ed05e1865b1c3e5c86efd6_0.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202607/7f64038ece2d7b7b3e4d55e0f75c7f5b1a1e9a3927ed05e1865b1c3e5c86efd6_1.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202607/7f64038ece2d7b7b3e4d55e0f75c7f5b1a1e9a3927ed05e1865b1c3e5c86efd6_2.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EB%82%98%EC%9D%B4%ED%82%A4-%EC%97%90%EC%96%B4-%ED%97%88%EB%9D%BC%EC%B9%98-%EC%9B%90-%EB%A7%88%EC%9D%BC-%EC%86%8C%EC%85%9C-%ED%81%B4%EB%9F%BD-%EC%97%AC%EC%84%B1%EC%8A%A4%EB%8B%88%EC%BB%A4%EC%A6%88-220-qj7vzjkkzk1d/",
+      "expected": {
+        "brand": [
+          "Nike"
+        ],
+        "modelKeywords": [
+          "huarache"
+        ],
+        "size": 220,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "판매글: 라벨사이즈 220 / 상태 좋음"
+    },
+    {
+      "id": "nike-daybreak-sp-280",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202607/5d23b83a49416a149db8795521dc43c83c3844fc1e8c13016519602ff3aaf5f1_0.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202607/5d23b83a49416a149db8795521dc43c83c3844fc1e8c13016519602ff3aaf5f1_1.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202607/5d23b83a49416a149db8795521dc43c83c3844fc1e8c13016519602ff3aaf5f1_2.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202607/5d23b83a49416a149db8795521dc43c83c3844fc1e8c13016519602ff3aaf5f1_3.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202607/5d23b83a49416a149db8795521dc43c83c3844fc1e8c13016519602ff3aaf5f1_4.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202607/5d23b83a49416a149db8795521dc43c83c3844fc1e8c13016519602ff3aaf5f1_5.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EB%82%98%EC%9D%B4%ED%82%A4-%EB%8D%B0%EC%9D%B4%EB%B8%8C%EB%A0%88%EC%9D%B4%ED%81%AC-sp-%EB%B2%A0%EA%B0%80%EC%8A%A4-%EA%B3%A8%EB%93%9C-%EB%82%A8%EC%84%B1%EC%8A%A4%EB%8B%88%EC%BB%A4%EC%A6%88-280-72zrrm5wf13q/",
+      "expected": {
+        "brand": [
+          "Nike"
+        ],
+        "modelKeywords": [
+          "daybreak"
+        ],
+        "size": 280,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "판매글: 라벨사이즈 280 / 상태 양호"
+    },
+    {
+      "id": "underarmour-curry12-225",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202606/44245eb9c15c382ee6c7b276f52bab0350139a476a22baeb9611e4a2eca95b48_0.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/44245eb9c15c382ee6c7b276f52bab0350139a476a22baeb9611e4a2eca95b48_1.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/44245eb9c15c382ee6c7b276f52bab0350139a476a22baeb9611e4a2eca95b48_2.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/44245eb9c15c382ee6c7b276f52bab0350139a476a22baeb9611e4a2eca95b48_3.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/44245eb9c15c382ee6c7b276f52bab0350139a476a22baeb9611e4a2eca95b48_4.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/44245eb9c15c382ee6c7b276f52bab0350139a476a22baeb9611e4a2eca95b48_5.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EC%96%B8%EB%8D%94%EC%95%84%EB%A8%B8-%ED%82%A4%EC%A6%88-%EC%BB%A4%EB%A6%AC12-%EC%97%91%EC%8A%A4%ED%8A%B8%EB%9D%BC%EB%A0%88%EC%8A%A4%ED%8B%B0%EB%A6%AC%EC%96%BC-%EB%B0%94%EC%8A%A4%EC%BC%93%EB%B3%BC-%EC%8A%A4%EB%8B%88%EC%BB%A4%EC%A6%88-225-3gnf8p7m14nf/",
+      "expected": {
+        "brand": [
+          "Under Armour"
+        ],
+        "modelKeywords": [
+          "curry"
+        ],
+        "size": 225,
+        "boxIncluded": null,
+        "conditionGrade": "C"
+      },
+      "groundTruthSource": "판매글: 라벨사이즈 225 / 사용감 많음"
+    },
+    {
+      "id": "vans-classic-slipon-285-multi",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202606/1c0f8d1eed35638924764a05256f9079480f8389ebdee81aef43847169fe690f_0.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/1c0f8d1eed35638924764a05256f9079480f8389ebdee81aef43847169fe690f_1.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/1c0f8d1eed35638924764a05256f9079480f8389ebdee81aef43847169fe690f_2.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/1c0f8d1eed35638924764a05256f9079480f8389ebdee81aef43847169fe690f_3.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/1c0f8d1eed35638924764a05256f9079480f8389ebdee81aef43847169fe690f_4.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202606/1c0f8d1eed35638924764a05256f9079480f8389ebdee81aef43847169fe690f_5.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EB%B0%98%EC%8A%A4-%ED%81%B4%EB%9E%98%EC%8B%9D-%EC%8A%AC%EB%A6%BD%EC%98%A8-%EB%B8%94%EB%9E%99-%EB%82%A8%EC%84%B1%EC%8A%A4%EB%8B%88%EC%BB%A4%EC%A6%88-285-mk2ghph3ni74/",
+      "expected": {
+        "brand": [
+          "Vans"
+        ],
+        "modelKeywords": [
+          "slipon"
+        ],
+        "size": 285,
+        "boxIncluded": null,
+        "conditionGrade": "C"
+      },
+      "groundTruthSource": "판매글: 라벨사이즈 285 / 사용감 많음"
+    },
+    {
+      "id": "vans-checkerboard-225",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202604/82c0c06c7d04932e945237ec3758b65716aea73f3774b3f9a3321735b6c23de5_0.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202604/82c0c06c7d04932e945237ec3758b65716aea73f3774b3f9a3321735b6c23de5_1.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202604/82c0c06c7d04932e945237ec3758b65716aea73f3774b3f9a3321735b6c23de5_2.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202604/82c0c06c7d04932e945237ec3758b65716aea73f3774b3f9a3321735b6c23de5_3.webp",
+        "https://img.kr.gcp-karroter.net/origin/article/202604/82c0c06c7d04932e945237ec3758b65716aea73f3774b3f9a3321735b6c23de5_4.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EB%B0%98%EC%8A%A4-%EC%B2%B4%EC%BB%A4%EB%B3%B4%EB%93%9C-%EC%8A%A4%EB%8B%88%EC%BB%A4%EC%A6%88-jyg4cqdb42en/",
+      "expected": {
+        "brand": [
+          "Vans"
+        ],
+        "modelKeywords": [
+          "checker"
+        ],
+        "size": 225,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "판매글: 사이즈 225 / 1회 착용"
+    }
+  ]
+}

@@ -11,12 +11,16 @@ import java.util.List;
 
 // src/test/resources/vision/harness-fixtures-{set}.json을 읽어오는 로더.
 //
-// 평가 셋이 두 개인 이유는 각각 잴 수 있는 게 다르기 때문이다.
-//   daangn        매물당 이미지 1장. 해상도 A/B는 되지만 사이즈 라벨이 찍힌 사진이 없다.
-//   fruitsfamily  매물당 여러 장 + 사이즈가 구조화 필드. 사이즈 판독을 잴 수 있는 유일한 셋.
+// 평가 셋이 여러 개인 이유는 각각 잴 수 있는 게 다르기 때문이다.
+//   daangn        매물당 이미지 1장, 원본 해상도. 최초 기준선을 잰 셋이다.
+//   fruitsfamily  매물당 여러 장 + 사이즈가 구조화 필드. 사이즈 판독을 처음 측정한 셋.
+//                 다만 URL이 620px 고정이라 해상도를 못 바꾼다.
+//   daangn-multi  원본 해상도 + 여러 장. 이 조합은 여기서만 만들 수 있어
+//                 detail low/high 비교의 유일한 근거가 된다.
 public final class VisionHarnessFixtures {
 
     public static final String DAANGN = "daangn";
+    public static final String DAANGN_MULTI = "daangn-multi";
     public static final String FRUITSFAMILY = "fruitsfamily";
 
     private VisionHarnessFixtures() {

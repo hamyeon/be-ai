@@ -11,7 +11,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class VisionHarnessFixturesTest {
 
     @ParameterizedTest
-    @ValueSource(strings = {VisionHarnessFixtures.DAANGN, VisionHarnessFixtures.FRUITSFAMILY})
+    @ValueSource(strings = {
+            VisionHarnessFixtures.DAANGN, VisionHarnessFixtures.DAANGN_MULTI, VisionHarnessFixtures.FRUITSFAMILY})
     void 픽스처가_로딩되고_케이스마다_이미지와_정답이_있다(String setName) {
         VisionHarnessFixtures.Document document = VisionHarnessFixtures.load(setName);
 
@@ -26,7 +27,8 @@ class VisionHarnessFixturesTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {VisionHarnessFixtures.DAANGN, VisionHarnessFixtures.FRUITSFAMILY})
+    @ValueSource(strings = {
+            VisionHarnessFixtures.DAANGN, VisionHarnessFixtures.DAANGN_MULTI, VisionHarnessFixtures.FRUITSFAMILY})
     void 케이스_id는_중복되지_않는다(String setName) {
         List<String> ids = VisionHarnessFixtures.load(setName).cases().stream().map(VisionHarnessCase::id).toList();
 
@@ -41,6 +43,19 @@ class VisionHarnessFixturesTest {
         // 쿼리가 붙어 있으면 해상도 변형 비교가 무의미해진다.
         assertThat(document.cases()).allSatisfy(harnessCase ->
                 assertThat(harnessCase.imageBaseUrls()).allSatisfy(url -> assertThat(url).doesNotContain("?")));
+    }
+
+    @Test
+    void 당근_다중_셋만_원본_해상도와_여러_장을_동시에_만족한다() {
+        // detail low/high 비교는 이 조건에서만 의미가 있다.
+        // daangn은 1장이라 라벨이 안 보이고, fruitsfamily는 620px 고정이라 해상도를 못 바꾼다.
+        VisionHarnessFixtures.Document document = VisionHarnessFixtures.load(VisionHarnessFixtures.DAANGN_MULTI);
+
+        assertThat(document.allowsImageVariants()).isTrue();
+        assertThat(document.cases()).allSatisfy(harnessCase -> {
+            assertThat(harnessCase.imageBaseUrls()).hasSizeGreaterThan(1);
+            assertThat(harnessCase.imageBaseUrls()).allSatisfy(url -> assertThat(url).doesNotContain("?"));
+        });
     }
 
     @Test
