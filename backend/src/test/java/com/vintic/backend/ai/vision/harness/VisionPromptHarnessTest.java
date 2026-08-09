@@ -30,12 +30,15 @@ import java.util.function.Function;
  * 통과/실패를 가르는 게 목적이 아니라 비교 가능한 수치를 남기는 게 목적이다.
  * 프롬프트나 호출 옵션을 바꿀 때마다 돌려서 build/vision-harness/에 쌓이는 리포트를 비교한다.
  *
- * 실행:
+ * 실행 (PowerShell에서는 -D 인자를 따옴표로 감싸야 한다):
  *   ./gradlew test --tests '*VisionPromptHarnessTest' -Dvision.harness=true \
- *     -Dvision.harness.agents=V1,V2 -Dvision.harness.variants=ORIGIN,THUMBNAIL_300
+ *     -Dvision.harness.fixtures=fruitsfamily -Dvision.harness.agents=V1,V2
  *
- * agents  V1 = 한 번에 다 묻는 기존 방식, V2 = 3단계로 나눈 방식 (기본값: 둘 다)
+ * fixtures daangn = 이미지 1장, 해상도 A/B 가능 / fruitsfamily = 여러 장, 사이즈 판독 측정 가능
+ *          (기본값: daangn)
+ * agents   V1 = 한 번에 다 묻는 기존 방식, V2 = 3단계로 나눈 방식 (기본값: 둘 다)
  * variants ORIGIN = 원본 해상도, THUMBNAIL_300 = 크롤러가 저장한 300x300 (기본값: ORIGIN)
+ *          daangn 셋에서만 의미가 있다
  *
  * 키가 있는 것만으로는 실행되지 않고 -Dvision.harness=true를 줘야 돈다.
  * 평가 셋 한 바퀴가 유료 호출 수십 번이라, 평범한 ./gradlew test에 딸려 들어가면 안 된다.
@@ -44,6 +47,7 @@ import java.util.function.Function;
 @EnabledIfSystemProperty(named = "vision.harness", matches = "true")
 class VisionPromptHarnessTest {
 
+    private static final String FIXTURES_PROPERTY = "vision.harness.fixtures";
     private static final String AGENTS_PROPERTY = "vision.harness.agents";
     private static final String VARIANTS_PROPERTY = "vision.harness.variants";
     private static final Path REPORT_DIRECTORY = Path.of("build", "vision-harness");
@@ -54,14 +58,14 @@ class VisionPromptHarnessTest {
 
     @Test
     void 픽스처_전체를_돌려_필드별_정확도와_비용을_측정한다() throws IOException {
-        VisionHarnessFixtures.Document fixtures = VisionHarnessFixtures.load();
+        String fixtureSet = System.getProperty(FIXTURES_PROPERTY, VisionHarnessFixtures.DAANGN);
+        VisionHarnessFixtures.Document fixtures = VisionHarnessFixtures.load(fixtureSet);
         TokenCountingVisionClient visionClient = createVisionClient();
 
         for (Agent agent : selected(AGENTS_PROPERTY, Agent::valueOf, List.of(Agent.V1, Agent.V2))) {
             VisionAnalysisService service = createService(agent, visionClient);
 
-            for (VisionHarnessImageVariant variant : selected(
-                    VARIANTS_PROPERTY, VisionHarnessImageVariant::valueOf, List.of(VisionHarnessImageVariant.ORIGIN))) {
+            for (VisionHarnessImageVariant variant : variantsFor(fixtures)) {
 
                 visionClient.reset();
                 List<VisionHarnessScorer.CaseScore> caseScores = new ArrayList<>();
@@ -88,12 +92,27 @@ class VisionPromptHarnessTest {
                     }
                 }
 
-                String label = "agent=%s, image=%s".formatted(agent, variant);
+                String label = "set=%s, agent=%s, image=%s".formatted(fixtureSet, agent, variant);
                 VisionHarnessReport report = VisionHarnessReport.aggregate(label, caseScores, visionClient.usage());
                 System.out.println(report.toText());
-                writeReport(agent, variant, report);
+                writeReport(fixtureSet, agent, variant, report);
             }
         }
+    }
+
+    // 해상도를 바꿔 붙일 수 없는 셋에 변형을 요청하면, 같은 이미지를 두 번 재고 다른 결과인 것처럼
+    // 표가 두 장 나온다. 조용히 그러지 않도록 걸러내고 무엇을 건너뛰었는지 알린다.
+    private List<VisionHarnessImageVariant> variantsFor(VisionHarnessFixtures.Document fixtures) {
+        List<VisionHarnessImageVariant> requested = selected(
+                VARIANTS_PROPERTY, VisionHarnessImageVariant::valueOf, List.of(VisionHarnessImageVariant.ORIGIN));
+
+        if (fixtures.allowsImageVariants()) {
+            return requested;
+        }
+        if (requested.size() > 1 || !requested.contains(VisionHarnessImageVariant.ORIGIN)) {
+            System.out.println("[하네스] 이 평가 셋은 해상도 변형을 지원하지 않아 ORIGIN만 실행합니다. 요청됨: " + requested);
+        }
+        return List.of(VisionHarnessImageVariant.ORIGIN);
     }
 
     private <T> List<T> selected(String property, Function<String, T> parser, List<T> defaultValue) {
@@ -130,11 +149,11 @@ class VisionPromptHarnessTest {
         return System.currentTimeMillis() - startedAt;
     }
 
-    private void writeReport(Agent agent, VisionHarnessImageVariant variant, VisionHarnessReport report)
-            throws IOException {
+    private void writeReport(String fixtureSet, Agent agent, VisionHarnessImageVariant variant,
+                             VisionHarnessReport report) throws IOException {
         Files.createDirectories(REPORT_DIRECTORY);
         Path reportPath = REPORT_DIRECTORY.resolve(
-                "%s-%s.txt".formatted(agent.name().toLowerCase(), variant.name().toLowerCase()));
+                "%s-%s-%s.txt".formatted(fixtureSet, agent.name().toLowerCase(), variant.name().toLowerCase()));
         Files.writeString(reportPath, report.toText(), StandardCharsets.UTF_8);
         System.out.println("리포트 저장: " + reportPath.toAbsolutePath());
     }

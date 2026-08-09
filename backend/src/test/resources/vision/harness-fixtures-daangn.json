@@ -1,6 +1,7 @@
 {
   "version": "2026-08-06",
-  "description": "당근마켓 크롤링 매물에서 뽑은 Vision 하네스 평가 셋. 정답은 판매자가 본문에 적어둔 값(사이즈/박스/상태)을 기준으로 라벨링했다. brand는 허용 가능한 표기를 배열로 두고 하나라도 맞으면 정답으로 본다. conditionGrade/boxIncluded가 null인 케이스는 정답이 없어 채점에서 제외된다.",
+  "description": "당근마켓 크롤링 매물에서 뽑은 Vision 하네스 평가 셋. 정답은 판매자가 본문에 적어둔 값(사이즈/박스/상태)을 기준으로 라벨링했다. brand는 허용 가능한 표기를 배열로 두고 하나라도 맞으면 정답으로 본다. conditionGrade/boxIncluded가 null인 케이스는 정답이 없어 채점에서 제외된다. 매물당 이미지가 1장뿐이라 사이즈 라벨이 찍힌 사진이 없다 - 사이즈 판독 측정에는 harness-fixtures-fruitsfamily.json을 쓴다.",
+  "supportsImageVariants": true,
   "cases": [
     {
       "id": "nike-jordan1-low-240",

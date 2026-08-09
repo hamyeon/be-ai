@@ -1,6 +1,8 @@
 package com.vintic.backend.ai.vision.harness;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
 
@@ -8,9 +10,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class VisionHarnessFixturesTest {
 
-    @Test
-    void 픽스처가_로딩되고_케이스마다_이미지와_정답이_있다() {
-        VisionHarnessFixtures.Document document = VisionHarnessFixtures.load();
+    @ParameterizedTest
+    @ValueSource(strings = {VisionHarnessFixtures.DAANGN, VisionHarnessFixtures.FRUITSFAMILY})
+    void 픽스처가_로딩되고_케이스마다_이미지와_정답이_있다(String setName) {
+        VisionHarnessFixtures.Document document = VisionHarnessFixtures.load(setName);
 
         assertThat(document.cases()).isNotEmpty();
         assertThat(document.cases()).allSatisfy(harnessCase -> {
@@ -18,16 +21,38 @@ class VisionHarnessFixturesTest {
             assertThat(harnessCase.imageBaseUrls()).isNotEmpty();
             assertThat(harnessCase.expected().brand()).isNotEmpty();
             assertThat(harnessCase.expected().size()).isNotNull();
-            // 원본 URL만 담아야 한다. 쿼리가 붙어 있으면 해상도 변형 비교가 무의미해진다.
-            assertThat(harnessCase.imageBaseUrls()).allSatisfy(url -> assertThat(url).doesNotContain("?"));
+            assertThat(harnessCase.groundTruthSource()).isNotBlank();
         });
     }
 
-    @Test
-    void 케이스_id는_중복되지_않는다() {
-        List<String> ids = VisionHarnessFixtures.load().cases().stream().map(VisionHarnessCase::id).toList();
+    @ParameterizedTest
+    @ValueSource(strings = {VisionHarnessFixtures.DAANGN, VisionHarnessFixtures.FRUITSFAMILY})
+    void 케이스_id는_중복되지_않는다(String setName) {
+        List<String> ids = VisionHarnessFixtures.load(setName).cases().stream().map(VisionHarnessCase::id).toList();
 
         assertThat(ids).doesNotHaveDuplicates();
+    }
+
+    @Test
+    void 당근_셋은_원본_URL만_담아_해상도_변형이_가능하다() {
+        VisionHarnessFixtures.Document document = VisionHarnessFixtures.load(VisionHarnessFixtures.DAANGN);
+
+        assertThat(document.allowsImageVariants()).isTrue();
+        // 쿼리가 붙어 있으면 해상도 변형 비교가 무의미해진다.
+        assertThat(document.cases()).allSatisfy(harnessCase ->
+                assertThat(harnessCase.imageBaseUrls()).allSatisfy(url -> assertThat(url).doesNotContain("?")));
+    }
+
+    @Test
+    void 후르츠패밀리_셋은_이미지가_여러_장이고_해상도_변형을_지원하지_않는다() {
+        VisionHarnessFixtures.Document document = VisionHarnessFixtures.load(VisionHarnessFixtures.FRUITSFAMILY);
+
+        // 사이즈 라벨이 찍힌 사진이 섞여 있어야 사이즈 판독을 측정할 수 있다.
+        // 이미지가 한 장뿐이면 당근 셋과 다를 게 없다.
+        assertThat(document.cases()).allSatisfy(harnessCase ->
+                assertThat(harnessCase.imageBaseUrls()).hasSizeGreaterThan(1));
+        // URL 경로에 리사이즈 규격이 박혀 있고 다른 규격은 403이라 변형이 불가능하다.
+        assertThat(document.allowsImageVariants()).isFalse();
     }
 
     @Test

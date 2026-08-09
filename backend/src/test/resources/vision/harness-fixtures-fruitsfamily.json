@@ -1,0 +1,417 @@
+{
+  "version": "2026-08-06",
+  "description": "후르츠패밀리 수집 데이터로 만든 Vision 하네스 평가 셋. 당근 셋과 달리 상품당 이미지가 여러 장이고 사이즈가 사이트의 구조화 필드로 와서, 사이즈 판독 성능을 실제로 측정할 수 있는 유일한 셋이다. 이미지는 상품당 10장 중 앞 2장(전체 형태) + 뒤 4장(디테일)만 골라 담았다 - 10장을 다 보내면 케이스 하나가 분당 토큰 한도의 절반을 먹는다. 사이즈 표기가 애매한 매물(EU 사이즈만 적힘, size 필드와 본문 불일치)은 제외했다.",
+  "supportsImageVariants": false,
+  "cases": [
+    {
+      "id": "asics-hadashifine-235",
+      "imageBaseUrls": [
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/_zQ09eVbPk-1784980880441-27auagvxm.png",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/vH-BK9nRJQ-1784980880414-u1feao7dp.png",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/SgHvX1_Cr6-1784980880436-9kyd32g8l.png",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/P91EsxXGdP-1784980880437-2f7w61r6d.png",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/xQDjkPQiLB-1784980880439-hqo6tpk8n.png",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/TpvBQS41e2-1784980880442-45zlb823y.png"
+      ],
+      "sourceItemUrl": "https://fruitsfamily.com/product/647e7/asics-hadashifine745-w",
+      "expected": {
+        "brand": [
+          "Asics"
+        ],
+        "modelKeywords": null,
+        "size": 235,
+        "boxIncluded": null,
+        "conditionGrade": null
+      },
+      "groundTruthSource": "사이트 size 필드 235"
+    },
+    {
+      "id": "asics-gel-kayano14-260",
+      "imageBaseUrls": [
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/z81_S_Vj4-5bbf1bcb2ff1.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/pGR0Wsh9SJ-d7a27703b2ea.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/LiRERCbGM8-fd6b3c5238ee.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/bOb26eUHzv-d0c1f968da8f.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/XnaLvhzS1k-8a5e6e823cb1.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/FRrtr6Hzi9-982098665d55.jpg"
+      ],
+      "sourceItemUrl": "https://fruitsfamily.com/product/670u9/%EC%95%84%EC%8B%9D%EC%8A%A4-%EC%96%B8%EC%96%B4%ED%8E%99%ED%8B%B0%EB%93%9C-%EC%A0%A4%EC%B9%B4%EC%95%BC%EB%85%B814-%EC%8B%A4%EB%B2%84%EB%AC%B8",
+      "expected": {
+        "brand": [
+          "Asics"
+        ],
+        "modelKeywords": [
+          "kayano"
+        ],
+        "size": 260,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "사이트 size 260 / 7회 착용, 상태 괜찮음"
+    },
+    {
+      "id": "adidas-yeezy-foam-275",
+      "imageBaseUrls": [
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/esucFnKfr-95722b3769d3.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/iaJb9PGhbS-68e955278997.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/sCrHTjzE6a-0df21c72c611.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/FfmoaetwpX-53cbdb3e9417.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/Q0p4G7Dl1T-ce94eb5da861.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/8n5M8egSIi-ffd854393239.jpg"
+      ],
+      "sourceItemUrl": "https://fruitsfamily.com/product/67877/%EC%95%84%EB%94%94%EB%8B%A4%EC%8A%A4-%EC%9D%B4%EC%A7%80-%ED%8F%BC-%EB%9F%AC%EB%84%88-275size",
+      "expected": {
+        "brand": [
+          "Adidas",
+          "Yeezy"
+        ],
+        "modelKeywords": [
+          "foam",
+          "runner"
+        ],
+        "size": 275,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "사이트 size 275 / 3회 착용, 하자 없음"
+    },
+    {
+      "id": "adidas-y3-adios-pro-275",
+      "imageBaseUrls": [
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/axaKqlc_6-5711d3e1900b.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/HDma4yztLP-d113d0b48812.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/v58CUwO-F0-d2258e80f5aa.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/pt18oiZtn_-0aac519041fc.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/p_flLtGUMY-93008c420c1c.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/pryhrc9yu7-acc23ff6b7c8.jpg"
+      ],
+      "sourceItemUrl": "https://fruitsfamily.com/product/66kcc/y-3-%EC%95%84%EB%94%94%EC%98%A4%EC%8A%A4-%ED%94%84%EB%A1%9C-3-0-%EC%BD%94%EC%96%B4-%EB%B8%94%EB%9E%99-%EC%98%A4%ED%94%84-%ED%99%94%EC%9D%B4%ED%8A%B8",
+      "expected": {
+        "brand": [
+          "Adidas",
+          "Y-3"
+        ],
+        "modelKeywords": [
+          "adios"
+        ],
+        "size": 275,
+        "boxIncluded": null,
+        "conditionGrade": null
+      },
+      "groundTruthSource": "사이트 size 275 / 35km 주행"
+    },
+    {
+      "id": "crocs-levis-clog-290",
+      "imageBaseUrls": [
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/1JY6rHj_X-fb878e14e6c4.png",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/ExdIjBM1Br-0a8eb6a47260.png",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/LWBZaG8LkX-bad5680fc2a5.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/TU6L_WQNXh-1b19874071d1.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/YIo-DULkG_-82bf51b166c2.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/HRkNFwS47n-398d4e01529c.jpg"
+      ],
+      "sourceItemUrl": "https://fruitsfamily.com/product/5nvmr/290-%EC%83%88%EC%A0%9C%ED%92%88-%ED%81%AC%EB%A1%9D%EC%8A%A4-x-%EB%A6%AC%EB%B0%94%EC%9D%B4%EC%8A%A4-%EC%98%AC-%ED%84%B0%EB%A0%88%EC%9D%B8-%ED%81%B4%EB%A1%9C%EA%B7%B8-%EC%8A%AC%EB%A6%AC%ED%8D%BC-%EB%AE%AC-%EB%82%A8%EC%9E%90",
+      "expected": {
+        "brand": [
+          "Crocs"
+        ],
+        "modelKeywords": [
+          "terrain"
+        ],
+        "size": 290,
+        "boxIncluded": null,
+        "conditionGrade": "DS"
+      },
+      "groundTruthSource": "사이트 size 290 / 미시착 새제품"
+    },
+    {
+      "id": "drmartens-1460-240",
+      "imageBaseUrls": [
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/hDldhl6dI-2ab64b39174b.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/l0qvYTQTpo-778045996112.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/5vf_KhUC3-91eb81980984.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/j8pL7PcycZ-a7929c849662.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/zB7HiMbTLk-1ee9319123b9.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/a1u2YkLATK-5f2d347004d9.jpg"
+      ],
+      "sourceItemUrl": "https://fruitsfamily.com/product/641m7/%EB%8B%A5%ED%84%B0%EB%A7%88%ED%8B%B4-1460-%EC%98%A4%EB%A0%8C%EC%A7%80-%EC%8A%A4%EB%AC%B4%EC%8A%A4-%EB%B6%80%EC%B8%A0-%EC%82%AC%EC%9D%B4%EC%A6%88-240-uk5",
+      "expected": {
+        "brand": [
+          "Dr. Martens",
+          "Doc Martens"
+        ],
+        "modelKeywords": [
+          "1460"
+        ],
+        "size": 240,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "사이트 size 240 / 거의 새것"
+    },
+    {
+      "id": "drmartens-1461-inferno-270",
+      "imageBaseUrls": [
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/BnBGSFW3A-396ef61c5c45.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/UNWRt-47_h-e631ae8d4d34.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/Zb4udM8bUd-fcaa765597cb.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/a20d_ZqkGH-602c4bdb32b3.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/-a6IqMZQGR-55f77ad9ca60.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/89u3ilWh5G-59b7840bd67d.jpg"
+      ],
+      "sourceItemUrl": "https://fruitsfamily.com/product/66uj5/%ED%9D%AC%EA%B7%80%EB%AA%A8%EB%8D%B8-%EB%8B%A5%ED%84%B0%EB%A7%88%ED%8B%B4-1461-%EC%9D%B8%ED%8E%98%EB%A5%B4%EB%85%B8-270",
+      "expected": {
+        "brand": [
+          "Dr. Martens",
+          "Doc Martens"
+        ],
+        "modelKeywords": [
+          "1461"
+        ],
+        "size": 270,
+        "boxIncluded": true,
+        "conditionGrade": "DS"
+      },
+      "groundTruthSource": "사이트 size 270 / 새상품, 풀박스"
+    },
+    {
+      "id": "hunter-original-short-235",
+      "imageBaseUrls": [
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/2rlBOp26c_-B523ACA9-17A3-454A-AB76-E46BD020552D.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/N9fbr08DjIp-F620AAAA-7691-4B2C-ABB5-32A02C81E8B3.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/gKpcHj77N9z-1D38FBDA-F8DB-4216-821C-B05ACBF91B72.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/USOFswYf3G-B71B6CA3-546B-44E4-AC74-AD6B39193F50.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/-LSMMzQxBWP-DFAEA765-7A8D-4014-BD68-1A28B5EA1B0E.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/D0w-5m8w2j-FB558452-4746-48EA-82E9-F638863858E6.jpg"
+      ],
+      "sourceItemUrl": "https://fruitsfamily.com/product/3zh6q/%ED%97%8C%ED%84%B0-%ED%95%91%ED%81%AC-%EB%B6%80%EC%B8%A0-%EB%AF%B8%EB%94%94%EB%B6%80%EC%B8%A0-%EB%AF%B8%EB%93%A4%EB%B6%80%EC%B8%A0-%EB%A0%88%EC%9D%B8%EB%B6%80%EC%B8%A0-%EC%98%A4%EB%A6%AC%EC%A7%80%EB%82%A0-%EC%88%8F",
+      "expected": {
+        "brand": [
+          "Hunter"
+        ],
+        "modelKeywords": [
+          "short"
+        ],
+        "size": 235,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "사이트 size 235 / 몇 번 안 신고 보관"
+    },
+    {
+      "id": "newbalance-530-235",
+      "imageBaseUrls": [
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/SnI0pt9Jw-1775198163411.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/G_QZ_iiyU0-1775198163450.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/J6zf4pljGp-1775198163595.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/l6LsUOXQc4-1775198163625.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/JHcJ6HUj9q-1775198163656.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/5UbuAtFZgH-1775198163675.jpg"
+      ],
+      "sourceItemUrl": "https://fruitsfamily.com/product/532ob/235-%EB%89%B4%EB%B0%9C%EB%9E%80%EC%8A%A4-%EC%A3%BC%EB%8B%88%EC%96%B4-530-%EC%8A%A4%ED%8B%B8-%EA%B7%B8%EB%A0%88%EC%9D%B4-%EB%8C%80%EC%A0%84-%EC%A7%81%EA%B1%B0%EB%9E%98%EB%8F%84-%EA%B0%80%EB%8A%A5",
+      "expected": {
+        "brand": [
+          "New Balance"
+        ],
+        "modelKeywords": [
+          "530"
+        ],
+        "size": 235,
+        "boxIncluded": null,
+        "conditionGrade": null
+      },
+      "groundTruthSource": "사이트 size 235"
+    },
+    {
+      "id": "newbalance-530-255",
+      "imageBaseUrls": [
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/RvHFl79jQP-1770095646064.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/1-Es7PnxFf-1770095646140.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/L5tk6oaGX-1770095646276.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/dqyUQ-MQbn-1770095646295.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/bSvQio63y0-1770095646323.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/YaHAIqT-w2-1770095646347.jpg"
+      ],
+      "sourceItemUrl": "https://fruitsfamily.com/product/4k0ct/255-%EB%89%B4%EB%B0%9C%EB%9E%80%EC%8A%A4-530-%ED%99%94%EC%9D%B4%ED%8A%B8-%EC%8B%A4%EB%B2%84-%EB%8C%80%EC%A0%84-%EC%A7%81%EA%B1%B0%EB%9E%98%EB%8F%84-%EA%B0%80%EB%8A%A5",
+      "expected": {
+        "brand": [
+          "New Balance"
+        ],
+        "modelKeywords": [
+          "530"
+        ],
+        "size": 255,
+        "boxIncluded": null,
+        "conditionGrade": null
+      },
+      "groundTruthSource": "사이트 size 255"
+    },
+    {
+      "id": "nike-sacai-ldwaffle-290",
+      "imageBaseUrls": [
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/1FARzlubq-84d61ae947e9.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/OhXebnadmx-476fe76dcaf2.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/s7hVGOqbPP-edb2ee5b7583.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/1FwFQca6Ib-f9862f419c31.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/2eQjx-iRfa-3380d75f9c7d.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/NcBl6hnVjw-c34d8126a4dc.jpg"
+      ],
+      "sourceItemUrl": "https://fruitsfamily.com/product/6772r/%EB%82%98%EC%9D%B4%ED%82%A4-x-%ED%94%84%EB%9D%BC%EA%B7%B8%EB%A8%BC%ED%8A%B8-x-%EC%82%AC%EC%B9%B4%EC%9D%B4-ld%EC%99%80%ED%94%8C-%EB%B8%94%EB%9E%99%ED%81%B0%EB%93%9C-%EB%B8%94%EB%A3%A8",
+      "expected": {
+        "brand": [
+          "Nike",
+          "Sacai"
+        ],
+        "modelKeywords": [
+          "waffle"
+        ],
+        "size": 290,
+        "boxIncluded": null,
+        "conditionGrade": null
+      },
+      "groundTruthSource": "사이트 size 290 / 상태 8·10"
+    },
+    {
+      "id": "nike-undefeated-am97-230",
+      "imageBaseUrls": [
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/Tdegm1Xlrz-8224be3569a6.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/89GgrbLkj-674a6e69eb71.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/ECqPOMnUft-4aea90e3974e.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/RmYojXgMkz-dd6a9efb48c4.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/gZRvLrhW2c-f752dd7dd812.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/YeeTtOZ6xh-a38b40a0f9a2.jpg"
+      ],
+      "sourceItemUrl": "https://fruitsfamily.com/product/5nyvr/%EB%82%98%EC%9D%B4%ED%82%A4-x-%EC%96%B8%EB%94%94%ED%95%8F-%EC%97%90%EC%96%B4%EB%A7%A5%EC%8A%A4-97-%EB%B8%94%EB%9E%99-230",
+      "expected": {
+        "brand": [
+          "Nike"
+        ],
+        "modelKeywords": [
+          "airmax",
+          "97"
+        ],
+        "size": 230,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "사이트 size 230 / 오염 하자 없음, 사용감 약간"
+    },
+    {
+      "id": "oofos-clog-255",
+      "imageBaseUrls": [
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/U7W7-GXuA-f0994f724cd2.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/ex_L1JHWPt-48a49302a8a1.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/HJJ_9oHcsx-3ee7dfcfc0b2.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/Zy01lllMi1-7ec54911d83f.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/YZzvSnZO0G-2dfff079211b.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/3uWRTG-vjT-56c616e9868a.jpg"
+      ],
+      "sourceItemUrl": "https://fruitsfamily.com/product/5tfp7/%EC%9A%B0%ED%8F%AC%EC%8A%A4-%EC%86%94%EB%A1%9C%EC%9D%B4%EC%8A%A4%ED%8A%B8-%ED%81%B4%EB%A1%9C%EA%B7%B8-%EB%AF%B8%EC%B9%9C-%EA%B0%80%EA%B2%A9%EC%97%90-%ED%8C%90%EB%A7%A4%ED%95%A9%EB%8B%88%EB%8B%A4",
+      "expected": {
+        "brand": [
+          "OOFOS"
+        ],
+        "modelKeywords": null,
+        "size": 255,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "사이트 size 255 / 2회 실내착용"
+    },
+    {
+      "id": "puma-osu-250",
+      "imageBaseUrls": [
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/sGcTkj0aca-1784541394040-wb7ytonbn.png",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/0C0BCWXUig-1784541394057-lpihymd5l.png",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/v9uTmfwhGR-1784541394067-a988hz9uw.png",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/OHof6lbECQ-1784541394068-0leznujag.png",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/_yJx-EQIt5-1784541394070-dfj8vrwqn.png",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/jLJ1oy8LRW-1784541394072-vvuny5q7r.png"
+      ],
+      "sourceItemUrl": "https://fruitsfamily.com/product/62fdf/puma-osu",
+      "expected": {
+        "brand": [
+          "Puma"
+        ],
+        "modelKeywords": null,
+        "size": 250,
+        "boxIncluded": null,
+        "conditionGrade": "B"
+      },
+      "groundTruthSource": "사이트 size 250 / 판매자 표기 Condition B"
+    },
+    {
+      "id": "puma-mihara-my60-230",
+      "imageBaseUrls": [
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/LGKkiiDAT-c6da29ed4581.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/461TdHR-Lv-7a1496801353.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/PEbjWtrh2J-0c2dc2603c33.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/VYDaYTxuM3-d8c834ffe534.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/TsgnEzEEKn-d65907761fbd.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/8qaEuS4k_T-b853753dc0f3.jpg"
+      ],
+      "sourceItemUrl": "https://fruitsfamily.com/product/5sdnw/puma-x-mihara-yasuhiro-my-60",
+      "expected": {
+        "brand": [
+          "Puma",
+          "Maison Mihara Yasuhiro"
+        ],
+        "modelKeywords": [
+          "mihara"
+        ],
+        "size": 230,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "사이트 size 230 / 판매자 표기 Condition A"
+    },
+    {
+      "id": "salomon-margiela-mule-275",
+      "imageBaseUrls": [
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/PCRN9m9Vu-ebb74d30dd98.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/ImqCzivtwH-822b9788acce.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/Mzq_jW1nAa-88c4b722d14c.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/wWKhpI86KP-0350985ee6bd.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/rD7qipEqL7-d4eac42d831b.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/ofs9xygojh-d2345cef119a.jpg"
+      ],
+      "sourceItemUrl": "https://fruitsfamily.com/product/66mw5/%EC%82%B4%EB%A1%9C%EB%AA%AC-%EB%A7%88%EB%A5%B4%EC%A7%80%EC%97%98%EB%9D%BC-%EB%AE%AC275",
+      "expected": {
+        "brand": [
+          "Salomon",
+          "MM6",
+          "Maison Margiela"
+        ],
+        "modelKeywords": null,
+        "size": 275,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "사이트 size 275 / 3회 착용"
+    },
+    {
+      "id": "salomon-acs-250",
+      "imageBaseUrls": [
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/UphhTXy7Pf-495a355145d9.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/swP3qYoOD-3313fc5d2fed.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/psxBhf6M7n-1ec0a802d079.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/jBHaAv5pji-c99452222241.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/rGQp9k6EM0-f07b474b7172.jpg",
+        "https://image.production.fruitsfamily.com/public/product/resized%40width620/8PdpQMfZv--16a31a7be3b6.jpg"
+      ],
+      "sourceItemUrl": "https://fruitsfamily.com/product/5t63p/%EC%82%B4%EB%A1%9C%EB%AA%AC-acs-%ED%99%94%EC%9D%B4%ED%8A%B8-%EC%8B%A4%EB%B2%84-%ED%8A%B8%EB%A0%88%EC%9D%BC-%EB%9F%AC%EB%8B%9D%ED%99%94-250%EC%82%AC%EC%9D%B4%EC%A6%88",
+      "expected": {
+        "brand": [
+          "Salomon"
+        ],
+        "modelKeywords": [
+          "acs"
+        ],
+        "size": 250,
+        "boxIncluded": null,
+        "conditionGrade": null
+      },
+      "groundTruthSource": "사이트 size 250"
+    }
+  ]
+}
