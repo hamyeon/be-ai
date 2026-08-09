@@ -1,0 +1,351 @@
+{
+  "version": "2026-08-06",
+  "description": "당근마켓 크롤링 매물에서 뽑은 Vision 하네스 평가 셋. 정답은 판매자가 본문에 적어둔 값(사이즈/박스/상태)을 기준으로 라벨링했다. brand는 허용 가능한 표기를 배열로 두고 하나라도 맞으면 정답으로 본다. conditionGrade/boxIncluded가 null인 케이스는 정답이 없어 채점에서 제외된다. 매물당 이미지가 1장뿐이라 사이즈 라벨이 찍힌 사진이 없다 - 사이즈 판독 측정에는 harness-fixtures-fruitsfamily.json을 쓴다.",
+  "supportsImageVariants": true,
+  "cases": [
+    {
+      "id": "nike-jordan1-low-240",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202607/1783629796816071fad46e53a2819dd76632517e34cb08ea4d923d3cc1b632010981736517dc60.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EB%82%98%EC%9D%B4%ED%82%A4-%EC%A1%B0%EB%8D%98-%EB%A1%9C%EC%9A%B0-%EC%9A%B8%ED%94%84%EA%B7%B8%EB%A0%88%EC%9D%B4-240-9b3pruu9pf8w/",
+      "expected": {
+        "brand": [
+          "Nike",
+          "Jordan"
+        ],
+        "modelKeywords": [
+          "jordan"
+        ],
+        "size": 240,
+        "boxIncluded": null,
+        "conditionGrade": null
+      },
+      "groundTruthSource": "판매글: 조던 1 로우 울프그레이 / 사이즈 240 (US 7)"
+    },
+    {
+      "id": "nike-airmax-furyosa-245",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202607/ddc5f5d2f0761e67bf101e6be72be3cf5a58828d84555485cf04cbd15861beb4_0.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EB%82%98%EC%9D%B4%ED%82%A4-%EC%97%90%EC%96%B4%EB%A7%A5%EC%8A%A4-%ED%93%A8%EB%A6%AC%EC%98%A4%EC%82%AC-%EC%97%AC%EC%84%B1%EC%8A%A4%EB%8B%88%EC%BB%A4%EC%A6%88-245-1nj5u7mojgqf/",
+      "expected": {
+        "brand": [
+          "Nike"
+        ],
+        "modelKeywords": [
+          "airmax"
+        ],
+        "size": 245,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "판매글: 라벨사이즈 245 / 상태 양호"
+    },
+    {
+      "id": "adidas-run-falcon5-280",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202607/d5414acf2b2b8401ced121903009b0ed65e300f4fcfea13626d68e502525c5b7_0.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EC%95%84%EB%94%94%EB%8B%A4%EC%8A%A4-%EB%9F%B0-%ED%8C%94%EC%BD%98-5-%EB%82%A8%EC%84%B1%EB%9F%AC%EB%8B%9D%ED%99%94-280-k764v79zgxo9/",
+      "expected": {
+        "brand": [
+          "Adidas"
+        ],
+        "modelKeywords": [
+          "falcon"
+        ],
+        "size": 280,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "판매글: 라벨사이즈 280 / 상태 좋음"
+    },
+    {
+      "id": "adidas-bermuda-240",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202601/17680518218292e8e581f57a5c025076aa5defffd934d4d5aaa4f036dfccb1f35b4638fe78fcc0.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EC%95%84%EB%94%94%EB%8B%A4%EC%8A%A4-%EB%B2%84%EB%AE%A4%EB%8B%A4-%EB%AF%BC%ED%8A%B8-%EC%8A%A4%EC%9B%A8%EC%9D%B4%EB%93%9C-240-bqfduqvfqw7e/",
+      "expected": {
+        "brand": [
+          "Adidas"
+        ],
+        "modelKeywords": [
+          "bermuda"
+        ],
+        "size": 240,
+        "boxIncluded": null,
+        "conditionGrade": "B"
+      },
+      "groundTruthSource": "판매글: 사이즈 240mm / 뒷부분 사용감 조금"
+    },
+    {
+      "id": "newbalance-550-225",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202509/1756994062568776fc87225bfb3020a7fb7fd1a1769a34eef5135796b73921151ac82c551b1dd0.jpg"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EB%89%B4%EB%B0%9C%EB%9E%80%EC%8A%A4-550-%ED%99%94%EC%9D%B4%ED%8A%B8-%EC%8A%A4%EB%8B%88%EC%BB%A4%EC%A6%88-jsw8hsmek1o9/",
+      "expected": {
+        "brand": [
+          "New Balance"
+        ],
+        "modelKeywords": [
+          "550"
+        ],
+        "size": 225,
+        "boxIncluded": null,
+        "conditionGrade": "DS"
+      },
+      "groundTruthSource": "판매글: 사이즈 225mm (37 EU) / 신지 않음"
+    },
+    {
+      "id": "newbalance-2002rc-225",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202603/177354316972561e40c35780c466239bdc709fe905e0d4b8ac7e2f170b6357eb3afb8ec141c0d0.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EB%89%B4%EB%B0%9C%EB%9E%80%EC%8A%A4-2002rc-%EC%9A%B4%EB%8F%99%ED%99%94-225-gn6358vtm4m9/",
+      "expected": {
+        "brand": [
+          "New Balance"
+        ],
+        "modelKeywords": [
+          "2002"
+        ],
+        "size": 225,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "판매글: 사이즈 225 / 5번 미만 착용"
+    },
+    {
+      "id": "newbalance-1906-245",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202602/17699376664934ce0b39ae15e880650908a2385797ae49172a2de6cc810356072f9a0b5df5cda0.jpg"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EB%89%B4%EB%B0%9C1906%EC%9A%B4%EB%8F%99%ED%99%94245-pwwz5iyd9es2/",
+      "expected": {
+        "brand": [
+          "New Balance"
+        ],
+        "modelKeywords": [
+          "1906"
+        ],
+        "size": 245,
+        "boxIncluded": null,
+        "conditionGrade": "DS"
+      },
+      "groundTruthSource": "판매글: 사이즈 245 / 신지 않은 새 운동화"
+    },
+    {
+      "id": "drmartens-1461-290",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202606/1781536054776a1c07b345e059f765dfc620cba9d4c9c9d28585853fea0c4d568fe76e8f823720.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EB%8B%A5%ED%84%B0%EB%A7%88%ED%8B%B4-1461-%ED%81%AC%EB%A0%88%EC%9D%B4%EC%A7%80-%ED%98%B8%EC%8A%A4-290-jhqnrz4i3ygg/",
+      "expected": {
+        "brand": [
+          "Dr. Martens"
+        ],
+        "modelKeywords": [
+          "1461"
+        ],
+        "size": 290,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "판매글: 사이즈 290 / 실착 1회"
+    },
+    {
+      "id": "drmartens-1461-3hole-260",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202508/1754236265373f78e2eecd4963a1e9f6d62f9a988588b19460eefb4ca862aeb4ed81e53a362ec0.jpg"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EB%8B%A5%ED%84%B0%EB%A7%88%ED%8B%B4-1461-3%ED%99%80-%EB%B8%8C%EB%9D%BC%EC%9A%B4-260-u2p9htgeqzyw/",
+      "expected": {
+        "brand": [
+          "Dr. Martens"
+        ],
+        "modelKeywords": [
+          "1461"
+        ],
+        "size": 260,
+        "boxIncluded": false,
+        "conditionGrade": "B"
+      },
+      "groundTruthSource": "판매글: 사이즈 260 / 실착 4회 / 박스 없음"
+    },
+    {
+      "id": "drmartens-1460-bex-270",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202504/1745673750234c4639bcba2d65f85217bba3dea4ecfc09407d30f620457dc28abc2dbc15555320.jpg"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EB%8B%A5%ED%84%B0%EB%A7%88%ED%8B%B4-1460-%EB%B2%A1%EC%8A%A4-%EB%B8%94%EB%9E%99-%EB%B6%80%EC%B8%A0-270-%EC%83%88%EC%A0%9C%ED%92%88-4qyg2tuuvr4f/",
+      "expected": {
+        "brand": [
+          "Dr. Martens"
+        ],
+        "modelKeywords": [
+          "1460"
+        ],
+        "size": 270,
+        "boxIncluded": true,
+        "conditionGrade": "DS"
+      },
+      "groundTruthSource": "판매글: 사이즈 270 (UK8) / 새제품 / 박스 포함"
+    },
+    {
+      "id": "vans-classic-slipon-285",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202606/1c0f8d1eed35638924764a05256f9079480f8389ebdee81aef43847169fe690f_0.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EB%B0%98%EC%8A%A4-%ED%81%B4%EB%9E%98%EC%8B%9D-%EC%8A%AC%EB%A6%BD%EC%98%A8-%EB%B8%94%EB%9E%99-%EB%82%A8%EC%84%B1%EC%8A%A4%EB%8B%88%EC%BB%A4%EC%A6%88-285-mk2ghph3ni74/",
+      "expected": {
+        "brand": [
+          "Vans"
+        ],
+        "modelKeywords": [
+          "slipon"
+        ],
+        "size": 285,
+        "boxIncluded": null,
+        "conditionGrade": "C"
+      },
+      "groundTruthSource": "판매글: 라벨사이즈 285 / 사용감 많음"
+    },
+    {
+      "id": "asics-metarun-255",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202606/f5c30e975ab9f5fbf77c25f3f381d7dccb01311fd16376ed28fca30b64d2b9f4_0.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EC%95%84%EC%8B%9D%EC%8A%A4-%EB%A9%94%ED%83%80%EB%9F%B0-%EB%82%A8%EC%84%B1%EB%9F%AC%EB%8B%9D%ED%99%94-255-27bmmi3dqp5b/",
+      "expected": {
+        "brand": [
+          "Asics"
+        ],
+        "modelKeywords": [
+          "metarun"
+        ],
+        "size": 255,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "판매글: 라벨사이즈 255 / 상태 양호"
+    },
+    {
+      "id": "asics-gel-sonoma-270",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202511/1762495898537fd65ec6fd7ab14533818fac65d8651c70c1e92d4735bc1cb49e03f36be4e2aba0.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EC%95%84%EC%8B%9D%EC%8A%A4-%EC%A0%A4%EC%86%8C%EB%85%B8%EB%A7%88-%EA%B3%A0%EC%96%B4%ED%85%8D%EC%8A%A4-%ED%9A%8C%EC%83%89-270mm-9ckm498i2z21/",
+      "expected": {
+        "brand": [
+          "Asics"
+        ],
+        "modelKeywords": [
+          "sonoma"
+        ],
+        "size": 270,
+        "boxIncluded": null,
+        "conditionGrade": null
+      },
+      "groundTruthSource": "판매글: 사이즈 270mm"
+    },
+    {
+      "id": "puma-future7-pro-265",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202504/17434915374302eda910b9f398fd09c6a4e9e7b76f1853179b9700e6614e315fbfc3850428c650.jpg"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%ED%91%B8%EB%A7%88-%ED%93%A8%EC%B2%98-7-%ED%94%84%EB%A1%9C-%EC%BC%80%EC%9D%B4%EC%A7%80-qogu6n1q4tjv/",
+      "expected": {
+        "brand": [
+          "Puma"
+        ],
+        "modelKeywords": [
+          "future"
+        ],
+        "size": 265,
+        "boxIncluded": true,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "판매글: 사이즈 265 / 1회 착용 / 박스 포함"
+    },
+    {
+      "id": "onitsuka-gsm-240",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202605/1778825633454eab0e38a6ac91b6a5c08b1ef6523a72de481baa05fffde891eca87fb7cfc73dc0.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EC%98%A4%EB%8B%88%EC%B8%A0%EC%B9%B4-%ED%83%80%EC%9D%B4%EA%B1%B0-gsm-%EC%8A%A4%EB%8B%88%EC%BB%A4%EC%A6%88-tkiq75qer7w2/",
+      "expected": {
+        "brand": [
+          "Onitsuka Tiger"
+        ],
+        "modelKeywords": [
+          "gsm"
+        ],
+        "size": 240,
+        "boxIncluded": null,
+        "conditionGrade": null
+      },
+      "groundTruthSource": "판매글: 모델명 GSM (1183A353-101) / 사이즈 240mm"
+    },
+    {
+      "id": "onitsuka-taichi-230",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202511/661a23d068a80b3a79547346b8111d14fe3e51f3f1809bca75bdb1db31885487_0.webp"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EC%98%A4%EB%8B%88%EC%B8%A0%EC%B9%B4-%ED%83%80%EC%9D%B4%EA%B1%B0-%EC%9D%BC%EB%B3%B8%EC%A0%95%ED%92%88-%ED%83%80%EC%9D%B4%EC%B9%98-%EC%97%AC%EC%84%B1%EC%8A%A4%EB%8B%88%EC%BB%A4%EC%A6%88-230-xqy7gb24mfoc/",
+      "expected": {
+        "brand": [
+          "Onitsuka Tiger"
+        ],
+        "modelKeywords": [
+          "taichi"
+        ],
+        "size": 230,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "판매글: 라벨사이즈 230 / 상태 양호"
+    },
+    {
+      "id": "hoka-hopara2-230",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202509/17572464395285ab5df0f44930936fe1b3472ceadadee8114af648ad2ae2e1a07572b9e4d87c30.jpg"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EC%83%88%EC%A0%9C%ED%92%88-%ED%98%B8%EC%B9%B4-%ED%98%B8%ED%8C%8C%EB%9D%BC-2-%EC%83%8C%EB%93%A4-230mm-tuje3a9n5mb5/",
+      "expected": {
+        "brand": [
+          "Hoka"
+        ],
+        "modelKeywords": [
+          "hopara"
+        ],
+        "size": 230,
+        "boxIncluded": true,
+        "conditionGrade": "DS"
+      },
+      "groundTruthSource": "판매글: 사이즈 230mm / 새제품 / 박스 포함"
+    },
+    {
+      "id": "converse-chuck70-high-240",
+      "imageBaseUrls": [
+        "https://img.kr.gcp-karroter.net/origin/article/202410/9a72fbd75d368c382a1ea237facb8d991e0e66239d348565d8dc7ff2b8ae432e.jpg"
+      ],
+      "sourceItemUrl": "https://www.daangn.com/kr/buy-sell/%EC%BB%A8%EB%B2%84%EC%8A%A4-%EC%B2%99-70-%ED%95%98%EC%9D%B4-%EC%9A%B4%EB%8F%99%ED%99%94-%EB%B8%8C%EB%9D%BC%EC%9A%B4-240-thjwxpa17tck/",
+      "expected": {
+        "brand": [
+          "Converse"
+        ],
+        "modelKeywords": [
+          "chuck",
+          "70"
+        ],
+        "size": 240,
+        "boxIncluded": null,
+        "conditionGrade": "A"
+      },
+      "groundTruthSource": "판매글: 사이즈 240 / 1회 착용, 상태 아주 양호"
+    }
+  ]
+}

@@ -89,7 +89,7 @@ class AnalysisTaskConsumerTest {
 
         VisionAnalysisResult result = new VisionAnalysisResult(
                 "Nike", "Dunk Low", "Panda", 270, "설명", ConditionGrade.B,
-                true, 0.9, false, List.of(), List.of()
+                true, 0.9, false, List.of(), List.of(), List.of(), List.of()
         );
         when(visionAnalysisService.analyze(new VisionAnalysisRequest(imageUrls))).thenReturn(result);
 
@@ -180,7 +180,7 @@ class AnalysisTaskConsumerTest {
 
         VisionAnalysisResult result = new VisionAnalysisResult(
                 "Nike", "Dunk Low", "Panda", 270, "설명", ConditionGrade.B,
-                true, 0.9, false, List.of(), List.of()
+                true, 0.9, false, List.of(), List.of(), List.of(), List.of()
         );
         when(visionAnalysisService.analyze(any())).thenReturn(result);
 

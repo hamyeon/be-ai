@@ -26,4 +26,19 @@ class PromptTemplateLoaderTest {
                 .isInstanceOf(PromptTemplateNotFoundException.class)
                 .hasMessageContaining("prompts/vision/product-analysis-system-v99.md");
     }
+
+    @Test
+    void 프롬프트와_같은_이름의_응답_스키마를_읽어온다() {
+        String schema = sut.loadSchema("vision", "label", "v2");
+
+        assertThat(schema).contains("\"sizeLabelText\"");
+        assertThat(schema).contains("\"additionalProperties\": false");
+    }
+
+    @Test
+    void 존재하지_않는_스키마_파일이면_예외를_던진다() {
+        assertThatThrownBy(() -> sut.loadSchema("vision", "label", "v99"))
+                .isInstanceOf(PromptTemplateNotFoundException.class)
+                .hasMessageContaining("prompts/vision/label-v99.schema.json");
+    }
 }

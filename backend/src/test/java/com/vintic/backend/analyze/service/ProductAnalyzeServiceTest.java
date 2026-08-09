@@ -3,6 +3,7 @@ package com.vintic.backend.analyze.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.ai.vision.dto.ConditionGrade;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
+import com.vintic.backend.ai.vision.dto.VisionDefect;
 import com.vintic.backend.analyze.domain.AnalysisFailureStage;
 import com.vintic.backend.analyze.domain.AnalysisStatus;
 import com.vintic.backend.analyze.domain.ProductAnalysisSession;
@@ -174,6 +175,11 @@ class ProductAnalyzeServiceTest {
         assertThat(response.status()).isEqualTo("QUEUED");
         assertThat(response.brand()).isNull();
         assertThat(response.failureStage()).isNull();
+        // 아직 분석 전이어도 리스트 필드는 null이 아니라 빈 배열로 나가야 프론트가 분기를 안 해도 된다
+        assertThat(response.warnings()).isEmpty();
+        assertThat(response.defects()).isEmpty();
+        assertThat(response.candidates()).isEmpty();
+        assertThat(response.needsUserConfirmation()).isNull();
     }
 
     @Test
@@ -185,7 +191,7 @@ class ProductAnalyzeServiceTest {
 
         VisionAnalysisResult visionResult = new VisionAnalysisResult(
                 "Nike", "Air Jordan 1 Retro High OG", "Chicago Lost and Found", 270,
-                "사용감이 거의 없습니다.", ConditionGrade.B, true, 0.82, false, List.of(), List.of()
+                "사용감이 거의 없습니다.", ConditionGrade.B, true, 0.82, false, List.of(), List.of(), List.of(), List.of()
         );
         session.completeVision(objectMapper.writeValueAsString(visionResult));
         when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
@@ -196,6 +202,36 @@ class ProductAnalyzeServiceTest {
         assertThat(response.brand()).isEqualTo("Nike");
         assertThat(response.modelName()).isEqualTo("Air Jordan 1 Retro High OG");
         assertThat(response.conditionGrade()).isEqualTo("B");
+        assertThat(response.boxIncluded()).isTrue();
+        assertThat(response.confidence()).isEqualTo(0.82);
+        assertThat(response.needsUserConfirmation()).isFalse();
+    }
+
+    @Test
+    void 근거가_없어_비워진_필드는_사유와_함께_조회된다() throws Exception {
+        ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
+        session.markQueued();
+        session.startVisionProcessing();
+
+        // 근거 검증기가 사이즈를 비우고 사유를 남긴 상태
+        VisionAnalysisResult visionResult = new VisionAnalysisResult(
+                "Nike", "Air Force 1", "White", null,
+                "앞코 주름이 보입니다.", ConditionGrade.B, null, 0.6, true,
+                List.of("사이즈 표기를 읽어낸 근거가 없어 값을 비웠습니다. 라벨이나 밑창 사진을 추가해 주세요."),
+                List.of(), List.of(new VisionDefect("crease", "toe_box", "moderate", "앞코에 주름이 있습니다.")),
+                List.of()
+        );
+        session.completeVision(objectMapper.writeValueAsString(visionResult));
+        when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
+
+        AnalysisStatusResponse response = newService().getStatus(1L);
+
+        // 사이즈가 왜 비었는지를 프론트가 알 수 있어야 사용자에게 추가 사진을 요청할 수 있다
+        assertThat(response.size()).isNull();
+        assertThat(response.needsUserConfirmation()).isTrue();
+        assertThat(response.warnings()).anyMatch(warning -> warning.contains("라벨이나 밑창 사진"));
+        assertThat(response.defects()).hasSize(1);
     }
 
     @Test

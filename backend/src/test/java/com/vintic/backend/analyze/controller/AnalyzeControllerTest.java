@@ -54,8 +54,14 @@ class AnalyzeControllerTest {
                 "Air Jordan 1 Retro High OG",
                 "Chicago Lost and Found",
                 270,
+                true,
                 "사용감이 거의 없습니다.",
                 "B",
+                List.of(),
+                List.of(),
+                0.82,
+                true,
+                List.of("2단계 size: 사이즈 라벨이 사진에 없습니다."),
                 null,
                 null
         );
@@ -69,6 +75,13 @@ class AnalyzeControllerTest {
                 .andExpect(jsonPath("$.data.brand").value("Nike"))
                 .andExpect(jsonPath("$.data.modelName").value("Air Jordan 1 Retro High OG"))
                 .andExpect(jsonPath("$.data.conditionGrade").value("B"))
+                // 사용자에게 무엇을 확인받아야 하는지가 응답에 실려야 한다
+                .andExpect(jsonPath("$.data.needsUserConfirmation").value(true))
+                .andExpect(jsonPath("$.data.warnings[0]").value("2단계 size: 사이즈 라벨이 사진에 없습니다."))
+                .andExpect(jsonPath("$.data.boxIncluded").value(true))
+                .andExpect(jsonPath("$.data.confidence").value(0.82))
+                // 판단 근거는 폴링 응답에 싣지 않는다
+                .andExpect(jsonPath("$.data.evidence").doesNotExist())
                 .andExpect(jsonPath("$.error").doesNotExist());
     }
 }

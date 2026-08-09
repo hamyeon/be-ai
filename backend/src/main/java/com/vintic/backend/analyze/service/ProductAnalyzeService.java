@@ -27,6 +27,12 @@ public class ProductAnalyzeService {
 
     private static final int FAILURE_MESSAGE_MAX_LENGTH = 1000;
 
+    // Vision 분석 전/실패 상태에서 응답을 채울 때 쓰는 빈 결과
+    private static final VisionAnalysisResult EMPTY_VISION_RESULT = new VisionAnalysisResult(
+            null, null, null, null, null, null, null, null, null,
+            List.of(), List.of(), List.of(), List.of()
+    );
+
     private final S3UploaderService s3Service;
     private final ProductAnalysisSessionRepository sessionRepository;
     private final AnalysisFailureRecorder failureRecorder;
@@ -73,21 +79,36 @@ public class ProductAnalyzeService {
                         "분석 세션을 찾을 수 없습니다. analysisId: " + analysisId
                 ));
 
-        VisionAnalysisResult visionResult = parseVisionResult(session.getVisionResultJson());
+        // 아직 분석 전이거나 결과를 못 읽으면 빈 결과로 대체한다.
+        // 필드마다 null 검사를 반복하는 것보다 읽기 쉽고, 리스트 필드가 null 대신 빈 배열로 나간다.
+        VisionAnalysisResult vision = parseVisionResult(session.getVisionResultJson());
+        if (vision == null) {
+            vision = EMPTY_VISION_RESULT;
+        }
 
         return new AnalysisStatusResponse(
                 session.getId(),
                 session.getStatus().name(),
                 session.getImageUrls(),
-                visionResult != null ? visionResult.brand() : null,
-                visionResult != null ? visionResult.modelName() : null,
-                visionResult != null ? visionResult.color() : null,
-                visionResult != null ? visionResult.size() : null,
-                visionResult != null ? visionResult.conditionDescription() : null,
-                visionResult != null && visionResult.conditionGrade() != null ? visionResult.conditionGrade().name() : null,
+                vision.brand(),
+                vision.modelName(),
+                vision.color(),
+                vision.size(),
+                vision.boxIncluded(),
+                vision.conditionDescription(),
+                vision.conditionGrade() != null ? vision.conditionGrade().name() : null,
+                nullToEmpty(vision.defects()),
+                nullToEmpty(vision.candidates()),
+                vision.confidence(),
+                vision.needsUserConfirmation(),
+                nullToEmpty(vision.warnings()),
                 session.getFailureStage() != null ? session.getFailureStage().name() : null,
                 session.getFailureMessage()
         );
+    }
+
+    private <T> List<T> nullToEmpty(List<T> values) {
+        return values == null ? List.of() : values;
     }
 
     private VisionAnalysisResult parseVisionResult(String visionResultJson) {
