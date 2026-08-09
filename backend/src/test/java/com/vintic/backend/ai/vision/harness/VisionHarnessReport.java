@@ -119,6 +119,9 @@ public record VisionHarnessReport(
                     ? "호출/파싱 실패: " + caseScore.failureMessage()
                     : formatOutcomes(caseScore);
             lines.add("  %-30s %6dms  %s".formatted(caseScore.caseId(), caseScore.latencyMs(), detail));
+            // 틀린 필드는 실제로 뭐라고 답했는지 같이 남긴다. O/X만 있으면 원인을 알 수 없다.
+            caseScore.mismatches().forEach((field, mismatch) ->
+                    lines.add("        └ %-6s %s".formatted(shortName(field), mismatch)));
         }
         lines.add("=".repeat(96));
         return String.join(System.lineSeparator(), lines);

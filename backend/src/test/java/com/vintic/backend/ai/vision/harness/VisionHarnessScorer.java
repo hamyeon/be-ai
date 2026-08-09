@@ -33,14 +33,24 @@ public final class VisionHarnessScorer {
         NOT_LABELED   // 픽스처에 정답이 없어 채점 제외
     }
 
-    public record CaseScore(String caseId, Map<Field, Outcome> outcomes, long latencyMs, String failureMessage) {
+    // mismatches: 틀리거나 근사로 판정된 필드에 대해 "기대=..., 실제=..."를 담는다.
+    //
+    // 결과에 O/X만 남기면 왜 틀렸는지 알 수 없다. 사이즈 정답이 290인데 285를 낸 것(변환 실수)과
+    // 250을 낸 것(엉뚱한 라벨을 읽음)은 고칠 방법이 완전히 다른데, 표에는 둘 다 X로만 보인다.
+    public record CaseScore(
+            String caseId,
+            Map<Field, Outcome> outcomes,
+            Map<Field, String> mismatches,
+            long latencyMs,
+            String failureMessage
+    ) {
 
         public static CaseScore failed(String caseId, long latencyMs, String failureMessage) {
             Map<Field, Outcome> outcomes = new EnumMap<>(Field.class);
             for (Field field : Field.values()) {
                 outcomes.put(field, Outcome.ABSTAINED);
             }
-            return new CaseScore(caseId, outcomes, latencyMs, failureMessage);
+            return new CaseScore(caseId, outcomes, Map.of(), latencyMs, failureMessage);
         }
 
         public boolean isFailure() {
@@ -58,7 +68,30 @@ public final class VisionHarnessScorer {
         outcomes.put(Field.BOX_INCLUDED, scoreEquals(expected.boxIncluded(), result.boxIncluded()));
         outcomes.put(Field.CONDITION_GRADE, scoreConditionGrade(expected.conditionGrade(), result.conditionGrade()));
 
-        return new CaseScore(harnessCase.id(), outcomes, latencyMs, null);
+        Map<Field, String> mismatches = new EnumMap<>(Field.class);
+        recordMismatch(mismatches, outcomes, Field.BRAND, expected.brand(), result.brand());
+        recordMismatch(mismatches, outcomes, Field.MODEL_NAME, expected.modelKeywords(), result.modelName());
+        recordMismatch(mismatches, outcomes, Field.SIZE, expected.size(), result.size());
+        recordMismatch(mismatches, outcomes, Field.BOX_INCLUDED, expected.boxIncluded(), result.boxIncluded());
+        recordMismatch(mismatches, outcomes, Field.CONDITION_GRADE, expected.conditionGrade(), result.conditionGrade());
+
+        return new CaseScore(harnessCase.id(), outcomes, Map.copyOf(mismatches), latencyMs, null);
+    }
+
+    private static void recordMismatch(
+            Map<Field, String> mismatches, Map<Field, Outcome> outcomes, Field field, Object expected, Object actual) {
+        Outcome outcome = outcomes.get(field);
+        if (outcome == Outcome.WRONG || outcome == Outcome.NEAR) {
+            mismatches.put(field, "기대=%s, 실제=%s".formatted(display(expected), display(actual)));
+        }
+    }
+
+    private static String display(Object value) {
+        if (value == null) {
+            return "없음";
+        }
+        String text = value instanceof List<?> list ? list.toString() : value.toString();
+        return text.length() > 60 ? text.substring(0, 60) + "…" : text;
     }
 
     private static Outcome scoreBrand(List<String> expectedBrands, String actualBrand) {

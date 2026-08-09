@@ -20,6 +20,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 // OpenAI Chat Completions API(/v1/chat/completions)를 Vision 용도로 호출하는 클라이언트.
 // 임베딩 클라이언트(OpenAiEmbeddingClient)와 엔드포인트/응답 구조가 달라 분리돼 있다.
@@ -35,7 +37,18 @@ public class OpenAiVisionClient {
 
     // 429(분당 토큰 한도)와 5xx는 잠시 뒤 다시 부르면 대개 성공하는 일시적 오류다.
     // 한 번 실패했다고 분석 전체를 실패로 떨어뜨리면 사용자는 처음부터 다시 올려야 한다.
-    private static final int MAX_ATTEMPTS = 4;
+    private static final int MAX_ATTEMPTS = 5;
+
+    // 서버가 알려준 대기 시간에 얹는 여유. 한도 창이 흐르는 동안 다른 요청이 끼어들 수 있어
+    // 알려준 시간에 딱 맞춰 다시 찌르면 또 걸린다.
+    private static final long RETRY_MARGIN_MS = 500L;
+
+    // 서버가 비정상적으로 긴 대기를 요구해도 여기서 끊는다.
+    private static final long MAX_RETRY_WAIT_MS = 30_000L;
+
+    // 429 응답 본문의 "Please try again in 5.768s" / "... in 442ms"에서 대기 시간을 읽는다.
+    private static final Pattern RETRY_HINT_PATTERN =
+            Pattern.compile("try again in ([0-9.]+)(ms|s)", Pattern.CASE_INSENSITIVE);
 
     @Value("${openai.api.key}")
     private String apiKey;
@@ -65,12 +78,65 @@ public class OpenAiVisionClient {
                 if (attempt >= MAX_ATTEMPTS || !isRetryable(e)) {
                     throw e;
                 }
-                long waitMs = retryBackoffMs * (1L << (attempt - 1)); // 1s, 2s, 4s
+                long waitMs = retryDelayMs(e, attempt);
                 log.warn("Vision 호출을 재시도합니다. attempt={}/{}, waitMs={}, reason={}",
-                        attempt, MAX_ATTEMPTS, waitMs, e.getMessage());
+                        attempt, MAX_ATTEMPTS, waitMs, firstLineOf(e.getMessage()));
                 sleep(waitMs);
             }
         }
+    }
+
+    // 분당 한도에 걸리면 OpenAI가 얼마나 기다려야 하는지 알려준다. 그걸 무시하고 고정 백오프로
+    // 다시 찌르면 아직 창이 안 풀려서 또 걸린다 - 재시도 횟수만 태우고 실패한다.
+    private long retryDelayMs(AiApiException e, int attempt) {
+        long backoffMs = retryBackoffMs * (1L << (attempt - 1)); // 1s, 2s, 4s, 8s
+        Long serverHintMs = serverRequestedWaitMs(e);
+        if (serverHintMs == null) {
+            return backoffMs;
+        }
+        // 서버가 알려준 시간이 백오프보다 짧아도, 백오프보다 덜 기다리지는 않는다.
+        return Math.min(MAX_RETRY_WAIT_MS, Math.max(backoffMs, serverHintMs + RETRY_MARGIN_MS));
+    }
+
+    private Long serverRequestedWaitMs(AiApiException e) {
+        if (!(e.getCause() instanceof HttpStatusCodeException statusError)) {
+            return null;
+        }
+        Long fromHeader = parseDuration(statusError.getResponseHeaders() == null
+                ? null : statusError.getResponseHeaders().getFirst("retry-after-ms"));
+        if (fromHeader != null) {
+            return fromHeader;
+        }
+        Matcher matcher = RETRY_HINT_PATTERN.matcher(statusError.getResponseBodyAsString());
+        if (!matcher.find()) {
+            return null;
+        }
+        double value = Double.parseDouble(matcher.group(1));
+        return Math.round("s".equalsIgnoreCase(matcher.group(2)) ? value * 1000 : value);
+    }
+
+    private Long parseDuration(String rawMillis) {
+        if (rawMillis == null || rawMillis.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(rawMillis.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private String firstLineOf(String message) {
+        return compact(message);
+    }
+
+    // 오류 본문을 한 줄로 눌러 담는다. 429가 반복되면 여러 줄짜리 JSON이 로그를 덮어버린다.
+    private String compact(String body) {
+        if (body == null) {
+            return null;
+        }
+        String oneLine = body.replaceAll("\\s+", " ").trim();
+        return oneLine.length() > 300 ? oneLine.substring(0, 300) + "…" : oneLine;
     }
 
     private boolean isRetryable(AiApiException e) {
@@ -154,13 +220,15 @@ public class OpenAiVisionClient {
             return restTemplate.exchange(URL, HttpMethod.POST, requestEntity, String.class);
         } catch (HttpStatusCodeException e) {
             // 주의: headers/requestEntity는 Authorization(API 키)을 담고 있으므로 절대 로그로 남기지 않는다.
+            // 본문은 한 줄로 줄여서 남긴다 - 429가 반복되면 여러 줄짜리 JSON이 로그를 통째로 덮는다.
             log.error(
                     "OpenAI Vision API가 오류 응답을 반환했습니다. model={}, detail={}, status={}, body={}",
-                    request.model(), request.detail().value(), e.getStatusCode().value(), e.getResponseBodyAsString()
+                    request.model(), request.detail().value(), e.getStatusCode().value(),
+                    compact(e.getResponseBodyAsString())
             );
             throw new AiApiException(
                     "OpenAI Vision API 오류 (status=%d): %s".formatted(
-                            e.getStatusCode().value(), e.getResponseBodyAsString()),
+                            e.getStatusCode().value(), compact(e.getResponseBodyAsString())),
                     e
             );
         } catch (ResourceAccessException e) {

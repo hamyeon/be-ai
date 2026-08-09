@@ -16,6 +16,7 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -72,6 +73,19 @@ class OpenAiVisionClientTest {
                 "{\"error\":{\"code\":\"rate_limit_exceeded\"}}".getBytes(), null);
     }
 
+    private HttpClientErrorException rateLimitedAskingToWait(String hint) {
+        String body = "{\"error\":{\"message\":\"Rate limit reached for gpt-4o. Please try again in %s. Visit ...\"}}"
+                .formatted(hint);
+        return HttpClientErrorException.create(
+                HttpStatus.TOO_MANY_REQUESTS, "Too Many Requests", null, body.getBytes(StandardCharsets.UTF_8), null);
+    }
+
+    private long millisSpentOn(Runnable action) {
+        long startedAt = System.currentTimeMillis();
+        action.run();
+        return System.currentTimeMillis() - startedAt;
+    }
+
     @Test
     void 정상_응답에서_본문과_토큰_사용량을_꺼낸다() {
         stubExchange(SUCCESS_BODY);
@@ -96,13 +110,46 @@ class OpenAiVisionClientTest {
 
     @Test
     void 재시도_횟수를_넘기면_예외를_던진다() {
-        stubExchange(rateLimited(), rateLimited(), rateLimited(), rateLimited());
+        stubExchange(rateLimited(), rateLimited(), rateLimited(), rateLimited(), rateLimited());
 
         assertThatThrownBy(() -> sut.complete(request()))
                 .isInstanceOf(AiApiException.class)
                 .hasMessageContaining("429");
 
-        verify(restTemplate, times(4)).exchange(any(String.class), eq(HttpMethod.POST), any(), eq(String.class));
+        verify(restTemplate, times(5)).exchange(any(String.class), eq(HttpMethod.POST), any(), eq(String.class));
+    }
+
+    @Test
+    void 서버가_알려준_대기_시간을_지킨다() {
+        // 고정 백오프(1ms)를 무시하고 서버가 말한 2초 + 여유만큼 기다려야 한다.
+        // 이걸 안 지키면 창이 안 풀린 채 다시 찔러서 재시도 횟수만 태우고 실패한다.
+        ReflectionTestUtils.setField(sut, "retryBackoffMs", 1L);
+        stubExchange(rateLimitedAskingToWait("2s"), SUCCESS_BODY);
+
+        long elapsedMs = millisSpentOn(() -> sut.complete(request()));
+
+        assertThat(elapsedMs).isGreaterThanOrEqualTo(2_000L);
+    }
+
+    @Test
+    void 밀리초로_알려준_대기_시간도_읽는다() {
+        ReflectionTestUtils.setField(sut, "retryBackoffMs", 1L);
+        stubExchange(rateLimitedAskingToWait("442ms"), SUCCESS_BODY);
+
+        long elapsedMs = millisSpentOn(() -> sut.complete(request()));
+
+        // 442ms + 여유는 기다리되, 초 단위로 잘못 읽어 442초를 기다리면 안 된다
+        assertThat(elapsedMs).isBetween(442L, 5_000L);
+    }
+
+    @Test
+    void 서버가_알려준_시간이_백오프보다_짧아도_백오프보다_덜_기다리지는_않는다() {
+        ReflectionTestUtils.setField(sut, "retryBackoffMs", 300L);
+        stubExchange(rateLimitedAskingToWait("10ms"), SUCCESS_BODY);
+
+        long elapsedMs = millisSpentOn(() -> sut.complete(request()));
+
+        assertThat(elapsedMs).isGreaterThanOrEqualTo(300L);
     }
 
     @Test

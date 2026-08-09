@@ -95,6 +95,23 @@ class VisionEvidenceValidatorTest {
     }
 
     @Test
+    void 앞_단계가_넘긴_경고가_있어도_제거된_필드만_새_경고로_붙는다() {
+        // 로그와 needsUserConfirmation 판정이 "이번에 지운 것"을 기준으로 움직여야 한다.
+        VisionAnalysisResult withCarriedWarnings = new VisionAnalysisResult(
+                "Nike", null, null, null, null, ConditionGrade.UNKNOWN, null,
+                null, false,
+                List.of("2단계 size: 라벨이 안 보입니다.", "3단계 outsole: 밑창 사진이 없습니다."),
+                List.of(), List.of(), List.of(evidence("brand", 0, null)));
+
+        VisionAnalysisResult result = sut.enforce(withCarriedWarnings, 1);
+
+        // brand는 근거가 있어 살아남았으니 새로 붙는 경고가 없다
+        assertThat(result.brand()).isEqualTo("Nike");
+        assertThat(result.warnings()).hasSize(2);
+        assertThat(result.needsUserConfirmation()).isFalse();
+    }
+
+    @Test
     void 원래_있던_경고는_유지한다() {
         VisionAnalysisResult withWarning = new VisionAnalysisResult(
                 "Nike", null, null, null, null, ConditionGrade.UNKNOWN, null,

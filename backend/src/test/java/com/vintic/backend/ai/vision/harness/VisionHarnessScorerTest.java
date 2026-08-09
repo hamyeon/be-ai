@@ -106,6 +106,44 @@ class VisionHarnessScorerTest {
     }
 
     @Test
+    void 틀린_필드는_기대값과_실제값을_같이_남긴다() {
+        // O/X만 남기면 사이즈를 290 대신 285로 낸 것(단위 변환 실수)과 250으로 낸 것(엉뚱한 라벨)을
+        // 구분할 수 없다. 원인이 다르면 고치는 방법도 다르다.
+        VisionHarnessCase harnessCase = caseWith(new VisionHarnessCase.Expected(
+                List.of("Crocs"), null, 290, null, "A"));
+
+        VisionHarnessScorer.CaseScore score = VisionHarnessScorer.score(
+                harnessCase, resultWith("Crocs", null, 285, null, ConditionGrade.B), 100L);
+
+        assertThat(score.mismatches().get(Field.SIZE)).isEqualTo("기대=290, 실제=285");
+        // 근사(한 등급 차이)도 무엇과 무엇이 어긋났는지 남긴다
+        assertThat(score.mismatches().get(Field.CONDITION_GRADE)).isEqualTo("기대=A, 실제=B");
+        // 맞은 필드와 채점 대상이 아닌 필드는 남기지 않는다
+        assertThat(score.mismatches()).doesNotContainKeys(Field.BRAND, Field.BOX_INCLUDED);
+    }
+
+    @Test
+    void 값을_안_채운_경우는_기대값과_실제값을_남기지_않는다() {
+        // 기권은 이미 표의 기권 열에 잡히고, 실제값이 null이라 남길 정보가 없다
+        VisionHarnessCase harnessCase = caseWith(new VisionHarnessCase.Expected(null, null, 270, null, null));
+
+        VisionHarnessScorer.CaseScore score = VisionHarnessScorer.score(
+                harnessCase, resultWith(null, null, null, null, null), 100L);
+
+        assertThat(score.mismatches()).isEmpty();
+    }
+
+    @Test
+    void 리포트는_틀린_필드의_실제값을_출력에_포함한다() {
+        VisionHarnessCase harnessCase = caseWith(new VisionHarnessCase.Expected(null, null, 290, null, null));
+
+        VisionHarnessReport report = VisionHarnessReport.aggregate("test", List.of(
+                VisionHarnessScorer.score(harnessCase, resultWith(null, null, 285, null, null), 100L)));
+
+        assertThat(report.toText()).contains("기대=290, 실제=285");
+    }
+
+    @Test
     void 리포트는_필드별_응답률과_정확도를_집계한다() {
         VisionHarnessCase harnessCase = caseWith(new VisionHarnessCase.Expected(null, null, 270, null, null));
 

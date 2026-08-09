@@ -64,9 +64,13 @@ public class VisionEvidenceValidator {
             conditionGrade = ConditionGrade.UNKNOWN;
         }
 
-        boolean droppedSomething = warnings.size() > (result.warnings() == null ? 0 : result.warnings().size());
+        // warnings에는 앞 단계가 넘긴 "라벨이 안 보임" 사유도 섞여 있으므로,
+        // 이번에 새로 붙은 것만 세야 실제로 제거된 필드 수가 나온다.
+        int carriedOverWarnings = result.warnings() == null ? 0 : result.warnings().size();
+        int droppedFieldCount = warnings.size() - carriedOverWarnings;
+        boolean droppedSomething = droppedFieldCount > 0;
         if (droppedSomething) {
-            log.warn("근거가 없어 제거된 Vision 필드가 있습니다. 제거된 필드 수={}", warnings.size());
+            log.warn("근거가 없어 제거된 Vision 필드가 있습니다. 제거된 필드 수={}", droppedFieldCount);
         }
 
         boolean needsUserConfirmation = Boolean.TRUE.equals(result.needsUserConfirmation()) || droppedSomething;
