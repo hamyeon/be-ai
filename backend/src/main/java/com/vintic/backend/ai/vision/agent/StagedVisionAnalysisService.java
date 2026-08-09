@@ -51,16 +51,20 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
             OpenAiVisionClient visionClient,
             ObjectMapper objectMapper,
             VisionEvidenceValidator evidenceValidator,
-            PromptTemplateLoader promptTemplateLoader
+            PromptTemplateLoader promptTemplateLoader,
+            VisionStageProperties stageProperties
     ) {
         this.visionClient = visionClient;
         this.objectMapper = objectMapper;
         this.evidenceValidator = evidenceValidator;
 
         // 프롬프트/스키마는 배포 중에 바뀌지 않으므로 기동 시 한 번만 읽어서 들고 있는다.
-        this.silhouetteStage = loadStage(promptTemplateLoader, "silhouette", VisionImageDetail.LOW, 900);
-        this.labelStage = loadStage(promptTemplateLoader, "label", VisionImageDetail.HIGH, 900);
-        this.conditionStage = loadStage(promptTemplateLoader, "condition", VisionImageDetail.HIGH, 1400);
+        this.silhouetteStage = loadStage(promptTemplateLoader, "silhouette", stageProperties.getSilhouette());
+        this.labelStage = loadStage(promptTemplateLoader, "label", stageProperties.getLabel());
+        this.conditionStage = loadStage(promptTemplateLoader, "condition", stageProperties.getCondition());
+
+        log.info("Vision 단계 설정 - silhouette={}, label={}, condition={}",
+                silhouetteStage.detail().value(), labelStage.detail().value(), conditionStage.detail().value());
     }
 
     @Override
@@ -79,12 +83,17 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
         return evidenceValidator.enforce(merge(silhouette, label, condition), imageUrls.size());
     }
 
-    private Stage loadStage(PromptTemplateLoader loader, String name, VisionImageDetail detail, int maxOutputTokens) {
+    private Stage loadStage(PromptTemplateLoader loader, String name, VisionStageProperties.Stage settings) {
         PromptTemplate template = loader.load(PROMPT_CATEGORY, name, PROMPT_VERSION);
         String schemaJson = loader.loadSchema(PROMPT_CATEGORY, name, PROMPT_VERSION);
         // json_schema.name은 영숫자와 밑줄만 허용된다.
         String schemaName = "vision_%s_%s".formatted(name.replace('-', '_'), PROMPT_VERSION);
-        return new Stage(template, new VisionChatRequest.ResponseSchema(schemaName, schemaJson), detail, maxOutputTokens);
+        return new Stage(
+                template,
+                new VisionChatRequest.ResponseSchema(schemaName, schemaJson),
+                settings.getDetail(),
+                settings.getMaxOutputTokens()
+        );
     }
 
     private <T> T call(Stage stage, String userText, List<String> imageUrls, Class<T> resultType) {

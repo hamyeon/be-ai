@@ -26,6 +26,22 @@ openai:
   api:
     key: ${OPENAI_API_KEY}
 
+# Vision 3단계 분석의 단계별 호출 옵션.
+# detail은 정확도와 비용을 정면으로 맞바꾸는 값이다 - low는 이미지를 512px로 줄여 고정 비용만 쓰고,
+# high는 512px 타일로 쪼개 타일당 추가 비용을 쓴다. 실루엣은 줄여도 알아볼 수 있어 low로 두고,
+# 라벨 글자를 읽어야 하는 2·3단계만 high로 둔다. (이 설정이 값을 하는지는 하네스로 측정 중)
+vision:
+  stage:
+    silhouette:
+      detail: ${VISION_DETAIL_SILHOUETTE:low}
+      max-output-tokens: 900
+    label:
+      detail: ${VISION_DETAIL_LABEL:high}
+      max-output-tokens: 900
+    condition:
+      detail: ${VISION_DETAIL_CONDITION:high}
+      max-output-tokens: 1400
+
 # Vision 분석 작업을 Worker에게 전달하는 Redis Stream 설정
 analysis:
   stream:

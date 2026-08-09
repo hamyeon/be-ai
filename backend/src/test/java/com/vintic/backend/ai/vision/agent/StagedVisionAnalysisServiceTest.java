@@ -34,8 +34,13 @@ class StagedVisionAnalysisServiceTest {
     private OpenAiVisionClient visionClient;
 
     private StagedVisionAnalysisService newService() {
+        return newService(new VisionStageProperties());
+    }
+
+    private StagedVisionAnalysisService newService(VisionStageProperties stageProperties) {
         return new StagedVisionAnalysisService(
-                visionClient, new ObjectMapper(), new VisionEvidenceValidator(), new PromptTemplateLoader());
+                visionClient, new ObjectMapper(), new VisionEvidenceValidator(),
+                new PromptTemplateLoader(), stageProperties);
     }
 
     private VisionChatResponse responseOf(String content) {
@@ -125,7 +130,7 @@ class StagedVisionAnalysisServiceTest {
     }
 
     @Test
-    void 단계별로_필요한_만큼만_해상도를_올린다() {
+    void 기본_설정은_라벨_판독_단계부터_해상도를_올린다() {
         stubAllStages();
 
         newService().analyze(new VisionAnalysisRequest(IMAGE_URLS));
@@ -134,6 +139,24 @@ class StagedVisionAnalysisServiceTest {
         assertThat(requests.get(0).detail()).isEqualTo(VisionImageDetail.LOW);   // 실루엣은 저해상도로 충분
         assertThat(requests.get(1).detail()).isEqualTo(VisionImageDetail.HIGH);  // 라벨 글자 판독
         assertThat(requests.get(2).detail()).isEqualTo(VisionImageDetail.HIGH);  // 오염/마모 확인
+    }
+
+    @Test
+    void 단계별_해상도와_응답_한도를_설정으로_바꿀_수_있다() {
+        // detail은 정확도와 비용을 맞바꾸는 값이라 재배포 없이 조정할 수 있어야 하고,
+        // high가 값을 하는지 비교 측정하려면 밖에서 바꿀 수 있어야 한다.
+        VisionStageProperties properties = new VisionStageProperties();
+        properties.getLabel().setDetail(VisionImageDetail.LOW);
+        properties.getCondition().setDetail(VisionImageDetail.LOW);
+        properties.getCondition().setMaxOutputTokens(2000);
+        stubAllStages();
+
+        newService(properties).analyze(new VisionAnalysisRequest(IMAGE_URLS));
+
+        List<VisionChatRequest> requests = capturedRequests();
+        assertThat(requests).allSatisfy(request ->
+                assertThat(request.detail()).isEqualTo(VisionImageDetail.LOW));
+        assertThat(requests.get(2).maxOutputTokens()).isEqualTo(2000);
     }
 
     @Test

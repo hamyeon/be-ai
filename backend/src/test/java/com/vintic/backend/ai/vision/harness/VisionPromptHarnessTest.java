@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.ai.prompt.PromptTemplateLoader;
 import com.vintic.backend.ai.vision.agent.StagedVisionAnalysisService;
 import com.vintic.backend.ai.vision.agent.VisionEvidenceValidator;
+import com.vintic.backend.ai.vision.agent.VisionStageProperties;
+import com.vintic.backend.ai.vision.client.VisionImageDetail;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisRequest;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
 import com.vintic.backend.ai.vision.service.OpenAiVisionAnalysisService;
@@ -50,6 +52,7 @@ class VisionPromptHarnessTest {
     private static final String FIXTURES_PROPERTY = "vision.harness.fixtures";
     private static final String AGENTS_PROPERTY = "vision.harness.agents";
     private static final String VARIANTS_PROPERTY = "vision.harness.variants";
+    private static final String DETAIL_PROPERTY = "vision.harness.detail";
     private static final Path REPORT_DIRECTORY = Path.of("build", "vision-harness");
 
     private enum Agent {
@@ -92,7 +95,9 @@ class VisionPromptHarnessTest {
                     }
                 }
 
-                String label = "set=%s, agent=%s, image=%s".formatted(fixtureSet, agent, variant);
+                String detailLabel = System.getProperty(DETAIL_PROPERTY, "기본(low/high/high)");
+                String label = "set=%s, agent=%s, image=%s, detail=%s"
+                        .formatted(fixtureSet, agent, variant, detailLabel);
                 VisionHarnessReport report = VisionHarnessReport.aggregate(label, caseScores, visionClient.usage());
                 System.out.println(report.toText());
                 writeReport(fixtureSet, agent, variant, report);
@@ -141,8 +146,23 @@ class VisionPromptHarnessTest {
         return switch (agent) {
             case V1 -> new OpenAiVisionAnalysisService(visionClient, objectMapper, promptTemplateLoader);
             case V2 -> new StagedVisionAnalysisService(
-                    visionClient, objectMapper, new VisionEvidenceValidator(), promptTemplateLoader);
+                    visionClient, objectMapper, new VisionEvidenceValidator(), promptTemplateLoader, stageProperties());
         };
+    }
+
+    // -Dvision.harness.detail=low 를 주면 모든 단계를 그 해상도로 맞춘다.
+    // 지정하지 않으면 application.yml의 기본값(1단계 low, 2·3단계 high)과 같은 조합으로 돈다.
+    private VisionStageProperties stageProperties() {
+        VisionStageProperties properties = new VisionStageProperties();
+        String configured = System.getProperty(DETAIL_PROPERTY);
+        if (configured == null || configured.isBlank()) {
+            return properties;
+        }
+        VisionImageDetail detail = VisionImageDetail.valueOf(configured.trim().toUpperCase());
+        properties.getSilhouette().setDetail(detail);
+        properties.getLabel().setDetail(detail);
+        properties.getCondition().setDetail(detail);
+        return properties;
     }
 
     private long elapsedSince(long startedAt) {
@@ -152,8 +172,10 @@ class VisionPromptHarnessTest {
     private void writeReport(String fixtureSet, Agent agent, VisionHarnessImageVariant variant,
                              VisionHarnessReport report) throws IOException {
         Files.createDirectories(REPORT_DIRECTORY);
-        Path reportPath = REPORT_DIRECTORY.resolve(
-                "%s-%s-%s.txt".formatted(fixtureSet, agent.name().toLowerCase(), variant.name().toLowerCase()));
+        // detail을 파일명에 넣지 않으면 low/high 실행이 서로를 덮어써서 비교할 게 남지 않는다.
+        String detailSuffix = System.getProperty(DETAIL_PROPERTY, "default").toLowerCase();
+        Path reportPath = REPORT_DIRECTORY.resolve("%s-%s-%s-detail_%s.txt".formatted(
+                fixtureSet, agent.name().toLowerCase(), variant.name().toLowerCase(), detailSuffix));
         Files.writeString(reportPath, report.toText(), StandardCharsets.UTF_8);
         System.out.println("리포트 저장: " + reportPath.toAbsolutePath());
     }
