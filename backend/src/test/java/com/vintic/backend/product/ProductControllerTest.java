@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.analyze.service.ProductPricingService;
 import com.vintic.backend.product.dto.CalculatePriceRequest;
 import com.vintic.backend.product.dto.CalculatePriceResponse;
+import com.vintic.backend.product.dto.CreateProductRequest;
+import com.vintic.backend.product.dto.ProductResponse;
 import com.vintic.backend.product.service.ProductRegistrationService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +17,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -67,5 +71,31 @@ class ProductControllerTest {
                 .andExpect(jsonPath("$.data.kreamMatches[0].source").value("KREAM"))
                 .andExpect(jsonPath("$.data.kreamMatches[0].price").value(400000))
                 .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
+    @Test
+    void 상품_등록시_currentUserId_요청속성이_seller로_전달된다() throws Exception {
+        CreateProductRequest request = new CreateProductRequest(
+                List.of("https://example.com/a.jpg", "https://example.com/b.jpg", "https://example.com/c.jpg"),
+                "Nike", "Dunk Low", "Panda", 270, "B", "PARTIAL",
+                300000, 350000, "285,000원 ~ 315,000원", 290000, "사유", "설명"
+        );
+        ProductResponse response = new ProductResponse(
+                1L, 1L, request.imageUrls(), request.brand(), request.modelName(), request.color(),
+                request.size(), request.conditionGrade(), request.componentStatus(), request.recommendedPrice(),
+                request.baseMarketPrice(), request.priceRange(), request.sellingPrice(), request.reason(),
+                request.sellerDescription(), null
+        );
+        when(productRegistrationService.createProduct(any(), eq(1L))).thenReturn(response);
+
+        mockMvc.perform(post("/api/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+                        .requestAttr("currentUserId", 1L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.sellerId").value(1));
+
+        verify(productRegistrationService).createProduct(any(), eq(1L));
     }
 }
