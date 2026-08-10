@@ -68,6 +68,20 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail(50004, e.getMessage()));
     }
 
+    // 존재하지 않는 경매 조회 (404 Not Found)
+    @ExceptionHandler(AuctionNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAuctionNotFoundException(AuctionNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40402, e.getMessage()));
+    }
+
+    // 존재하지 않는 사용자 참조 (404 Not Found)
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUserNotFoundException(UserNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40403, e.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleException(Exception exception) {
         // 1. 에러 내용을 콘솔에 강제로 출력

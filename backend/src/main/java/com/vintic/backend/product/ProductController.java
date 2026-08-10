@@ -39,9 +39,10 @@ public class ProductController {
 
     @PostMapping
     public ResponseEntity<ApiResponse<ProductResponse>> createProduct(
-            @Valid @RequestBody CreateProductRequest request
+            @Valid @RequestBody CreateProductRequest request,
+            @RequestAttribute("currentUserId") Long currentUserId
     ) {
-        ProductResponse response = productRegistrationService.createProduct(request);
+        ProductResponse response = productRegistrationService.createProduct(request, currentUserId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

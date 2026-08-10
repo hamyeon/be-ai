@@ -1,6 +1,7 @@
 package com.vintic.backend.ai.search.document;
 
 import com.vintic.backend.product.domain.Product;
+import com.vintic.backend.user.domain.User;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -13,7 +14,9 @@ class ProductDocumentBuilderTest {
 
     @Test
     void 상품_하나는_atomic_문서_하나로_변환된다() {
+        User seller = User.register("seller@vintic.local", "seller", null);
         Product product = new Product(
+                seller,
                 List.of("https://example.com/a.jpg"),
                 "Nike",
                 "Dunk Low",

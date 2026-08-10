@@ -6,6 +6,7 @@ import java.util.List;
 
 public record ProductResponse(
         Long id,
+        Long sellerId,
         List<String> imageUrls,
         String brand,
         String modelName,
@@ -24,6 +25,7 @@ public record ProductResponse(
     public static ProductResponse from(Product product) {
         return new ProductResponse(
                 product.getId(),
+                product.getSeller().getId(),
                 product.getImageUrls(),
                 product.getBrand(),
                 product.getModel(),
