@@ -1,9 +1,9 @@
 ﻿target_id,브랜드,모델명,컬러웨이,한국 사이즈,KREAM 가격,가격 유형,상품 URL,상품명,수집일,상태,메모
-SH-001,Jordan,1 Retro High,Lost and Found,280,321000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 8시간 전
-SH-001,Jordan,1 Retro High,Lost and Found,280,340000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 20시간 전
-SH-001,Jordan,1 Retro High,Lost and Found,285,366000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 26/05/19
-SH-001,Jordan,1 Retro High,Lost and Found,275,307000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 26/05/19
-SH-001,Jordan,1 Retro High,Lost and Found,265,305000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 26/05/19
+SH-001,Nike,Air Jordan 1 Retro High,Lost and Found,280,321000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 8시간 전
+SH-001,Nike,Air Jordan 1 Retro High,Lost and Found,280,340000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 20시간 전
+SH-001,Nike,Air Jordan 1 Retro High,Lost and Found,285,366000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 26/05/19
+SH-001,Nike,Air Jordan 1 Retro High,Lost and Found,275,307000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 26/05/19
+SH-001,Nike,Air Jordan 1 Retro High,Lost and Found,265,305000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 26/05/19
 SH-004,Nike,Dunk Low,Panda,290,126000,체결 거래,https://kream.co.kr/products/548447,Nike Dunk Low Panda,2026-05-21,DS,거래시점: 13시간 전
 SH-004,Nike,Dunk Low,Panda,275,104000,체결 거래,https://kream.co.kr/products/548447,Nike Dunk Low Panda,2026-05-21,DS,거래시점: 26/05/19
 SH-004,Nike,Dunk Low,Panda,255,105000,체결 거래,https://kream.co.kr/products/548447,Nike Dunk Low Panda,2026-05-21,DS,거래시점: 26/05/17
@@ -34,16 +34,16 @@ SH-009,Adidas,Gazelle Indoor,Blue Bird,270,100000,체결 거래,https://kream.co
 SH-009,Adidas,Gazelle Indoor,Blue Bird,245,90000,체결 거래,https://kream.co.kr/products/74717,Adidas Gazelle Indoor Blue Bird,2026-05-21,DS,거래시점: 26/05/13
 SH-009,Adidas,Gazelle Indoor,Blue Bird,235,90000,체결 거래,https://kream.co.kr/products/74717,Adidas Gazelle Indoor Blue Bird,2026-05-21,DS,거래시점: 26/05/12
 SH-009,Adidas,Gazelle Indoor,Blue Bird,240,81000,체결 거래,https://kream.co.kr/products/74717,Adidas Gazelle Indoor Blue Bird,2026-05-21,DS,거래시점: 26/05/09
-SH-010,Jordan,4 Retro,Military Black,260,379000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 3시간 전
-SH-010,Jordan,4 Retro,Military Black,265,350000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 12시간 전
-SH-010,Jordan,4 Retro,Military Black,280,377000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 13시간 전
-SH-010,Jordan,4 Retro,Military Black,280,398000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 16시간 전
-SH-010,Jordan,4 Retro,Military Black,265,364000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 26/05/19
-SH-011,Jordan,4 Retro,White Thunder,270,380000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/19
-SH-011,Jordan,4 Retro,White Thunder,270,455000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/17
-SH-011,Jordan,4 Retro,White Thunder,280,390000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/13
-SH-011,Jordan,4 Retro,White Thunder,275,382000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/13
-SH-011,Jordan,4 Retro,White Thunder,300,350000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/08
+SH-010,Nike,Air Jordan 4 Retro,Military Black,260,379000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 3시간 전
+SH-010,Nike,Air Jordan 4 Retro,Military Black,265,350000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 12시간 전
+SH-010,Nike,Air Jordan 4 Retro,Military Black,280,377000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 13시간 전
+SH-010,Nike,Air Jordan 4 Retro,Military Black,280,398000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 16시간 전
+SH-010,Nike,Air Jordan 4 Retro,Military Black,265,364000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 26/05/19
+SH-011,Nike,Air Jordan 4 Retro,White Thunder,270,380000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/19
+SH-011,Nike,Air Jordan 4 Retro,White Thunder,270,455000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/17
+SH-011,Nike,Air Jordan 4 Retro,White Thunder,280,390000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/13
+SH-011,Nike,Air Jordan 4 Retro,White Thunder,275,382000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/13
+SH-011,Nike,Air Jordan 4 Retro,White Thunder,300,350000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/08
 SH-012,New Balance,990v4,Gray,270,252000,체결 거래,https://kream.co.kr/products/129272,New Balance 990v4 Gray,2026-05-21,DS,거래시점: 38분 전
 SH-012,New Balance,990v4,Gray,245,219000,체결 거래,https://kream.co.kr/products/129272,New Balance 990v4 Gray,2026-05-21,DS,거래시점: 40분 전
 SH-012,New Balance,990v4,Gray,270,300000,체결 거래,https://kream.co.kr/products/129272,New Balance 990v4 Gray,2026-05-21,DS,거래시점: 4시간 전
