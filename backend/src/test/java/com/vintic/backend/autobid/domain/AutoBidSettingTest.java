@@ -58,19 +58,48 @@ class AutoBidSettingTest {
     }
 
     @Test
-    void ACTIVE에서_EXHAUSTED로_전이할_수_있다() {
+    void RESERVED에서_CAP_REACHED로_전이할_수_있다() {
+        AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 100000L);
+
+        setting.markCapReached();
+
+        assertThat(setting.getStatus()).isEqualTo(AutoBidSettingStatus.CAP_REACHED);
+    }
+
+    @Test
+    void ACTIVE에서_CAP_REACHED로_전이할_수_있다() {
         AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 100000L);
         setting.activate();
 
-        setting.exhaust();
+        setting.markCapReached();
 
-        assertThat(setting.getStatus()).isEqualTo(AutoBidSettingStatus.EXHAUSTED);
+        assertThat(setting.getStatus()).isEqualTo(AutoBidSettingStatus.CAP_REACHED);
     }
 
     @Test
     void ACTIVE에서_CANCELED로_전이할_수_있다() {
         AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 100000L);
         setting.activate();
+
+        setting.cancel();
+
+        assertThat(setting.getStatus()).isEqualTo(AutoBidSettingStatus.CANCELED);
+    }
+
+    @Test
+    void CAP_REACHED에서_ACTIVE로_재전이할_수_있다() {
+        AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 100000L);
+        setting.markCapReached();
+
+        setting.reactivateAfterCapIncrease();
+
+        assertThat(setting.getStatus()).isEqualTo(AutoBidSettingStatus.ACTIVE);
+    }
+
+    @Test
+    void CAP_REACHED에서_CANCELED로_전이할_수_있다() {
+        AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 100000L);
+        setting.markCapReached();
 
         setting.cancel();
 
@@ -87,22 +116,20 @@ class AutoBidSettingTest {
     }
 
     @Test
-    void ACTIVE가_아니면_exhaust할_수_없다() {
+    void RESERVED_ACTIVE가_아니면_markCapReached할_수_없다() {
         AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 100000L);
+        setting.cancel();
 
-        assertThatThrownBy(setting::exhaust)
+        assertThatThrownBy(setting::markCapReached)
                 .isInstanceOf(InvalidAutoBidSettingStatusException.class);
     }
 
     @Test
-    void EXHAUSTED는_terminal_상태라_추가_전이가_불가능하다() {
+    void CAP_REACHED가_아니면_reactivateAfterCapIncrease할_수_없다() {
         AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 100000L);
-        setting.activate();
-        setting.exhaust();
 
-        assertThatThrownBy(setting::activate).isInstanceOf(InvalidAutoBidSettingStatusException.class);
-        assertThatThrownBy(setting::exhaust).isInstanceOf(InvalidAutoBidSettingStatusException.class);
-        assertThatThrownBy(setting::cancel).isInstanceOf(InvalidAutoBidSettingStatusException.class);
+        assertThatThrownBy(setting::reactivateAfterCapIncrease)
+                .isInstanceOf(InvalidAutoBidSettingStatusException.class);
     }
 
     @Test
@@ -111,7 +138,8 @@ class AutoBidSettingTest {
         setting.cancel();
 
         assertThatThrownBy(setting::activate).isInstanceOf(InvalidAutoBidSettingStatusException.class);
-        assertThatThrownBy(setting::exhaust).isInstanceOf(InvalidAutoBidSettingStatusException.class);
+        assertThatThrownBy(setting::markCapReached).isInstanceOf(InvalidAutoBidSettingStatusException.class);
+        assertThatThrownBy(setting::reactivateAfterCapIncrease).isInstanceOf(InvalidAutoBidSettingStatusException.class);
         assertThatThrownBy(setting::cancel).isInstanceOf(InvalidAutoBidSettingStatusException.class);
     }
 }

@@ -96,20 +96,36 @@ public class AutoBidSetting {
         this.updatedAt = LocalDateTime.now();
     }
 
-    public void exhaust() {
-        if (status != AutoBidSettingStatus.ACTIVE) {
+    // maxAmount에 도달해 더 이상 자동 경쟁 입찰을 할 수 없는 상태로 전환한다.
+    // RESERVED에서도 발생할 수 있다 — 경매 시작 전 이미 currentPrice가 maxAmount를 넘어선 경우.
+    public void markCapReached() {
+        if (status != AutoBidSettingStatus.RESERVED && status != AutoBidSettingStatus.ACTIVE) {
             throw new InvalidAutoBidSettingStatusException(
-                    "ACTIVE 상태에서만 소진 처리할 수 있습니다. 현재 상태: " + status
+                    "RESERVED/ACTIVE 상태에서만 상한 도달 처리를 할 수 있습니다. 현재 상태: " + status
             );
         }
-        this.status = AutoBidSettingStatus.EXHAUSTED;
+        this.status = AutoBidSettingStatus.CAP_REACHED;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    // maxAmount 상향 등으로 다시 경쟁 입찰이 가능해졌을 때 사용한다.
+    // 이번 범위에서는 전이 규칙만 제공하며, maxAmount 자체를 바꾸는 로직은 포함하지 않는다.
+    public void reactivateAfterCapIncrease() {
+        if (status != AutoBidSettingStatus.CAP_REACHED) {
+            throw new InvalidAutoBidSettingStatusException(
+                    "CAP_REACHED 상태에서만 재활성화할 수 있습니다. 현재 상태: " + status
+            );
+        }
+        this.status = AutoBidSettingStatus.ACTIVE;
         this.updatedAt = LocalDateTime.now();
     }
 
     public void cancel() {
-        if (status != AutoBidSettingStatus.RESERVED && status != AutoBidSettingStatus.ACTIVE) {
+        if (status != AutoBidSettingStatus.RESERVED
+                && status != AutoBidSettingStatus.ACTIVE
+                && status != AutoBidSettingStatus.CAP_REACHED) {
             throw new InvalidAutoBidSettingStatusException(
-                    "RESERVED/ACTIVE 상태에서만 취소할 수 있습니다. 현재 상태: " + status
+                    "RESERVED/ACTIVE/CAP_REACHED 상태에서만 취소할 수 있습니다. 현재 상태: " + status
             );
         }
         this.status = AutoBidSettingStatus.CANCELED;
