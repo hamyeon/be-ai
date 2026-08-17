@@ -1,6 +1,11 @@
 package com.vintic.backend.auction.domain;
 
+import com.vintic.backend.common.exception.AlreadyHighestBidderException;
+import com.vintic.backend.common.exception.AuctionClosedException;
+import com.vintic.backend.common.exception.AuctionNotStartedException;
+import com.vintic.backend.common.exception.BidAmountTooLowException;
 import com.vintic.backend.common.exception.InvalidAuctionStatusException;
+import com.vintic.backend.common.exception.SellerCannotBidException;
 import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.user.domain.User;
 import org.junit.jupiter.api.Test;
@@ -13,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class AuctionTest {
 
     private final User seller = User.register("seller@vintic.local", "seller", null);
+    private final User bidder = User.register("bidder@vintic.local", "bidder", null);
     private final Product product = new Product(
             seller,
             java.util.List.of("https://example.com/a.jpg"),
@@ -118,5 +124,83 @@ class AuctionTest {
         assertThatThrownBy(auction::end).isInstanceOf(InvalidAuctionStatusException.class);
         assertThatThrownBy(auction::cancel).isInstanceOf(InvalidAuctionStatusException.class);
         assertThatThrownBy(auction::start).isInstanceOf(InvalidAuctionStatusException.class);
+    }
+
+    @Test
+    void LIVE_상태에서_정확히_최소금액으로_입찰하면_성공한다() {
+        Auction auction = schedule();
+        auction.start();
+
+        auction.placeManualBid(bidder, 15000L);
+
+        assertThat(auction.getCurrentPrice()).isEqualTo(15000L);
+        assertThat(auction.getCurrentWinner()).isEqualTo(bidder);
+    }
+
+    @Test
+    void 최소금액_미만으로_입찰하면_실패하고_currentPrice_currentWinner는_바뀌지_않는다() {
+        Auction auction = schedule();
+        auction.start();
+
+        assertThatThrownBy(() -> auction.placeManualBid(bidder, 14999L))
+                .isInstanceOf(BidAmountTooLowException.class);
+        assertThat(auction.getCurrentPrice()).isEqualTo(10000L);
+        assertThat(auction.getCurrentWinner()).isNull();
+    }
+
+    @Test
+    void SCHEDULED_상태에서_입찰하면_실패하고_currentPrice_currentWinner는_바뀌지_않는다() {
+        Auction auction = schedule();
+
+        assertThatThrownBy(() -> auction.placeManualBid(bidder, 15000L))
+                .isInstanceOf(AuctionNotStartedException.class);
+        assertThat(auction.getCurrentPrice()).isEqualTo(10000L);
+        assertThat(auction.getCurrentWinner()).isNull();
+    }
+
+    @Test
+    void ENDED_상태에서_입찰하면_실패하고_currentPrice_currentWinner는_바뀌지_않는다() {
+        Auction auction = schedule();
+        auction.start();
+        auction.end();
+
+        assertThatThrownBy(() -> auction.placeManualBid(bidder, 15000L))
+                .isInstanceOf(AuctionClosedException.class);
+        assertThat(auction.getCurrentPrice()).isEqualTo(10000L);
+        assertThat(auction.getCurrentWinner()).isNull();
+    }
+
+    @Test
+    void CANCELED_상태에서_입찰하면_실패하고_currentPrice_currentWinner는_바뀌지_않는다() {
+        Auction auction = schedule();
+        auction.cancel();
+
+        assertThatThrownBy(() -> auction.placeManualBid(bidder, 15000L))
+                .isInstanceOf(AuctionClosedException.class);
+        assertThat(auction.getCurrentPrice()).isEqualTo(10000L);
+        assertThat(auction.getCurrentWinner()).isNull();
+    }
+
+    @Test
+    void 판매자_본인이_입찰하면_실패하고_currentPrice_currentWinner는_바뀌지_않는다() {
+        Auction auction = schedule();
+        auction.start();
+
+        assertThatThrownBy(() -> auction.placeManualBid(seller, 15000L))
+                .isInstanceOf(SellerCannotBidException.class);
+        assertThat(auction.getCurrentPrice()).isEqualTo(10000L);
+        assertThat(auction.getCurrentWinner()).isNull();
+    }
+
+    @Test
+    void 현재_최고입찰자가_추가로_직접_입찰하면_실패하고_currentPrice_currentWinner는_바뀌지_않는다() {
+        Auction auction = schedule();
+        auction.start();
+        auction.placeManualBid(bidder, 15000L);
+
+        assertThatThrownBy(() -> auction.placeManualBid(bidder, 20000L))
+                .isInstanceOf(AlreadyHighestBidderException.class);
+        assertThat(auction.getCurrentPrice()).isEqualTo(15000L);
+        assertThat(auction.getCurrentWinner()).isEqualTo(bidder);
     }
 }

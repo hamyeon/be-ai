@@ -82,6 +82,48 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail(40403, e.getMessage()));
     }
 
+    // 판매자 본인 입찰 시도 (403 Forbidden)
+    @ExceptionHandler(SellerCannotBidException.class)
+    public ResponseEntity<ApiResponse<Void>> handleSellerCannotBidException(SellerCannotBidException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.fail(40301, e.getMessage()));
+    }
+
+    // 입찰 제한 기간 중인 사용자의 입찰 시도 (403 Forbidden)
+    @ExceptionHandler(PenaltyRestrictedException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePenaltyRestrictedException(PenaltyRestrictedException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.fail(40302, e.getMessage()));
+    }
+
+    // 현재 최고입찰자의 추가 직접 입찰 시도 (409 Conflict)
+    @ExceptionHandler(AlreadyHighestBidderException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAlreadyHighestBidderException(AlreadyHighestBidderException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40901, e.getMessage()));
+    }
+
+    // 아직 시작되지 않은 경매에 대한 입찰 시도 (409 Conflict)
+    @ExceptionHandler(AuctionNotStartedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAuctionNotStartedException(AuctionNotStartedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40902, e.getMessage()));
+    }
+
+    // 종료되었거나 취소된 경매에 대한 입찰 시도 (409 Conflict)
+    @ExceptionHandler(AuctionClosedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAuctionClosedException(AuctionClosedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40903, e.getMessage()));
+    }
+
+    // 최소 입찰 금액 미만 (409 Conflict)
+    @ExceptionHandler(BidAmountTooLowException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBidAmountTooLowException(BidAmountTooLowException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40904, e.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleException(Exception exception) {
         // 1. 에러 내용을 콘솔에 강제로 출력
