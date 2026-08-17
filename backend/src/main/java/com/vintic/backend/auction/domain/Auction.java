@@ -1,6 +1,11 @@
 package com.vintic.backend.auction.domain;
 
+import com.vintic.backend.common.exception.AlreadyHighestBidderException;
+import com.vintic.backend.common.exception.AuctionClosedException;
+import com.vintic.backend.common.exception.AuctionNotStartedException;
+import com.vintic.backend.common.exception.BidAmountTooLowException;
 import com.vintic.backend.common.exception.InvalidAuctionStatusException;
+import com.vintic.backend.common.exception.SellerCannotBidException;
 import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.user.domain.User;
 import jakarta.persistence.Column;
@@ -130,6 +135,41 @@ public class Auction {
             );
         }
         this.status = AuctionStatus.CANCELED;
+    }
+
+    // 직접(수동) 입찰 전용 검증/갱신이다. 현재 최고입찰자의 재입찰 금지 규칙은
+    // 직접 입찰에만 적용되며, Proxy/AutoBid의 cap 상향과는 별개 정책이라
+    // 이 메서드를 그쪽에서 재사용하지 않는다.
+    public void placeManualBid(User bidder, Long amount) {
+        if (status == AuctionStatus.SCHEDULED) {
+            throw new AuctionNotStartedException(
+                    "아직 시작되지 않은 경매입니다. auctionId: " + id
+            );
+        }
+        if (status != AuctionStatus.LIVE) {
+            throw new AuctionClosedException(
+                    "이미 종료되었거나 취소된 경매입니다. auctionId: " + id + ", 상태: " + status
+            );
+        }
+        if (product.getSeller().isSameUser(bidder)) {
+            throw new SellerCannotBidException(
+                    "판매자는 자신의 경매에 입찰할 수 없습니다. auctionId: " + id
+            );
+        }
+        if (currentWinner != null && currentWinner.isSameUser(bidder)) {
+            throw new AlreadyHighestBidderException(
+                    "이미 현재 최고입찰자입니다. auctionId: " + id
+            );
+        }
+        long minAmount = currentPrice + bidIncrement;
+        if (amount < minAmount) {
+            throw new BidAmountTooLowException(
+                    "입찰 금액은 " + minAmount + "원 이상이어야 합니다. 입력값: " + amount
+            );
+        }
+
+        this.currentPrice = amount;
+        this.currentWinner = bidder;
     }
 
     public Long getId() {
