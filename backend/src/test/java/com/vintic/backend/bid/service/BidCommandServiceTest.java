@@ -235,4 +235,29 @@ class BidCommandServiceTest {
         assertThat(reloaded.getCurrentWinner().getId()).isEqualTo(bidder.getId());
         assertThat(bidRepository.countByAuctionId(auction.getId())).isEqualTo(1);
     }
+
+    @Test
+    void 연속된_정상_입찰_후_currentPrice는_단조증가하고_최종_Bid와_Auction_상태가_일치한다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidderA = persistUser("bidderA@vintic.local");
+        User bidderB = persistUser("bidderB@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        flushAndClear();
+
+        PlaceBidResponse first = bidCommandService.placeManualBid(auction.getId(), bidderA.getId(), 15000L);
+        flushAndClear();
+        PlaceBidResponse second = bidCommandService.placeManualBid(auction.getId(), bidderB.getId(), 20000L);
+        flushAndClear();
+        PlaceBidResponse third = bidCommandService.placeManualBid(auction.getId(), bidderA.getId(), 25000L);
+        flushAndClear();
+
+        assertThat(first.currentPrice()).isLessThan(second.currentPrice());
+        assertThat(second.currentPrice()).isLessThan(third.currentPrice());
+
+        Auction reloaded = auctionRepository.findById(auction.getId()).orElseThrow();
+        assertThat(reloaded.getCurrentPrice()).isEqualTo(third.submittedAmount());
+        assertThat(reloaded.getCurrentWinner().getId()).isEqualTo(bidderA.getId());
+        assertThat(bidRepository.countByAuctionId(auction.getId())).isEqualTo(3);
+    }
 }
