@@ -75,7 +75,7 @@ def run(argv=None) -> None:
     session = requests.Session()
     session.headers.update({"User-Agent": config.USER_AGENT, "Accept-Language": "ko-KR,ko;q=0.9"})
 
-    totals = {"products": 0, "trades": 0, "skipped_category": 0, "skipped_brand": 0}
+    totals = {"products": 0, "trades": 0, "skipped_category": 0, "skipped_brand": 0, "failed": 0}
     collected_at = datetime.now(KST).date().isoformat()
 
     try:
@@ -83,7 +83,15 @@ def run(argv=None) -> None:
             keyword = target["keyword"]
             logger.info("[%s] 검색 중...", keyword)
             search_url = f"{config.SITE_BASE_URL}/search?keyword={quote(keyword)}&tab=products"
-            found = parser.extract_search_products(fetch_html(session, search_url))
+            try:
+                found = parser.extract_search_products(fetch_html(session, search_url))
+            except (RuntimeError, parser.ParseError) as error:
+                # KREAM은 간헐적으로 500을 반환한다. 한 키워드가 계속 실패해도
+                # 나머지 키워드는 수집해야 한다.
+                logger.warning("[%s] 검색 실패, 다음 키워드로 넘어갑니다: %s", keyword, error)
+                totals["failed"] += 1
+                polite_sleep(args)
+                continue
             polite_sleep(args)
 
             # 신발 카테고리 + 수집 대상 브랜드만
@@ -105,8 +113,10 @@ def run(argv=None) -> None:
                 detail_url = f"{config.SITE_BASE_URL}/products/{product_id}"
                 try:
                     info, trades = parser.extract_product_detail(fetch_html(session, detail_url), product_id)
-                except parser.ParseError as error:
-                    logger.warning("파싱 실패(product_id=%s): %s", product_id, error)
+                except (RuntimeError, parser.ParseError) as error:
+                    # 상품 하나가 계속 500이어도(실제로 발생) 나머지 상품은 계속 수집한다
+                    logger.warning("수집 실패(product_id=%s), 건너뜀: %s", product_id, error)
+                    totals["failed"] += 1
                     polite_sleep(args)
                     continue
 
@@ -131,8 +141,9 @@ def run(argv=None) -> None:
         logger.error("차단이 감지되어 중단합니다 (수집분은 저장됨): %s", error)
 
     logger.info("--- 수집 결과 ---")
-    logger.info("신규 상품 %d / 신규 체결 %d / 카테고리 제외 %d / 브랜드 제외 %d",
-                totals["products"], totals["trades"], totals["skipped_category"], totals["skipped_brand"])
+    logger.info("신규 상품 %d / 신규 체결 %d / 카테고리 제외 %d / 브랜드 제외 %d / 실패 %d",
+                totals["products"], totals["trades"], totals["skipped_category"], totals["skipped_brand"],
+                totals["failed"])
 
 
 if __name__ == "__main__":
