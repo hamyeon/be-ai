@@ -1,0 +1,68 @@
+# KREAM 신발 시세 크롤러
+
+KREAM(https://kream.co.kr) 공개 페이지에서 대상 브랜드 신발의 **상품 정보 + 이미지 +
+체결 거래(사이즈/가격/체결 시각)** 를 수집한다.
+
+기존에는 KREAM 시세가 수동 수집 CSV 75행 / 15개 모델뿐이었다. 이 크롤러가 그 자리를
+대체할 데이터를 모으고, 특히 체결 시각(`traded_at`)은 희소성 지표에서 부족했던
+"수요 축"(체결 속도)을 제공한다 — `docs/pricing-agent.md` 참고.
+
+## 조사 결과 요약 (2026-08 확인)
+
+- **robots.txt**: `User-agent: *`에 `Allow: /`. 금지는 개인 페이지(`/my*`, `/history*`)뿐이라
+  여기서 읽는 검색/상품 페이지는 전부 허용 범위다. (참고로 AI 학습/검색 봇도 명시적으로 허용하는
+  정책을 갖고 있다)
+- **로그인 불필요**: 검색 페이지와 상품 페이지(체결 거래 탭 포함)가 로그인 없이 서버 렌더링으로
+  내려온다. 비공개 API를 직접 호출하지 않고 HTML의 `__NUXT_DATA__`(Nuxt 3 하이드레이션
+  페이로드)만 파싱한다.
+- **체결 거래가 SSR에 포함**: 상품 페이지에 최근 체결 5건이 사이즈/가격/ISO 시각으로 박혀 있다.
+  주기적으로 다시 돌면 이력이 누적된다 (중복은 내용 키로 제거).
+- **robots.txt가 간헐적으로 500을 반환**: 실측상 페이지 자체는 정상 응답하지만,
+  차단 신호일 가능성에 대비해 403/429 감지 시 즉시 전체 중단한다.
+
+## 실행
+
+```bash
+python -m crawler.kream.main                                          # 전체 브랜드
+python -m crawler.kream.main --keywords 살로몬 --max-products-per-keyword 3
+```
+
+| 옵션 | 기본값 | 설명 |
+|---|---|---|
+| `--keywords` | 전체 10개 | 검색 키워드 (나이키/조던/아디다스/아식스/뉴발란스/크록스/미즈노/호카/푸마/살로몬) |
+| `--max-products-per-keyword` | 20 | 키워드당 상세 수집할 상품 수 |
+| `--request-delay-min/max` | 2.0 / 5.0 | 요청 간 랜덤 지연(초) |
+
+## 산출물
+
+```
+crawler/data/kream_products.jsonl   상품: product_id, name_en/ko, style_code, brand, image_urls, item_url
+crawler/data/kream_trades.jsonl     체결: product_id, size(mm), price_krw, traded_at(ISO), is_immediate_delivery
+```
+
+두 파일은 `product_id`로 연결된다. 상품은 upsert, 체결은
+`(product_id, size, traded_at, price)` 키로 중복 제거 후 누적.
+
+## 브랜드 정규화
+
+- **Jordan → Nike로 통일** (#27 결정. eBay 시세 데이터와 표기를 맞추기 위함 —
+  검색은 "조던"으로 따로 하되 저장 시 brand는 Nike)
+- ASICS/HOKA 등 대문자 표기는 시세 CSV 표기(Asics/Hoka)로 흡수
+- 대상 9종 외 브랜드(콜라보 검색 결과에 섞여 나오는 것)는 버린다
+
+## 크롤링 정책
+
+- 요청 간 2~5초 랜덤 지연, 동시 요청 없음(순차)
+- 실패 시 최대 3회 재시도(대기 시간 증가), 403/429 감지 시 전체 즉시 중단(수집분은 저장)
+- 프록시/fingerprint 위조/CAPTCHA 우회 없음
+
+## 알려진 한계
+
+1. **체결 이력은 최근 5건씩만**: 상품 페이지 SSR에 최근 5건만 실린다. 전체 이력은
+   주기적 재수집으로 누적해야 한다 (지금 스코프에는 스케줄러 없음).
+2. **검색 첫 페이지만**: "더보기" 페이지네이션을 타지 않는다. 인기순 상위 50건 중
+   신발만 걸러 수집한다. 브랜드당 더 필요하면 페이지네이션 지원이 추가로 필요하다.
+3. **backend 연동 없음**: `crawler/data/` 파일로만 남긴다. 시세 CSV(`kream_normalized.csv`)를
+   이 데이터로 대체하는 것은 별도 작업이다 (컬럼 매핑: 모델명/컬러웨이 분리 필요).
+4. **`__NUXT_DATA__` 구조 의존**: 프론트 개편 시 파서가 깨질 수 있다. 키 조합으로 찾는
+   방식이라 위치 변화에는 강하지만, 필드명 변화에는 깨진다 — 깨지면 `ParseError`로 드러난다.
