@@ -31,6 +31,12 @@ class BlockedError(Exception):
     """403/429 감지 시 실행 전체를 중단시키기 위한 예외."""
 
 
+# KREAM의 소프트 차단은 403이 아니라 "모든 페이지가 10초씩 걸리는 500"으로 나타난다(실측).
+# 개별 실패는 건너뛰되, 연속으로 이만큼 실패하면 차단으로 보고 전체를 중단한다 -
+# 계속 두들기면 차단만 길어지고 몇 시간을 돌아도 0건이다.
+MAX_CONSECUTIVE_FAILURES = 5
+
+
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description="KREAM 신발 시세 크롤러")
     p.add_argument("--keywords", nargs="*", default=None, help="검색 키워드 (미지정시 전체 브랜드)")
@@ -77,6 +83,7 @@ def run(argv=None) -> None:
 
     totals = {"products": 0, "trades": 0, "skipped_category": 0, "skipped_brand": 0, "failed": 0}
     collected_at = datetime.now(KST).date().isoformat()
+    consecutive_failures = 0
 
     try:
         for target in targets:
@@ -90,8 +97,12 @@ def run(argv=None) -> None:
                 # 나머지 키워드는 수집해야 한다.
                 logger.warning("[%s] 검색 실패, 다음 키워드로 넘어갑니다: %s", keyword, error)
                 totals["failed"] += 1
+                consecutive_failures += 1
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    raise BlockedError(f"연속 {consecutive_failures}회 실패 - 소프트 차단으로 판단") from error
                 polite_sleep(args)
                 continue
+            consecutive_failures = 0
             polite_sleep(args)
 
             # 신발 카테고리 + 수집 대상 브랜드만
@@ -117,8 +128,12 @@ def run(argv=None) -> None:
                     # 상품 하나가 계속 500이어도(실제로 발생) 나머지 상품은 계속 수집한다
                     logger.warning("수집 실패(product_id=%s), 건너뜀: %s", product_id, error)
                     totals["failed"] += 1
+                    consecutive_failures += 1
+                    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                        raise BlockedError(f"연속 {consecutive_failures}회 실패 - 소프트 차단으로 판단") from error
                     polite_sleep(args)
                     continue
+                consecutive_failures = 0
 
                 # 검색 결과 쪽 정보로 빈 곳을 메운다 (상세 파싱이 일부 실패해도 식별은 가능하게)
                 info["name_en"] = info.get("name_en") or item.get("name_en")
