@@ -1,18 +1,21 @@
 package com.vintic.backend.common.auth.mock;
 
-import org.springframework.context.annotation.Profile;
+import com.vintic.backend.user.repository.UserRepository;
 import org.springframework.stereotype.Component;
 
-import java.util.Set;
-
-// local profile 전용 더미 유저 목록. 실제 User 엔티티가 생기면 UserRepository.existsById()로 교체한다.
+// mock 인증(X-User-Id 헤더)이 가리키는 사용자가 실제로 존재하는지 확인한다.
+// 더미 ID 목록(1,2,3)을 하드코딩하던 것을 users 테이블 조회로 바꿨다 - 로컬 DB뿐 아니라 공유 DB를 쓰는
+// dev에서도 같은 인증이 동작해야 하는데, 하드코딩된 목록은 공유 DB의 실제 사용자와 맞지 않기 때문이다.
 @Component
-@Profile("local")
 public class MockUserRegistry {
 
-    private static final Set<Long> DUMMY_USER_IDS = Set.of(1L, 2L, 3L);
+    private final UserRepository userRepository;
+
+    public MockUserRegistry(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
 
     public boolean exists(Long userId) {
-        return DUMMY_USER_IDS.contains(userId);
+        return userRepository.existsById(userId);
     }
 }

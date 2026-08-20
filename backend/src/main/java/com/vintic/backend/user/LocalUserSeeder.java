@@ -6,9 +6,10 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-// MockUserRegistry(local profile mock auth)가 신뢰하는 더미 유저 ID(1,2,3)에 대응하는 실제 users row를
-// 보장한다. IDENTITY 채번에 의존하지 않도록 id를 직접 지정해 삽입하고, 이미 있으면 건너뛴다(멱등).
-// MockUserRegistry를 실제 인증/UserRepository 기반으로 바꾸는 작업은 이번 범위가 아니다.
+// mock 인증(X-User-Id)으로 쓰는 더미 유저 ID(1,2,3)에 대응하는 실제 users row를 보장한다.
+// MockUserRegistry가 users 테이블을 조회하므로, 이 row가 없으면 로컬에서 상품 등록/입찰이 401로 막힌다.
+// IDENTITY 채번에 의존하지 않도록 id를 직접 지정해 삽입하고, 이미 있으면 건너뛴다(멱등).
+// 공유 DB를 쓰는 dev에는 일부러 적용하지 않는다 - 팀 공용 데이터에 더미 row를 넣지 않기 위해서다.
 @Component
 @Profile("local")
 public class LocalUserSeeder implements ApplicationRunner {

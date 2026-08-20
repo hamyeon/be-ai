@@ -1,5 +1,6 @@
 package com.vintic.backend.common.exception;
 
+import com.vintic.backend.common.auth.mock.MockAuthException;
 import com.vintic.backend.common.dto.ApiResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -24,6 +25,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.fail(40001, message));
+    }
+
+    // mock 인증 실패: X-User-Id 헤더 누락/형식 오류/존재하지 않는 사용자 (401 Unauthorized)
+    @ExceptionHandler(MockAuthException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMockAuthException(MockAuthException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.fail(40101, e.getMessage()));
     }
 
     // 빈 이미지 에러 처리 (400 Bad Request)
