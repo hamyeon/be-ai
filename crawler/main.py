@@ -3,7 +3,7 @@ import time
 
 import requests
 
-from . import config, fetch, normalize, parse, storage
+from . import config, fetch, images_enrich, normalize, parse, storage
 
 
 def run() -> None:
@@ -64,6 +64,19 @@ def run() -> None:
             "duplicates_skipped": region_duplicates,
             "elapsed_seconds": round(time.monotonic() - region_started_at, 2),
         })
+
+    # 저장 전에 이미지가 1장뿐인 매물을 게시물 사진 전체로 확장한다.
+    # 인덱스 체계는 CDN HEAD 프로빙이라 싸고, 나머지는 상세 페이지를 열어야 해서
+    # 예의상 지연이 붙는다 - 그래서 검색이 끝난 뒤 한 번에 처리한다.
+    enrich_targets = [r for r in new_records if len(r.get("image_urls") or []) == 1]
+    print(f"\n이미지 확장 대상: {len(enrich_targets)}건")
+    enriched = 0
+    for index, record in enumerate(enrich_targets, start=1):
+        if images_enrich.enrich_record_images(record, session):
+            enriched += 1
+        if index % 50 == 0:
+            print(f"이미지 확장 진행 [{index}/{len(enrich_targets)}] 확장 {enriched}건")
+    print(f"이미지 확장 완료: {enriched}/{len(enrich_targets)}건이 2장 이상이 됨")
 
     storage.append_jsonl(config.RAW_JSONL_PATH, new_records)
 
