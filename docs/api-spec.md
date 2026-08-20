@@ -821,7 +821,7 @@ Vision 분석이 아직 진행 중인 경우뿐만 아니라, 이미 가격 계�
 
 특정 경매의 **입찰 이력을 페이지 단위로 조회하는 API**입니다.
 
-정렬 순서를 지정할 수 있으며, 기본값은 최신 입찰이 먼저 오는 `latest`입니다.
+입찰 이력은 정렬 순서를 지정하여 조회할 수 있으며, 기본 정렬은 최신 입찰이 먼저 조회되는 `latest`입니다.
 
 ---
 
@@ -831,19 +831,23 @@ Vision 분석이 아직 진행 중인 경우뿐만 아니라, 이미 가격 계�
 
 | 이름 | 타입 | 설명 |
 | --- | --- | --- |
-| `auctionId` | `Long` | 조회할 경매 ID |
+| `auctionId` | `Long` | 입찰 이력을 조회할 경매 ID |
 
 ### Request Parameter
 
 | 이름 | 타입 | 기본값 | 설명 |
 | --- | --- | --- | --- |
-| `page` | `int` | `0` | 조회할 페이지 번호 (0부터 시작) |
-| `size` | `int` | `20` | 한 페이지에 포함할 입찰 수 |
+| `page` | `int` | `0` | 조회할 페이지 번호. `0`부터 시작 |
+| `size` | `int` | `20` | 한 페이지에 포함할 입찰 이력 수 |
 | `order` | `String` | `latest` | 정렬 순서. `latest`(최신순) / `oldest`(오래된순) |
 
-```
+### Request Example
+
+```http
 GET /api/auctions/1/bids?page=0&size=20&order=latest
 ```
+
+`order=latest`인 경우 최근 입찰부터 조회되며, `order=oldest`인 경우 오래된 입찰부터 조회됩니다. `oldest` 외의 값이 전달되면 오류 없이 `latest`로 처리됩니다.
 
 ---
 
@@ -852,6 +856,8 @@ GET /api/auctions/1/bids?page=0&size=20&order=latest
 ### Success ✅
 
 ### 200 OK - 입찰 이력 조회 성공
+
+요청한 경매의 입찰 이력을 지정한 페이지와 정렬 조건에 따라 반환합니다.
 
 ```json
 {
@@ -881,30 +887,42 @@ GET /api/auctions/1/bids?page=0&size=20&order=latest
 }
 ```
 
+---
+
 ### 응답 필드 설명
 
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
-| `bids` | 객체 배열 | 입찰 이력 목록 |
-| `page` | `int` | 요청한 페이지 번호 |
+| `bids` | 객체 배열 | 해당 페이지에 포함된 입찰 이력 목록 |
+| `page` | `int` | 현재 조회한 페이지 번호 |
 | `size` | `int` | 요청한 페이지 크기 |
-| `hasNext` | `boolean` | 다음 페이지 존재 여부 |
+| `hasNext` | `boolean` | 다음 페이지가 존재하는지 여부 |
 
 ### `bids` 객체
 
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
 | `bidId` | `Long` | 입찰 ID |
-| `bidderId` | `Long` | 입찰자 ID |
-| `amount` | `Long` | 입찰 금액 |
-| `bidType` | `String` | 입찰 유형. `MANUAL`(직접 입찰) / `AUTO`(자동 입찰) |
-| `bidAt` | `LocalDateTime` | 입찰 시각 |
+| `bidderId` | `Long` | 입찰을 수행한 사용자 ID |
+| `amount` | `Long` | 해당 입찰 금액 |
+| `bidType` | `String` | 입찰 유형. `MANUAL`(직접 입찰) / `AUTO`(자동 입찰). 자동 입찰 기능은 아직 구현 전이라 현재는 `MANUAL`만 반환됩니다 |
+| `bidAt` | `LocalDateTime` | 입찰이 등록된 시각 |
+
+`hasNext`가 `true`인 경우 다음 페이지가 존재하므로 `page` 값을 1 증가시켜 추가 입찰 이력을 조회할 수 있습니다.
+
+예를 들어 현재 응답이 `page: 0`, `hasNext: true`인 경우 다음 요청은 다음과 같습니다.
+
+```http
+GET /api/auctions/1/bids?page=1&size=20&order=latest
+```
 
 ---
 
 ### Failure ❌
 
 ### 404 Not Found - 존재하지 않는 경매
+
+요청한 `auctionId`에 해당하는 경매가 존재하지 않는 경우 반환됩니다.
 
 ```json
 {
