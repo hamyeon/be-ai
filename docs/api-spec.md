@@ -654,7 +654,9 @@ API 요청 자체는 정상적으로 처리되었으므로 `200 OK`가 반환되
 
 해당 분석 세션의 현재 상태가 `AWAITING_USER_CONFIRMATION`이 아닌 경우 반환됩니다.
 
-Vision 분석이 아직 진행 중이거나, 이미 가격 계산을 완료한 세션(`COMPLETED`)으로 다시 요청한 경우가 여기에 해당합니다.
+Vision 분석이 아직 진행 중인 경우뿐만 아니라, 이미 가격 계산이 완료되어 `COMPLETED` 상태가 된 세션으로 다시 가격 계산을 요청하는 경우도 포함됩니다.
+
+예를 들어 현재 세션이 `VISION_PROCESSING` 상태인 경우 다음과 같이 반환됩니다.
 
 ```json
 {
@@ -667,7 +669,22 @@ Vision 분석이 아직 진행 중이거나, 이미 가격 계산을 완료한 �
 }
 ```
 
-가격 계산은 `AWAITING_USER_CONFIRMATION` 상태에서만, 분석 세션당 1회만 요청할 수 있습니다. 사용자가 상품 상태 등급이나 구성품 상태를 수정해 다시 계산하려면 `POST /api/products/analyze`부터 새 분석 세션을 생성해야 합니다.
+이미 가격 계산이 완료된 세션으로 다시 요청하는 경우에는 현재 상태가 `COMPLETED`로 반환됩니다.
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": 40003,
+    "message": "가격 계산을 요청할 수 없는 분석 상태입니다. 현재 상태: COMPLETED"
+  }
+}
+```
+
+가격 계산은 `AWAITING_USER_CONFIRMATION` 상태에서만 **분석 세션당 1회** 요청할 수 있습니다.
+
+가격 계산이 완료된 이후 사용자가 상품 상태 등급이나 구성품 상태 등을 변경하여 다시 가격을 계산하려는 경우에는 기존 `analysisId`를 재사용할 수 없으며, `POST /api/products/analyze`부터 새로운 분석 세션을 생성해야 합니다.
 
 ---
 
