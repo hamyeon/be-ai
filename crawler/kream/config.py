@@ -15,10 +15,17 @@ USER_AGENT = (
 # robots.txt(2026-08 확인): User-agent: * 에 Allow: / 이고, 금지는 개인 페이지(/my*, /history*)뿐.
 # 검색/상품 페이지는 로그인 없이 서버 렌더링으로 내려오며, 여기서 쓰는 URL은 전부 허용 범위다.
 
-REQUEST_DELAY_MIN_SECONDS = 2.0
-REQUEST_DELAY_MAX_SECONDS = 5.0
+# 실측(2026-08-20): KREAM은 짧은 버스트(요청 15개 안팎)만 허용하고 그 뒤로는 한동안
+# 전부 500을 반환한다(토큰 버킷식 속도 제한). 2~5초 간격은 한도를 너무 빨리 소진해
+# 상품 4~5개마다 냉각 구간에 부딪혔다. 간격을 늘리는 쪽이 결과적으로 더 빨리 끝난다.
+REQUEST_DELAY_MIN_SECONDS = 10.0
+REQUEST_DELAY_MAX_SECONDS = 20.0
 REQUEST_TIMEOUT_SECONDS = 15
 MAX_RETRIES = 2
+
+# 상품 하나가 재시도까지 전부 실패하면 냉각 구간에 들어갔다는 뜻이다.
+# 바로 다음 요청을 보내면 연속 실패만 쌓이므로, 한도가 다시 차기를 기다린다.
+FAILURE_COOLDOWN_SECONDS = 120
 
 MAX_PRODUCTS_PER_KEYWORD_DEFAULT = 20
 

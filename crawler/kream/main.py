@@ -4,7 +4,7 @@
 상품 정보 + 이미지 + 체결 거래(사이즈/가격/시각)를 수집한다.
 
 robots.txt(User-agent: * Allow: /, 개인 페이지만 금지) 범위 안의 공개 페이지만 읽고,
-로그인/비공개 API 호출 없이 서버 렌더링 HTML만 파싱한다. 요청 간 2~5초 랜덤 지연.
+로그인/비공개 API 호출 없이 서버 렌더링 HTML만 파싱한다.
 
 실행:
     python -m crawler.kream.main                          # 전체 키워드
@@ -130,8 +130,13 @@ def run(argv=None) -> None:
                     totals["failed"] += 1
                     consecutive_failures += 1
                     if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                        # 키워드 중간에 멈추면 배치가 저장 전이라 유실된다 - 저장하고 중단한다
+                        totals["products"] += storage.save_products(products_batch)
+                        totals["trades"] += storage.save_trades(trades_batch)
                         raise BlockedError(f"연속 {consecutive_failures}회 실패 - 소프트 차단으로 판단") from error
-                    polite_sleep(args)
+                    # 재시도 소진 = 냉각 구간 진입. 한도가 다시 차기를 기다린다
+                    logger.info("냉각 대기 %d초", config.FAILURE_COOLDOWN_SECONDS)
+                    time.sleep(config.FAILURE_COOLDOWN_SECONDS)
                     continue
                 consecutive_failures = 0
 
