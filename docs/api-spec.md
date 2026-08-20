@@ -943,13 +943,22 @@ GET /api/auctions/1/bids?page=1&size=20&order=latest
 
 `POST /api/auctions/{auctionId}/bids`
 
-진행 중인 경매에 **직접 입찰하는 API**입니다.
+진행 중인 경매에 **직접 입찰을 등록하는 API**입니다.
 
-입찰 금액은 `현재가(currentPrice) + 입찰 단위(bidIncrement)` 이상이어야 하며, 입찰에 성공하면 경매의 현재가와 최고입찰자가 갱신됩니다.
+입찰 금액은 반드시 아래 최소 입찰 금액 이상이어야 합니다.
 
-이 문서에서 **유일하게 `X-User-Id` 헤더가 필요한 API**입니다. 누가 입찰하는지 식별해야 하기 때문입니다.
+```text
+최소 입찰 금액 = currentPrice + bidIncrement
+```
 
-입찰 가능 여부는 경매의 `status` 값으로만 판단합니다. 경매 상태를 시각에 따라 자동 전환하는 기능은 아직 구현 전이므로, `startAt`이 지났더라도 상태가 `SCHEDULED`이면 입찰할 수 없고 반대로 `endAt`이 지났더라도 상태가 `LIVE`이면 입찰이 처리됩니다.
+입찰에 성공하면 새로운 입찰 이력이 생성되고, 해당 경매의 `currentPrice`와 `currentWinnerId`가 갱신됩니다.
+
+이 문서에서 **`X-User-Id` 헤더가 필요한 API**이며, 해당 헤더를 통해 입찰자를 식별합니다.
+
+현재 입찰 가능 여부는 경매의 `status` 값을 기준으로 판단합니다. 경매 상태를 `startAt`, `endAt` 시각에 따라 자동으로 변경하는 기능은 아직 구현되어 있지 않으므로 다음과 같이 동작합니다.
+
+- `startAt`이 지났더라도 `status`가 `SCHEDULED`이면 입찰할 수 없습니다.
+- `endAt`이 지났더라도 `status`가 `LIVE`이면 현재 구현상 입찰이 처리됩니다.
 
 ---
 
@@ -968,7 +977,9 @@ Content-Type: application/json
 X-User-Id: 2
 ```
 
-`X-User-Id`는 입찰자를 식별하는 mock 인증 헤더입니다. `users` 테이블에 존재하는 사용자 ID여야 합니다.
+`X-User-Id`는 현재 입찰자를 식별하기 위해 사용하는 mock 인증 헤더입니다.
+
+전달한 값은 `users` 테이블에 실제로 존재하는 사용자 ID여야 합니다.
 
 ### Request Body
 
@@ -978,9 +989,21 @@ X-User-Id: 2
 }
 ```
 
+### Request Body 필드 설명
+
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
-| `amount` | `Long` | 입찰 금액. 필수이며 0보다 커야 합니다 |
+| `amount` | `Long` | 사용자가 제출할 입찰 금액. 필수값이며 `0`보다 커야 함 |
+
+또한 실제 입찰이 처리되기 위해서는 다음 조건을 만족해야 합니다.
+
+```text
+amount >= currentPrice + bidIncrement
+```
+
+예를 들어 `currentPrice`가 `26,000원`, `bidIncrement`가 `1,000원`이라면 최소 `27,000원` 이상을 입찰해야 합니다.
+
+입찰이 아직 한 건도 없는 경우에는 `currentPrice = startPrice`이므로, **첫 입찰 역시 `startPrice + bidIncrement` 이상**이어야 합니다.
 
 ---
 
@@ -989,6 +1012,8 @@ X-User-Id: 2
 ### Success ✅
 
 ### 201 Created - 입찰 성공
+
+입찰이 정상적으로 등록되면 새로 생성된 입찰 정보와 입찰 반영 후 경매 상태를 반환합니다.
 
 ```json
 {
@@ -1009,12 +1034,12 @@ X-User-Id: 2
 
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
-| `bidId` | `Long` | 생성된 입찰 ID |
-| `auctionId` | `Long` | 입찰한 경매 ID |
-| `submittedAmount` | `Long` | 사용자가 제출한 입찰 금액 |
-| `currentPrice` | `Long` | 입찰 반영 후 경매 현재가 |
-| `currentWinnerId` | `Long` | 입찰 반영 후 최고입찰자 ID |
-| `bidAt` | `LocalDateTime` | 입찰 시각 |
+| `bidId` | `Long` | 새로 생성된 입찰 ID |
+| `auctionId` | `Long` | 입찰이 등록된 경매 ID |
+| `submittedAmount` | `Long` | 사용자가 실제 제출한 입찰 금액 |
+| `currentPrice` | `Long` | 해당 입찰이 반영된 이후의 경매 현재가 |
+| `currentWinnerId` | `Long` | 입찰 반영 이후 현재 최고입찰자 ID |
+| `bidAt` | `LocalDateTime` | 입찰이 등록된 시각 |
 
 ---
 
@@ -1022,7 +1047,9 @@ X-User-Id: 2
 
 ### 400 Bad Request - 입찰 금액 누락 또는 형식 오류
 
-`amount`가 없거나 0 이하인 경우 반환됩니다. 메시지는 Bean Validation 기본 메시지가 그대로 전달됩니다.
+`amount`가 누락되거나 유효성 검증 조건을 만족하지 않는 경우 반환됩니다.
+
+현재 Bean Validation의 기본 메시지를 그대로 반환합니다.
 
 ```json
 {
@@ -1037,7 +1064,11 @@ X-User-Id: 2
 
 ---
 
-### 401 Unauthorized - 인증 헤더 누락 또는 존재하지 않는 사용자
+### 401 Unauthorized - 인증 헤더 누락 또는 사용자 확인 실패
+
+`X-User-Id` 헤더가 없거나, 올바른 사용자 ID로 해석할 수 없거나, 해당 사용자가 존재하지 않는 경우 반환됩니다.
+
+#### `X-User-Id` 헤더 누락
 
 ```json
 {
@@ -1050,11 +1081,16 @@ X-User-Id: 2
 }
 ```
 
-`X-User-Id 헤더 형식이 올바르지 않습니다: abc`, `존재하지 않는 사용자입니다: 999`도 같은 코드로 반환됩니다.
+다음 경우에도 동일한 오류 코드 `40101`이 사용됩니다.
+
+- 잘못된 헤더 형식 — `X-User-Id 헤더 형식이 올바르지 않습니다: abc`
+- 존재하지 않는 사용자 — `존재하지 않는 사용자입니다: 999`
 
 ---
 
 ### 403 Forbidden - 판매자 본인 입찰
+
+경매 판매자가 자신의 경매에 직접 입찰하려는 경우 반환됩니다.
 
 ```json
 {
@@ -1071,7 +1107,7 @@ X-User-Id: 2
 
 ### 403 Forbidden - 입찰 제한 기간 중인 사용자
 
-입찰 제한이 걸린 사용자(사용자의 `bidRestrictedUntil` 시각이 아직 지나지 않은 경우)가 입찰을 시도하면 반환됩니다.
+사용자의 `bidRestrictedUntil` 시각이 아직 지나지 않아 입찰 제한 상태인 경우 반환됩니다.
 
 ```json
 {
@@ -1088,6 +1124,8 @@ X-User-Id: 2
 
 ### 404 Not Found - 존재하지 않는 경매
 
+요청한 `auctionId`에 해당하는 경매가 존재하지 않는 경우 반환됩니다.
+
 ```json
 {
   "success": false,
@@ -1103,7 +1141,7 @@ X-User-Id: 2
 
 ### 409 Conflict - 이미 현재 최고입찰자
 
-현재 최고입찰자가 추가로 직접 입찰을 시도한 경우 반환됩니다.
+현재 최고입찰자인 사용자가 같은 경매에 추가로 직접 입찰하려는 경우 반환됩니다.
 
 ```json
 {
@@ -1120,6 +1158,8 @@ X-User-Id: 2
 
 ### 409 Conflict - 아직 시작되지 않은 경매
 
+경매의 현재 `status`가 `SCHEDULED`인 경우 반환됩니다.
+
 ```json
 {
   "success": false,
@@ -1131,9 +1171,13 @@ X-User-Id: 2
 }
 ```
 
+현재 구현에서는 실제 현재 시각과 `startAt`을 직접 비교하여 입찰 가능 여부를 판단하는 것이 아니라, **경매의 `status` 값을 기준으로 판단합니다.**
+
 ---
 
 ### 409 Conflict - 종료되었거나 취소된 경매
+
+경매 상태가 `ENDED` 또는 `CANCELED`인 경우 반환됩니다.
 
 ```json
 {
@@ -1150,7 +1194,7 @@ X-User-Id: 2
 
 ### 409 Conflict - 최소 입찰 금액 미만
 
-입찰 금액이 `현재가 + 입찰 단위`보다 작은 경우 반환됩니다.
+사용자가 제출한 `amount`가 `currentPrice + bidIncrement`보다 작은 경우 반환됩니다.
 
 ```json
 {
@@ -1163,4 +1207,22 @@ X-User-Id: 2
 }
 ```
 
-공통 응답 DTO를 적용하여 모든 응답을 `success`, `data`, `error` 형식으로 반환합니다. 입찰 성공 시에는 `201 Created`를 반환하며, 경매 상태·입찰 자격·입찰 금액에 따른 실패는 각각 `4xx`와 세부 오류 코드로 구분됩니다.
+최소 입찰 금액은 다음과 같이 계산됩니다.
+
+```text
+minimumBidAmount = currentPrice + bidIncrement
+```
+
+입찰이 없는 초기 상태에서도 `currentPrice`는 `startPrice`와 같으므로, **첫 입찰 역시 `startPrice`가 아니라 `startPrice + bidIncrement` 이상이어야 합니다.**
+
+---
+
+공통 응답 DTO를 적용하여 모든 응답을 `success`, `data`, `error` 형식으로 반환합니다.
+
+입찰 성공 시에는 `201 Created`를 반환하며, 실패한 경우 원인에 따라 다음과 같이 구분됩니다.
+
+- 요청값 검증 실패 → `400 Bad Request`
+- 사용자 인증/식별 실패 → `401 Unauthorized`
+- 입찰 자격 제한 → `403 Forbidden`
+- 경매 미존재 → `404 Not Found`
+- 경매 상태 또는 입찰 조건 충돌 → `409 Conflict`
