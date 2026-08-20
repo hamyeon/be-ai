@@ -187,11 +187,9 @@ pessimistic lock 등 비교 실험은 이 표의 값을 그대로 사용한다.
 
 ## Baseline Git Reference
 
-```text
-branch: experiment/no-lock
-tag: exp/baseline-no-lock (아직 생성 안 함)
-commit hash: (커밋/태그 생성 후 기록 — 아직 커밋 안 함)
-```
+- Branch: `experiment/no-lock`
+- Tag: `exp/baseline-no-lock`
+- Baseline commit: `5bfe881e48f5400b3279c3d04b4191e427742381`
 
 ## Limitations
 
