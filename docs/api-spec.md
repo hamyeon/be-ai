@@ -711,18 +711,26 @@ Vision 분석이 아직 진행 중인 경우뿐만 아니라, 이미 가격 계�
 
 `GET /api/auctions/{auctionId}`
 
-경매 ID로 **경매 상세 정보를 조회하는 API**입니다.
+경매 ID를 이용하여 **특정 경매의 상세 정보를 조회하는 API**입니다.
 
-시작가, 현재가, 입찰 단위, 경매 기간, 경매 상태, 총 입찰 수 등 경매 상세 화면을 구성하는 데 필요한 정보를 반환합니다.
+경매 시작가, 현재가, 입찰 단위, 경매 시작·종료 시각, 현재 상태, 총 입찰 수 등 경매 상세 화면을 구성하는 데 필요한 정보를 반환합니다.
 
-다음 최소 입찰 금액은 `currentPrice + bidIncrement`로 계산합니다.
+다음 최소 입찰 금액은 아래와 같이 계산합니다.
+
+```text
+다음 최소 입찰가 = currentPrice + bidIncrement
+```
+
+예를 들어 현재가가 `26,000원`이고 입찰 단위가 `1,000원`인 경우, 다음 최소 입찰가는 `27,000원`입니다.
+
+---
 
 ## 경매 상태(status)
 
 | status | 의미 |
 | --- | --- |
 | `SCHEDULED` | 아직 시작되지 않은 경매 |
-| `LIVE` | 진행 중인 경매. 입찰 가능 |
+| `LIVE` | 현재 진행 중이며 입찰이 가능한 경매 |
 | `ENDED` | 종료된 경매 |
 | `CANCELED` | 취소된 경매 |
 
@@ -744,6 +752,8 @@ Vision 분석이 아직 진행 중인 경우뿐만 아니라, 이미 가격 계�
 
 ### 200 OK - 경매 상세 조회 성공
 
+요청한 `auctionId`에 해당하는 경매가 존재하는 경우 경매 상세 정보를 반환합니다.
+
 ```json
 {
   "success": true,
@@ -764,27 +774,31 @@ Vision 분석이 아직 진행 중인 경우뿐만 아니라, 이미 가격 계�
 }
 ```
 
+---
+
 ### 응답 필드 설명
 
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
 | `id` | `Long` | 경매 ID |
 | `productId` | `Long` | 경매 대상 상품 ID |
-| `sellerId` | `Long` | 판매자 ID |
-| `currentWinnerId` | `Long` | 현재 최고입찰자 ID. 입찰이 없으면 `null` |
-| `startPrice` | `Long` | 경매 시작가 |
-| `currentPrice` | `Long` | 현재가 |
-| `bidIncrement` | `Long` | 입찰 단위. 다음 최소 입찰가는 `currentPrice + bidIncrement` |
+| `sellerId` | `Long` | 경매 상품을 등록한 판매자 ID |
+| `currentWinnerId` | `Long` | 현재 최고 입찰자 ID. 아직 입찰이 없는 경우 `null` |
+| `startPrice` | `Long` | 경매 시작 가격 |
+| `currentPrice` | `Long` | 현재가. 입찰이 있으면 최고 입찰가이고, 아직 입찰이 없으면 `startPrice`와 같은 값 |
+| `bidIncrement` | `Long` | 최소 입찰 증가 단위. 다음 최소 입찰가는 `currentPrice + bidIncrement` |
 | `startAt` | `LocalDateTime` | 경매 시작 시각 |
 | `endAt` | `LocalDateTime` | 경매 종료 시각 |
-| `status` | `String` | 경매 상태 (`SCHEDULED` / `LIVE` / `ENDED` / `CANCELED`) |
-| `bidCount` | `Long` | 해당 경매의 총 입찰 수 |
+| `status` | `String` | 현재 경매 상태 (`SCHEDULED` / `LIVE` / `ENDED` / `CANCELED`) |
+| `bidCount` | `Long` | 해당 경매에 등록된 총 입찰 수 |
 
 ---
 
 ### Failure ❌
 
 ### 404 Not Found - 존재하지 않는 경매
+
+요청한 `auctionId`에 해당하는 경매가 존재하지 않는 경우 반환됩니다.
 
 ```json
 {
