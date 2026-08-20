@@ -3,7 +3,7 @@ import time
 
 import requests
 
-from . import config, fetch, images_enrich, normalize, parse, storage
+from . import config, fetch, normalize, parse, storage
 
 
 def run() -> None:
@@ -65,20 +65,16 @@ def run() -> None:
             "elapsed_seconds": round(time.monotonic() - region_started_at, 2),
         })
 
-    # 저장 전에 이미지가 1장뿐인 매물을 게시물 사진 전체로 확장한다.
-    # 인덱스 체계는 CDN HEAD 프로빙이라 싸고, 나머지는 상세 페이지를 열어야 해서
-    # 예의상 지연이 붙는다 - 그래서 검색이 끝난 뒤 한 번에 처리한다.
-    enrich_targets = [r for r in new_records if len(r.get("image_urls") or []) == 1]
-    print(f"\n이미지 확장 대상: {len(enrich_targets)}건")
-    enriched = 0
-    for index, record in enumerate(enrich_targets, start=1):
-        if images_enrich.enrich_record_images(record, session):
-            enriched += 1
-        if index % 50 == 0:
-            print(f"이미지 확장 진행 [{index}/{len(enrich_targets)}] 확장 {enriched}건")
-    print(f"이미지 확장 완료: {enriched}/{len(enrich_targets)}건이 2장 이상이 됨")
-
+    # 이미지 확장(게시물 사진 전체 수집)은 여기서 하지 않는다.
+    # 신규 매물이 수만 건이면 확장에 몇 시간이 걸리는데, 저장 전에 하면 그동안 전부
+    # 메모리에만 있어 중단 시 유실된다(실측: 신규 19,207건 = 약 10시간 분량).
+    # 먼저 저장하고, 확장은 중단해도 재개되는 백필로 처리한다.
     storage.append_jsonl(config.RAW_JSONL_PATH, new_records)
+    single_image = sum(1 for r in new_records if len(r.get("image_urls") or []) == 1)
+    print(f"\n이미지가 1장뿐인 신규 매물: {single_image}건")
+    print("게시물 사진 전체로 확장하려면:")
+    print("  python -m crawler.backfill_multi_images    # _N 인덱스 체계 (HEAD 프로빙, 빠름)")
+    print("  python -m crawler.backfill_detail_images   # 나머지 (상세 페이지, 오래 걸림)")
 
     new_count = len(new_records)
     missing_brand = sum(1 for r in new_records if r["brand_guess"] is None)

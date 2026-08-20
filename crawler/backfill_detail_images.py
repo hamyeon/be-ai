@@ -19,6 +19,13 @@ import requests
 from . import config, images_enrich, multi_images
 
 
+def _flush(records) -> None:
+    with config.RAW_JSONL_PATH.open("w", encoding="utf-8") as f:
+        for record in records:
+            f.write(json.dumps(record, ensure_ascii=False))
+            f.write("\n")
+
+
 def run(limit=None) -> None:
     records = []
     with config.RAW_JSONL_PATH.open("r", encoding="utf-8") as f:
@@ -48,11 +55,11 @@ def run(limit=None) -> None:
         if index % 50 == 0:
             elapsed = time.monotonic() - started_at
             print(f"  [{index}/{len(candidates)}] 확장 {expanded}건, 경과 {elapsed:.0f}초")
+        # 몇 시간짜리 실행이 중간에 죽어도 진행분이 남도록 주기적으로 저장한다
+        if index % 200 == 0:
+            _flush(records)
 
-    with config.RAW_JSONL_PATH.open("w", encoding="utf-8") as f:
-        for record in records:
-            f.write(json.dumps(record, ensure_ascii=False))
-            f.write("\n")
+    _flush(records)
 
     counts = [len(r.get("image_urls") or []) for r in records]
     print("\n--- 상세 페이지 이미지 백필 결과 ---")
