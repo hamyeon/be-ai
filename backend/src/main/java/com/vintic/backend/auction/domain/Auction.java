@@ -20,7 +20,6 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-import jakarta.persistence.Version;
 
 import java.time.LocalDateTime;
 
@@ -68,9 +67,6 @@ public class Auction {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private AuctionStatus status;
-
-    @Version
-    private Long version;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -206,10 +202,6 @@ public class Auction {
 
     public AuctionStatus getStatus() {
         return status;
-    }
-
-    public Long getVersion() {
-        return version;
     }
 
     public LocalDateTime getCreatedAt() {
