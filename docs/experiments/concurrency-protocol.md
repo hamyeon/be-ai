@@ -114,38 +114,101 @@ concurrency harness는 그 위에 "동시 실행 후 상태가 여전히 일관�
 ## Pilot Procedure
 
 1. `setting/#33-concurrency-baseline`에서 harness 자체가 정상 동작하는지 확인
-   (`Auction.@Version` 유지 상태, `ManualBidConcurrencyRaceIT`).
-2. `experiment/no-lock`에서 `Auction.@Version` 제거 후 동일 harness로 3~5회 파일럿 실행.
-3. 매 파일럿에서 조정 가능: worker/thread count, bidder count, delay, bid amount workload.
-4. 조정 불가(고정): 입찰 비즈니스 로직, transaction 구조, Idempotency 로직, DB isolation level,
-   repository 구현, `Auction` 상태 변경 로직, invariant/assertion 기준.
-5. `invariantViolated=true`(post-state invariant 위반)가 최소 1회 이상 나오는 조건을 찾으면
-   그 workload를 §Frozen Main Experiment Conditions에 고정한다.
+   (`Auction.@Version` 유지 상태, `ManualBidConcurrencyRaceIT`) — 완료.
+2. `experiment/no-lock`에서 `Auction.@Version` 제거 후 동일 harness로 파일럿 실행 — 완료.
+3. 1차 탐색은 한 번에 한 변수씩 escalation: `(workers=3,delay=200)` →
+   `(3,500)` → `(8,500)` → `(8,1000)` → `(10,1000)`. `(8,1000)`에서만 위반 재현(1/1).
+4. 재현성 확인을 위해 `(workers=8, delay=1000)`을 동일 조건으로 5회 반복 — 2/5 위반.
+5. 조정 불가(고정)로 유지: 입찰 비즈니스 로직, transaction 구조, Idempotency 로직, DB isolation
+   level, repository 구현, `Auction` 상태 변경 로직, invariant/assertion 기준.
+
+## Pilot Results
+
+### 1차 탐색 (한 변수씩 escalation)
+
+| Pilot | Workers | Delay(ms) | Success | Failure | Persisted Bids | Actual Max Bid | Auction.currentPrice | Invariant Violation | 주요 결과 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| 1 | 3 | 200 | 1 | 2 | 1 | 15000 | 15000 | No | 정상 — 1건만 성공, 나머지 deadlock |
+| 2 | 3 | 500 | 1 | 2 | 1 | 25000 | 25000 | No | 정상 |
+| 3 | 8 | 500 | 2 | 6 | 2 | 45000 | 45000 | No | 2건 성공, currentPrice가 실제 최고 Bid와 일치(위반 없음) |
+| 4 | 8 | 1000 | 2 | 6 | 2 | 50000 | 30000 | **Yes** | PRICE_MISMATCH / WINNER_MISMATCH / LOST_UPDATE |
+| 5 | 10 | 1000 | 1 | 9 | 1 | 25000 | 25000 | No | 정상 — 1건만 성공 |
+
+### 재현성 확인 (workers=8, delay=1000ms 고정, 5회 반복)
+
+| Pilot | Success | Failure | Persisted Bids | Actual Max Bid | Auction.currentPrice | Invariant Violation | 주요 결과 |
+|---:|---:|---:|---:|---:|---:|---|---|
+| 1 | 1 | 7 | 1 | 45000 | 45000 | No | 정상 |
+| 2 | 1 | 7 | 1 | 45000 | 45000 | No | 정상 |
+| 3 | 2 | 6 | 2 | 45000 | 20000 | **Yes** | PRICE_MISMATCH / WINNER_MISMATCH / LOST_UPDATE |
+| 4 | 1 | 7 | 1 | 40000 | 40000 | No | 정상 |
+| 5 | 3 | 5 | 3 | 35000 | 30000 | **Yes** | PRICE_MISMATCH / WINNER_MISMATCH / LOST_UPDATE |
+
+**동일한 통제된 파일럿 조건(workers=8, delay=1000ms) 5회 중 2회에서 invariant violation 관찰.**
+이 수치를 운영 환경의 race 발생 확률이나 no-lock failure rate로 표현하지 않는다 — §Limitations 참고.
+
+`SUCCESS_COUNT_MISMATCH`(성공 보고 수와 persisted Bid 수 불일치)는 5회 전부 발생하지 않았다 —
+deadlock으로 롤백된 트랜잭션의 Bid insert도 정확히 함께 롤백된다는 뜻이다(ACID 자체는 깨지지
+않음). violation이 관찰된 두 run 모두, `@Version`이 제거되어 `UPDATE auctions ...`에
+버전 조건이 없는 상태에서 여러 트랜잭션이 같은 stale 상태를 읽고 각자 커밋에 성공했고, 그
+결과 `Auction.currentPrice`가 실제 persisted 최고 Bid보다 낮게 남았다 — **어느 트랜잭션이
+실제로 몇 번째로 commit됐는지는 로그로 특정하지 않았으므로, "나중에 커밋한 트랜잭션이 이전
+값을 덮어썼다"를 확정 사실로 서술하지 않는다.** 확인된 사실은 (1) stale read가 발생했고
+(2) 버전 조건 없는 UPDATE라 lost update가 구조적으로 가능했으며 (3) 관찰된 최종 상태가 이
+가능성과 부합한다는 것이다.
 
 ## Frozen Main Experiment Conditions
 
-*(no-lock 파일럿 완료 후 `experiment/no-lock`에서 채운다. 이 브랜치(`setting/#33-concurrency-baseline`)
-단계에서는 harness 검증만 수행했고 아직 freeze되지 않았다.)*
-
 ```text
-threads:
-bidders:
-initial auction price:
-bid amounts:
-test delay:
+MySQL version: 8.4.10 (Testcontainers mysql:8.4)
+transaction isolation: REPEATABLE-READ
+Spring Boot instances: 1
+Hikari maximumPoolSize: 20 (실험 전용 고정값)
+
+worker count: 8
+bidder count: 8 (1 thread = 1 bidder)
+delayMillis: 1000
+
+initial auction price(startPrice): 10000
+bidIncrement: 5000
+bid amounts: 15000, 20000, 25000, 30000, 35000, 40000, 45000, 50000 (worker i → 15000 + i*5000)
+
+DB reset method: run마다 새 Auction/Product/User row 생성(§DB Reset Method)
+concurrency start mechanism: CountDownLatch(ready N + start 1) — §Synchronization Method
+
+관찰 결과: 동일한 통제된 파일럿 조건 5회 중 2회에서 post-state invariant violation 관찰
+(운영 환경 race 발생 확률이나 no-lock failure rate로 해석하지 않는다 — §Limitations 참고)
 ```
+
+이 조건은 **frozen no-lock baseline으로 확정**되었다. worker/bidder 수, delay, bid amount,
+initialPrice, bidIncrement, Hikari maximumPoolSize, MySQL version, isolation level, application
+instance count, DB reset 방식, CountDownLatch 구조 — 전부 더 이상 변경하지 않는다. 이후
+pessimistic lock 등 비교 실험은 이 표의 값을 그대로 사용한다.
 
 ## Baseline Git Reference
 
 ```text
 branch: experiment/no-lock
-tag: exp/baseline-no-lock
-commit hash: (tag 생성 후 기록)
+tag: exp/baseline-no-lock (아직 생성 안 함)
+commit hash: (커밋/태그 생성 후 기록 — 아직 커밋 안 함)
 ```
 
 ## Limitations
 
-- Test-only delay는 운영 환경의 실제 race 발생 확률을 나타내지 않는다(§Test-only Delay 한계 참고).
+- **Test-only delay는 운영 환경에서의 실제 race 발생 확률을 측정하는 장치가 아니다.** 이 실험은
+  race window를 의도적으로 확대해 correctness failure가 "가능한지"를 재현하는 실험이다.
+- **"동일한 통제된 파일럿 조건 5회 중 2회에서 invariant violation 관찰"은 운영 환경의 실제
+  race 발생 확률이나 no-lock failure rate가 아니다.** 백분율(%)이나 "재현율"로 환산해
+  운영 발생 가능성처럼 표현하지 않는다. delay=1000ms는 운영 트래픽에서 절대 발생하지 않을
+  인위적인 read-modify-write 창이며, 이 수치는 오직 "이 통제된 조건에서 harness가 위반을
+  재현할 수 있는가"만을 의미한다.
+- **MySQL/InnoDB 자체의 내부 lock은 여전히 존재한다.** 관찰된 `CannotAcquireLockException`
+  (MySQL 1213 Deadlock)이 그 증거이며, no-lock 결과의 일부로 그대로 기록한다(삭제·무시하지
+  않음) — 다만 이것은 **correctness violation과는 별도의 contention/failure 지표**다.
+  실패한 트랜잭션은 Bid insert까지 포함해 전부 롤백되므로 그 자체가 데이터 정합성을 깨지는
+  않는다. "no-lock"은 InnoDB 엔진 레벨 락까지 없앤다는 뜻이 아니라 application-level
+  (`@Version`, `@Lock`, `SELECT FOR UPDATE`, 분산 락 등) concurrency-control strategy가
+  없다는 의미다.
 - 이 harness는 HTTP/Controller 계층을 거치지 않고 `ManualBidService`를 직접 호출한다 — Controller의
   헤더 파싱/인증 로직은 동시성 실험과 무관해서 제외했다(#32 `ManualBidIdempotencyMySqlIT`는 반대로
   HTTP 전 구간을 검증하는 것이 목적이라 방식이 다르다).
@@ -153,5 +216,7 @@ commit hash: (tag 생성 후 기록)
   2명으로 제한된다. 이 harness가 서비스 레이어를 직접 호출하는 이유 중 하나이기도 하다.
 - Spring Boot instance count는 1로 전제했다 — 다중 인스턴스(로드밸런싱) 환경에서의 경쟁은
   이번 범위가 아니다.
-- `setting/#33-concurrency-baseline` 단계의 파일럿 결과(§Pilot Procedure 1번)는 `@Version`이
-  살아있는 상태에서 나온 것이라 no-lock 결과가 아니다 — harness 정상 동작 확인 용도로만 사용한다.
+- `setting/#33-concurrency-baseline` 단계의 파일럿 결과는 `@Version`이 살아있는 상태에서 나온
+  것이라 no-lock 결과가 아니다 — harness 정상 동작 확인 용도로만 사용했다.
+- correctness violation의 정확한 원인(어느 트랜잭션이 몇 번째로 commit됐는지)은 commit 순서를
+  로그로 특정하지 않아 확정 사실로 서술하지 않는다 — §Pilot Results의 원인 서술 참고.

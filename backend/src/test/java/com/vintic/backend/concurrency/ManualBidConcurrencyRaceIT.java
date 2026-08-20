@@ -42,17 +42,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 /**
  * #33 no-lock 실험 baseline harness.
  *
- * 이 브랜치(setting/#33-concurrency-baseline)에서는 Auction.@Version이 그대로 남아있어,
- * 아래 파일럿 실행 시 낙관적 락 충돌(ObjectOptimisticLockingFailureException)이 발생하는 것이
- * 정상이다. 이번 harness의 목적은 "no-lock lost-update를 지금 재현하는 것"이 아니라
- * "harness 자체(동시 시작, race window delay, DB reset, post-state 검증)가 올바르게
- * 동작하는지"를 확인하는 것이다. 실제 no-lock 측정은 experiment/no-lock 브랜치에서
- * @Version을 제거한 뒤 이 harness를 그대로 재사용해 수행한다.
+ * 이 브랜치(experiment/no-lock)에서는 Auction.@Version이 제거되어 있어, application-level
+ * concurrency control 없이 동시 요청이 같은 Auction row를 두고 경쟁한다. harness가 검증할
+ * 것은 "요청이 실패했는가"가 아니라 "동시 실행 종료 후 DB post-state가 실제 persisted Bid와
+ * 모순되지 않는가"이다 — setting/#33-concurrency-baseline에서는 @Version이 남아있는 상태로
+ * 이 harness 자체의 동작만 검증했었다.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @ActiveProfiles("local")
@@ -281,20 +278,33 @@ class ManualBidConcurrencyRaceIT {
         }
     }
 
+    // no-lock 탐색 단계 전용 테스트다. 목적이 "위반을 찾는 것" 자체라서 run마다
+    // isEmpty()를 강제하면 첫 위반에서 나머지 파일럿을 못 돌린다. 그래서 여기서는
+    // per-run 강제 assertion 없이 전체 결과를 로그로 남기고, 마지막에 요약만 출력한다.
+    // (pessimistic-lock 등 이후 비교 실험에서 "위반이 없어야 함"을 다시 검증하고
+    // 싶다면 그 브랜치에서 별도로 assertion을 추가하면 된다 — 이 harness 코드 자체는
+    // 그대로 재사용 가능하다.)
     @Test
-    void 파일럿_동시_입찰_harness가_정상_동작한다() throws Exception {
+    void no_lock_상태에서_동시_입찰_race_조건을_탐색한다() throws Exception {
         logEnvironment();
 
+        // 1차 탐색(3,200)/(3,500)/(8,500)/(8,1000)/(10,1000)에서 (8,1000)만 위반을 재현했다.
+        // 재현성 확인을 위해 같은 조건을 5회 반복한다.
         List<WorkloadConfig> pilots = List.of(
-                new WorkloadConfig(3, 200, 10000, 5000),
-                new WorkloadConfig(5, 200, 10000, 5000),
-                new WorkloadConfig(5, 400, 10000, 5000)
+                new WorkloadConfig(8, 1000, 10000, 5000),
+                new WorkloadConfig(8, 1000, 10000, 5000),
+                new WorkloadConfig(8, 1000, 10000, 5000),
+                new WorkloadConfig(8, 1000, 10000, 5000),
+                new WorkloadConfig(8, 1000, 10000, 5000)
         );
 
         int runNumber = 1;
+        int violatedCount = 0;
         for (WorkloadConfig config : pilots) {
             RunResult result = runOnce(runNumber, config);
             System.out.println("[pilot run=" + result.runNumber()
+                    + " workers=" + config.workerCount()
+                    + " delayMs=" + config.delayMillis()
                     + "] requests=" + result.requestCount()
                     + " success=" + result.successCount()
                     + " failure=" + result.failureCount()
@@ -306,12 +316,11 @@ class ManualBidConcurrencyRaceIT {
                     + " exceptions=" + result.exceptionTypes()
                     + " elapsedMs=" + result.elapsedMillis());
 
-            // 이 브랜치는 @Version이 살아있어 실패(낙관적 락 충돌)가 나는 것이 정상이다.
-            // harness가 검증할 것은 "성공한 요청 수만큼 Bid가 실제로 남고, 그 Bid들과
-            // Auction 최종 상태가 서로 모순되지 않는가"이다.
-            assertThat(result.violations()).as("run " + result.runNumber()).isEmpty();
-
+            if (result.invariantViolated()) {
+                violatedCount++;
+            }
             runNumber++;
         }
+        System.out.println("[summary] " + violatedCount + "/" + pilots.size() + " runs violated invariants");
     }
 }

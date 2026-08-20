@@ -55,6 +55,5 @@ class AuctionRepositoryTest {
         assertThat(found.get().getStatus()).isEqualTo(AuctionStatus.SCHEDULED);
         assertThat(found.get().getProduct().getId()).isEqualTo(product.getId());
         assertThat(found.get().getCurrentWinner()).isNull();
-        assertThat(found.get().getVersion()).isNotNull();
     }
 }
