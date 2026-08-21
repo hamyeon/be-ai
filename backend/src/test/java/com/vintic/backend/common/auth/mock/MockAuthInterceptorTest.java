@@ -7,8 +7,9 @@ import com.vintic.backend.auction.dto.AuctionDetailResponse;
 import com.vintic.backend.auction.service.AuctionQueryService;
 import com.vintic.backend.bid.dto.PlaceBidRequest;
 import com.vintic.backend.bid.dto.PlaceBidResponse;
-import com.vintic.backend.bid.service.BidCommandService;
 import com.vintic.backend.bid.service.BidQueryService;
+import com.vintic.backend.bid.service.ManualBidService;
+import com.vintic.backend.recommendation.service.ActivityLogService;
 import com.vintic.backend.config.MockAuthWebConfig;
 import com.vintic.backend.user.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import java.time.LocalDateTime;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -54,7 +56,11 @@ class MockAuthInterceptorTest {
     private BidQueryService bidQueryService;
 
     @MockitoBean
-    private BidCommandService bidCommandService;
+    private ManualBidService manualBidService;
+
+    // 경매 조회/입찰은 추천용 행동 로그를 남긴다. 인증 검증에는 영향이 없어 목으로 둔다.
+    @MockitoBean
+    private ActivityLogService activityLogService;
 
     @Test
     void 헤더가_없으면_401을_반환한다() throws Exception {
@@ -82,7 +88,7 @@ class MockAuthInterceptorTest {
     @Test
     void 존재하는_유저면_통과한다() throws Exception {
         when(userRepository.existsById(1L)).thenReturn(true);
-        when(bidCommandService.placeManualBid(anyLong(), anyLong(), anyLong()))
+        when(manualBidService.placeBid(anyLong(), anyLong(), anyLong(), any()))
                 .thenReturn(new PlaceBidResponse(1L, 1L, 15000L, 15000L, 1L, LocalDateTime.now()));
 
         mockMvc.perform(placeBid().header("X-User-Id", "1"))
@@ -105,6 +111,8 @@ class MockAuthInterceptorTest {
     private MockHttpServletRequestBuilder placeBid() throws Exception {
         return post("/api/auctions/1/bids")
                 .contentType(MediaType.APPLICATION_JSON)
+                // 입찰 API가 요구하는 필수 헤더. 이 테스트의 관심사는 인증이므로 고정값으로 채운다.
+                .header("Idempotency-Key", "test-key")
                 .content(objectMapper.writeValueAsString(new PlaceBidRequest(15000L)));
     }
 }
