@@ -27,6 +27,11 @@ BRANDS = [
     {"canonical": "Asics", "tokens": ["아식스", "asics"]},
     {"canonical": "Dr. Martens", "tokens": ["닥터마틴", "dr martens", "dr. martens"]},
     {"canonical": "Salomon", "tokens": ["살로몬", "salomon"]},
+    # 조던은 별도 브랜드가 아니라 Nike로 통일한다(#27 결정, 시세 데이터 표기와 일치).
+    # 검색 키워드("조던 신발")를 얻기 위해 항목은 따로 두되 canonical만 Nike다.
+    {"canonical": "Nike", "tokens": ["조던", "jordan"]},
+    {"canonical": "Mizuno", "tokens": ["미즈노", "mizuno"]},
+    {"canonical": "Hoka", "tokens": ["호카", "hoka"]},
 ]
 
 GENERIC_KEYWORDS = [
@@ -41,6 +46,16 @@ SEARCH_KEYWORDS = [f'{brand["tokens"][0]} 신발' for brand in BRANDS] + GENERIC
 REGIONS = [
     {"name": "대현동", "in_param": "대현동-6113"},
     {"name": "방배동", "in_param": "방배동-6127"},
+    {"name": "역삼1동", "in_param": "역삼1동-392"},
+    {"name": "상도제1동", "in_param": "상도제1동-327"},
+    {"name": "영등포동", "in_param": "영등포동-307"},
+    {"name": "화양동", "in_param": "화양동-72"},
+    {"name": "신림동", "in_param": "신림동-355"},
+    {"name": "길동", "in_param": "길동-448"},
+    {"name": "행운동", "in_param": "행운동-344"},
+    {"name": "진관동", "in_param": "진관동-205"},
+    {"name": "문정2동", "in_param": "문정2동-423"},
+    {"name": "석촌동", "in_param": "석촌동-417"},
 ]
 
 CONDITION_DS_KEYWORDS = ["미착용", "새상품", "미개봉", "새제품", "택포함", "ds급"]

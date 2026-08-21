@@ -65,7 +65,16 @@ def run() -> None:
             "elapsed_seconds": round(time.monotonic() - region_started_at, 2),
         })
 
+    # 이미지 확장(게시물 사진 전체 수집)은 여기서 하지 않는다.
+    # 신규 매물이 수만 건이면 확장에 몇 시간이 걸리는데, 저장 전에 하면 그동안 전부
+    # 메모리에만 있어 중단 시 유실된다(실측: 신규 19,207건 = 약 10시간 분량).
+    # 먼저 저장하고, 확장은 중단해도 재개되는 백필로 처리한다.
     storage.append_jsonl(config.RAW_JSONL_PATH, new_records)
+    single_image = sum(1 for r in new_records if len(r.get("image_urls") or []) == 1)
+    print(f"\n이미지가 1장뿐인 신규 매물: {single_image}건")
+    print("게시물 사진 전체로 확장하려면:")
+    print("  python -m crawler.backfill_multi_images    # _N 인덱스 체계 (HEAD 프로빙, 빠름)")
+    print("  python -m crawler.backfill_detail_images   # 나머지 (상세 페이지, 오래 걸림)")
 
     new_count = len(new_records)
     missing_brand = sum(1 for r in new_records if r["brand_guess"] is None)

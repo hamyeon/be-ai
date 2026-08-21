@@ -1,9 +1,11 @@
 package com.vintic.backend.product.pricing;
 
+import com.vintic.backend.config.CacheConfig;
 import com.vintic.backend.product.dto.CalculatePriceRequest;
 import com.vintic.backend.product.dto.CalculatePriceResponse;
 import com.vintic.backend.product.service.PriceCalculationService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -16,7 +18,13 @@ public class RuleBasedPricingService implements PricingService {
 
     private final PriceCalculationService priceCalculationService;
 
+    // 같은 입력(브랜드/모델/색상/사이즈/등급/구성품)이면 결과가 같으므로 캐싱한다.
+    // 시세 원천이 CSV라 지금은 계산이 싸지만, 캐시 계층을 여기 두면 나중에 계산이
+    // 실시간 시세 조회로 바뀌어도 호출부는 그대로다.
+    // 주의: analysisId가 섞인 CalculatePriceRequest가 아니라 PricingRequest 층에 캐시를 둔다 -
+    // analysisId는 사용자마다 달라서 그 층에 두면 같은 신발도 캐시를 못 탄다.
     @Override
+    @Cacheable(cacheNames = CacheConfig.PRICING_CACHE, key = "#request.cacheKey()")
     public PricingResult calculate(PricingRequest request) {
         CalculatePriceRequest calculateRequest = new CalculatePriceRequest(
                 null,

@@ -1,5 +1,6 @@
 package com.vintic.backend.common.exception;
 
+import com.vintic.backend.common.auth.mock.MockAuthException;
 import com.vintic.backend.common.dto.ApiResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -27,7 +28,16 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail(40001, message));
     }
 
+    // mock 인증 실패: X-User-Id 헤더 누락/형식 오류/존재하지 않는 사용자 (401 Unauthorized)
+    @ExceptionHandler(MockAuthException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMockAuthException(MockAuthException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.fail(40101, e.getMessage()));
+    }
+
     // 필수 요청 헤더 누락 (400 Bad Request) — 없으면 catch-all Exception 핸들러가 500으로 잘못 응답한다.
+    // 위 MockAuthException(401)과는 다른 경로다: 이쪽은 컨트롤러 @RequestHeader 바인딩
+    // 단계에서 발생하므로 인증 실패가 아니라 요청 형식 문제로 본다.
     @ExceptionHandler(MissingRequestHeaderException.class)
     public ResponseEntity<ApiResponse<Void>> handleMissingRequestHeaderException(MissingRequestHeaderException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
