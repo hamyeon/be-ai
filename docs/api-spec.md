@@ -1226,3 +1226,138 @@ minimumBidAmount = currentPrice + bidIncrement
 - 입찰 자격 제한 → `403 Forbidden`
 - 경매 미존재 → `404 Not Found`
 - 경매 상태 또는 입찰 조건 충돌 → `409 Conflict`
+
+
+---
+
+# API 상세 설명
+
+`GET /api/recommendations/auctions`
+
+사용자의 행동 로그(조회·입찰)를 기반으로 취향에 맞는 진행 중 경매를 추천하는 API입니다.
+
+추천은 두 가지 경로로 동작하며, 어느 경로로 만들어진 결과인지 응답의 `personalized` 필드로 구분합니다.
+
+| `personalized` | 동작 | 조건 |
+| --- | --- | --- |
+| `true` | **개인화 추천.** 최근 행동 로그로 취향 벡터를 만들고, 각 경매 상품 벡터와의 코사인 유사도 순으로 정렬합니다. | `X-User-Id`가 있고, 해당 유저의 행동 로그가 **3건 이상**이며, 그 행동에 해당하는 상품 벡터가 존재할 때 |
+| `false` | **Cold Start Fallback.** 마감 임박 경매와 인기(입찰 많은) 경매를 번갈아 섞어 내려줍니다. | 위 조건을 만족하지 못하는 모든 경우 (비로그인, 신규 가입자, 벡터 미생성 등) |
+
+Fallback도 정상 응답(`200 OK`)입니다. 추천할 데이터가 없다는 이유로 에러를 반환하지 않습니다.
+
+## 취향 벡터 계산 방식
+
+행동 종류마다 취향을 드러내는 강도가 다르므로 가중치를 다르게 둡니다.
+
+| 행동 | 가중치 | 비고 |
+| --- | --- | --- |
+| `BID` (입찰) | 3.0 | 돈이 걸린 행동이라 취향을 가장 강하게 드러냅니다 |
+| `LIKE` (찜) | 2.0 | 찜 API 구현 전이라 현재는 쌓이지 않습니다 |
+| `VIEW` (조회) | 1.0 | 가장 흔하지만 신호는 약합니다 |
+| `DWELL` (체류) | 1.0 | 프론트에서 전송해야 하며 현재는 수집하지 않습니다 |
+
+최근 **100건**의 행동만 사용하며, 같은 상품을 여러 번 조회하면 가중치가 누적됩니다.
+
+## Request ✔️
+
+### Request Header
+
+| 헤더 | 필수 | 설명 |
+| --- | --- | --- |
+| `X-User-Id` | ❌ | 추천 대상 사용자 ID. **없으면 Fallback 결과를 반환합니다.** |
+
+### Query Parameter
+
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+| --- | --- | --- | --- | --- |
+| `limit` | `int` | ❌ | `10` | 추천 개수. 최대 `50`까지이며, 초과 입력 시 50으로 잘립니다. |
+
+```
+GET /api/recommendations/auctions?limit=10
+X-User-Id: 3
+```
+
+## Response ✔️
+
+### Success ✅
+
+### 200 OK - 개인화 추천 (`personalized: true`)
+
+```json
+{
+  "success": true,
+  "data": {
+    "personalized": true,
+    "reason": "최근 관심 상품과 비슷한 경매를 추천합니다.",
+    "items": [
+      {
+        "auctionId": 1,
+        "productId": 5,
+        "brand": "Nike",
+        "model": "Dunk Low",
+        "colorway": "Panda",
+        "sizeKr": 270,
+        "currentPrice": 100000,
+        "endAt": "2026-08-21T15:30:00",
+        "similarity": 0.9774
+      }
+    ]
+  },
+  "error": null
+}
+```
+
+---
+
+### 200 OK - Cold Start Fallback (`personalized: false`)
+
+```json
+{
+  "success": true,
+  "data": {
+    "personalized": false,
+    "reason": "아직 취향을 파악할 정보가 부족해 마감 임박·인기 경매를 보여드립니다.",
+    "items": [
+      {
+        "auctionId": 1,
+        "productId": 5,
+        "brand": "Nike",
+        "model": "Dunk Low",
+        "colorway": "Panda",
+        "sizeKr": 270,
+        "currentPrice": 100000,
+        "endAt": "2026-08-21T15:30:00",
+        "similarity": null
+      }
+    ]
+  },
+  "error": null
+}
+```
+
+### 응답 필드 설명
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `personalized` | `boolean` | 개인화 추천 여부. `false`면 Fallback 결과입니다. |
+| `reason` | `string` | 추천 근거 문구. 프론트에서 그대로 노출할 수 있습니다. |
+| `items[].auctionId` | `number` | 경매 ID |
+| `items[].productId` | `number` | 상품 ID |
+| `items[].brand` | `string` | 브랜드 |
+| `items[].model` | `string` | 모델명 |
+| `items[].colorway` | `string` | 컬러웨이 |
+| `items[].sizeKr` | `number` | 사이즈(mm) |
+| `items[].currentPrice` | `number` | 현재 입찰가 |
+| `items[].endAt` | `string` | 경매 종료 시각 |
+| `items[].similarity` | `number \| null` | 취향 벡터와의 코사인 유사도(0~1). **Fallback일 때는 `null`입니다.** |
+
+### 프론트 적용 시 유의사항
+
+- `personalized` 값에 따라 섹션 문구를 다르게 노출해 주세요. `true`면 "회원님을 위한 추천", `false`면 "지금 인기 있는 경매"처럼 표현하는 것을 권장합니다.
+- `similarity`는 `personalized: false`일 때 `null`이므로, 화면에 표시한다면 null 체크가 필요합니다.
+- 추천 대상은 **진행 중(`SCHEDULED`, `LIVE`) 경매**뿐입니다. 종료된 경매는 포함되지 않습니다.
+- 행동 로그는 `GET /api/auctions/{auctionId}` 호출 시 `X-User-Id` 헤더가 있으면 **자동으로 기록**됩니다. 프론트에서 별도 로그 전송 API를 호출할 필요는 없습니다.
+
+### Failure ❌
+
+추천 API는 데이터가 부족해도 Fallback으로 응답하므로 고유한 에러 코드가 없습니다. 서버 내부 오류(`50001`)만 공통 형식으로 반환됩니다.
