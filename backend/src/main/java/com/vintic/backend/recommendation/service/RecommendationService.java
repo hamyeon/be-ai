@@ -84,6 +84,15 @@ public class RecommendationService {
                 .toList();
     }
 
+    // 진행 중인 경매의 벡터를 요청마다 DB에서 읽는다. 기동 시 전부 메모리에 올리는 방식과
+    // 비교하면 메모리를 쓰지 않고 벡터 갱신이 즉시 반영되지만, 응답 시간이 경매 수에 비례한다.
+    //
+    // 로컬 측정(경매 1건당 벡터 6KB, Fallback 경로 대비 추가 시간):
+    //   경매 100건 -> +13ms / 1,000건 -> +98ms / 3,000건 -> +288ms
+    // 대부분이 유사도 계산이 아니라 BLOB 전송 비용이다(3,000건 = 17.6MB).
+    //
+    // 경매 수천 건 규모가 되면 벡터를 메모리에 캐싱해야 한다. 목록 API에 캐시를 붙이는
+    // 이슈에서 함께 다루는 편이 자연스럽다.
     private Map<Long, float[]> loadVectors(List<Auction> auctions) {
         List<Long> productIds = auctions.stream()
                 .map(auction -> auction.getProduct().getId())
