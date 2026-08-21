@@ -1,5 +1,6 @@
 package com.vintic.backend.ai.search.embedding;
 
+import com.vintic.backend.ai.observability.service.AiCallLogger;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.common.exception.AiApiException;
 import org.junit.jupiter.api.Test;
@@ -29,8 +30,12 @@ class OpenAiEmbeddingClientTest {
     @Mock
     private RestTemplate restTemplate;
 
+    // 호출 기록은 AiCallLoggerTest가 검증한다. 여기서는 추출 로직만 본다.
+    @Mock
+    private AiCallLogger aiCallLogger;
+
     private OpenAiEmbeddingClient newClient() {
-        OpenAiEmbeddingClient client = new OpenAiEmbeddingClient(new ObjectMapper(), restTemplate);
+        OpenAiEmbeddingClient client = new OpenAiEmbeddingClient(new ObjectMapper(), restTemplate, aiCallLogger);
         ReflectionTestUtils.setField(client, "apiKey", "test-key");
         return client;
     }

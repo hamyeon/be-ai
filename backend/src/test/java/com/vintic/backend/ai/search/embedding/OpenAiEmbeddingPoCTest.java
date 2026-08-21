@@ -1,5 +1,6 @@
 package com.vintic.backend.ai.search.embedding;
 
+import com.vintic.backend.ai.observability.service.AiCallLogger;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.ai.search.document.SearchDocument;
 import org.junit.jupiter.api.Test;
@@ -121,7 +122,8 @@ class OpenAiEmbeddingPoCTest {
     // 이 테스트는 @SpringBootTest가 아니라서 @Value("${openai.api.key}")가 주입되지 않는다.
     // System.getenv에서 직접 읽어 리플렉션으로 채워야 실제 요청에 API 키가 실린다.
     private EmbeddingClient createEmbeddingClient() {
-        OpenAiEmbeddingClient client = new OpenAiEmbeddingClient(new ObjectMapper(), new RestTemplate());
+        OpenAiEmbeddingClient client = new OpenAiEmbeddingClient(new ObjectMapper(), new RestTemplate(),
+                org.mockito.Mockito.mock(AiCallLogger.class));
         ReflectionTestUtils.setField(client, "apiKey", System.getenv("OPENAI_API_KEY"));
         return client;
     }

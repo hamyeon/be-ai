@@ -1,6 +1,11 @@
 package com.vintic.backend.ai.vision.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vintic.backend.ai.observability.domain.AiCallFailureType;
+import com.vintic.backend.ai.observability.domain.AiCallLog;
+import com.vintic.backend.ai.observability.domain.AiCallType;
+import com.vintic.backend.ai.observability.service.AiCallLogger;
+import com.vintic.backend.ai.observability.service.AiCallRequestSummary;
 import com.vintic.backend.ai.prompt.PromptTemplate;
 import com.vintic.backend.ai.prompt.PromptTemplateLoader;
 import com.vintic.backend.ai.vision.client.OpenAiVisionClient;
@@ -14,6 +19,7 @@ import com.vintic.backend.ai.vision.dto.VisionEvidence;
 import com.vintic.backend.ai.vision.dto.VisionUnreadable;
 import com.vintic.backend.ai.vision.service.VisionAnalysisService;
 import com.vintic.backend.common.exception.AiApiException;
+import com.vintic.backend.common.exception.AiResponseFormatException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
@@ -42,6 +48,7 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
     private final OpenAiVisionClient visionClient;
     private final ObjectMapper objectMapper;
     private final VisionEvidenceValidator evidenceValidator;
+    private final AiCallLogger aiCallLogger;
 
     private final Stage silhouetteStage;
     private final Stage labelStage;
@@ -52,11 +59,13 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
             ObjectMapper objectMapper,
             VisionEvidenceValidator evidenceValidator,
             PromptTemplateLoader promptTemplateLoader,
-            VisionStageProperties stageProperties
+            VisionStageProperties stageProperties,
+            AiCallLogger aiCallLogger
     ) {
         this.visionClient = visionClient;
         this.objectMapper = objectMapper;
         this.evidenceValidator = evidenceValidator;
+        this.aiCallLogger = aiCallLogger;
 
         // 프롬프트/스키마는 배포 중에 바뀌지 않으므로 기동 시 한 번만 읽어서 들고 있는다.
         this.silhouetteStage = loadStage(promptTemplateLoader, "silhouette", stageProperties.getSilhouette());
@@ -70,15 +79,17 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
     @Override
     public VisionAnalysisResult analyze(VisionAnalysisRequest request) {
         List<String> imageUrls = request.imageUrls();
+        Long analysisId = request.analysisId();
         log.info("Vision 분석 요청 - promptVersion={}, modelName={}, imageCount={}",
                 PROMPT_VERSION, MODEL_NAME, imageUrls.size());
 
-        SilhouetteStageResult silhouette = call(silhouetteStage, null, imageUrls, SilhouetteStageResult.class);
+        SilhouetteStageResult silhouette =
+                call(silhouetteStage, null, imageUrls, analysisId, SilhouetteStageResult.class);
         LabelStageResult label = call(labelStage, contextOf("1단계(전체 형태) 결과", silhouette),
-                imageUrls, LabelStageResult.class);
+                imageUrls, analysisId, LabelStageResult.class);
         ConditionStageResult condition = call(conditionStage,
                 contextOf("1단계(전체 형태) 결과", silhouette) + contextOf("2단계(라벨/로고) 결과", label),
-                imageUrls, ConditionStageResult.class);
+                imageUrls, analysisId, ConditionStageResult.class);
 
         return evidenceValidator.enforce(merge(silhouette, label, condition), imageUrls.size());
     }
@@ -96,8 +107,8 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
         );
     }
 
-    private <T> T call(Stage stage, String userText, List<String> imageUrls, Class<T> resultType) {
-        VisionChatResponse response = visionClient.complete(new VisionChatRequest(
+    private <T> T call(Stage stage, String userText, List<String> imageUrls, Long analysisId, Class<T> resultType) {
+        VisionChatRequest request = new VisionChatRequest(
                 MODEL_NAME,
                 stage.template().content(),
                 userText,
@@ -105,19 +116,60 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
                 stage.detail(),
                 stage.responseSchema(),
                 stage.maxOutputTokens()
-        ));
+        );
+        String requestSummary = AiCallRequestSummary.of(request, objectMapper);
+
+        VisionChatResponse response;
+        long startedAt = System.currentTimeMillis();
+        try {
+            response = visionClient.complete(request);
+        } catch (RuntimeException e) {
+            // API가 거절했거나 응답 자체를 못 받은 경우. 재시도를 모두 소진한 뒤 여기로 온다.
+            recordFailure(stage, analysisId, requestSummary, AiCallFailureType.API_ERROR,
+                    e.getMessage(), System.currentTimeMillis() - startedAt);
+            throw e;
+        }
 
         log.info("Vision 단계 완료 - stage={}, detail={}, promptTokens={}, completionTokens={}, latencyMs={}",
                 stage.template().name(), stage.detail().value(),
                 response.promptTokens(), response.completionTokens(), response.latencyMs());
 
         try {
-            return objectMapper.readValue(response.content(), resultType);
+            T parsed = objectMapper.readValue(response.content(), resultType);
+            aiCallLogger.record(logBuilder(stage, analysisId, requestSummary)
+                    .latencyMs(response.latencyMs())
+                    .tokens(response.promptTokens(), response.completionTokens())
+                    .responseBody(response.content())
+                    .build());
+            return parsed;
         } catch (Exception e) {
             // Structured Outputs를 쓰므로 여기까지 오면 보통 응답이 잘렸거나 스키마 자체가 잘못된 경우다.
             log.error("Vision {} 단계 응답을 파싱하지 못했습니다. message={}", stage.template().name(), e.getMessage());
-            throw new AiApiException("Vision 분석 응답을 처리하는 중 오류가 발생했습니다.", e);
+            // 파싱에 실패한 응답일수록 원문이 필요하다. 무엇이 왔는지 봐야 스키마를 고칠 수 있다.
+            aiCallLogger.record(logBuilder(stage, analysisId, requestSummary)
+                    .latencyMs(response.latencyMs())
+                    .tokens(response.promptTokens(), response.completionTokens())
+                    .responseBody(response.content())
+                    .failure(AiCallFailureType.PARSE_ERROR, e.getMessage())
+                    .build());
+            throw new AiResponseFormatException("Vision 분석 응답을 처리하는 중 오류가 발생했습니다.", e);
         }
+    }
+
+    private void recordFailure(Stage stage, Long analysisId, String requestSummary,
+                               AiCallFailureType failureType, String message, long latencyMs) {
+        aiCallLogger.record(logBuilder(stage, analysisId, requestSummary)
+                .latencyMs(latencyMs)
+                .failure(failureType, message)
+                .build());
+    }
+
+    private AiCallLog.Builder logBuilder(Stage stage, Long analysisId, String requestSummary) {
+        return AiCallLog.builder(AiCallType.VISION, MODEL_NAME)
+                .stage(stage.template().name())
+                .promptVersion(PROMPT_VERSION)
+                .analysisId(analysisId)
+                .requestSummary(requestSummary);
     }
 
     // 이전 단계 결과를 다음 단계의 맥락으로 넘긴다. 스키마 그대로의 JSON을 넘겨야 값이 왜곡되지 않는다.

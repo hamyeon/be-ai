@@ -1,5 +1,6 @@
 package com.vintic.backend.ai.vision.harness;
 
+import com.vintic.backend.ai.observability.service.AiCallLogger;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.ai.prompt.PromptTemplateLoader;
 import com.vintic.backend.ai.vision.agent.StagedVisionAnalysisService;
@@ -89,7 +90,7 @@ class VisionPromptHarnessTest {
                     } catch (RuntimeException e) {
                         // 한 건이 실패해도 나머지는 계속 재야 비교 가능한 표가 나온다.
                         caseScores.add(VisionHarnessScorer.CaseScore.failed(
-                                harnessCase.id(), elapsedSince(startedAt), e.getMessage()));
+                                harnessCase.id(), elapsedSince(startedAt), e));
                         System.out.printf("  [%d/%d] %s - 실패: %s%n",
                                 i + 1, caseCount, harnessCase.id(), e.getMessage());
                     }
@@ -146,7 +147,8 @@ class VisionPromptHarnessTest {
         return switch (agent) {
             case V1 -> new OpenAiVisionAnalysisService(visionClient, objectMapper, promptTemplateLoader);
             case V2 -> new StagedVisionAnalysisService(
-                    visionClient, objectMapper, new VisionEvidenceValidator(), promptTemplateLoader, stageProperties());
+                    visionClient, objectMapper, new VisionEvidenceValidator(), promptTemplateLoader,
+                    stageProperties(), org.mockito.Mockito.mock(AiCallLogger.class));
         };
     }
 

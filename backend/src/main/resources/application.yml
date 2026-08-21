@@ -55,6 +55,38 @@ analysis:
 recommendation:
   vector-backfill-on-startup: ${RECOMMENDATION_VECTOR_BACKFILL:false}
 
+# AI 호출 기록 보관 설정.
+# 응답 본문을 통째로 담고 있어 무한정 쌓아둘 수 없다. 디버깅에 필요한 기간만 남긴다.
+ai:
+  call-log:
+    retention-days: ${AI_CALL_LOG_RETENTION_DAYS:30}
+    cleanup-enabled: ${AI_CALL_LOG_CLEANUP_ENABLED:true}
+
+# Actuator 노출 범위.
+#
+# 기본값(전체 노출)을 쓰지 않는다. env는 환경변수를, configprops는 설정값을 그대로 뱉어서
+# API 키가 인증 없이 읽힌다. 필요한 것만 골라 연다.
+#
+# 환경변수로 뺀 이유: 배포 서버에서 무엇을 열지는 배포를 맡은 쪽이 정해야 한다.
+# 코드에 박아두면 노출 범위를 바꾸려고 재배포를 해야 한다.
+# metrics는 호출 수·실패율·latency 분포를 담고 있어 운영 정보가 드러난다.
+# 외부에 열려면 인증을 앞에 두거나, 내부망에서만 접근 가능해야 한다.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: ${MANAGEMENT_ENDPOINTS:health,info,metrics}
+  endpoint:
+    health:
+      # DB·Redis 연결 상태까지 보려면 상세 정보가 필요하다. 내부 구성이 드러나므로
+      # 외부에 열 때는 인증을 앞에 둬야 한다(선행 작업으로 남김).
+      show-details: ${MANAGEMENT_HEALTH_DETAILS:when-authorized}
+  health:
+    redis:
+      enabled: true
+    db:
+      enabled: true
+
 logging:
   level:
     root: INFO

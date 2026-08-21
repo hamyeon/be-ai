@@ -4,6 +4,8 @@ import com.vintic.backend.ai.vision.dto.ConditionGrade;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
 import com.vintic.backend.ai.vision.harness.VisionHarnessScorer.Field;
 import com.vintic.backend.ai.vision.harness.VisionHarnessScorer.Outcome;
+import com.vintic.backend.common.exception.AiApiException;
+import com.vintic.backend.common.exception.AiResponseFormatException;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -159,5 +161,49 @@ class VisionHarnessScorerTest {
         assertThat(sizeStat.precision()).isEqualTo(0.5);      // 채운 2건 중 1건만 정답
         assertThat(sizeStat.accuracy()).isEqualTo(1.0 / 3);
         assertThat(report.averageLatencyMs()).isEqualTo(200L);
+    }
+
+    @Test
+    void 형식_오류는_JSON_준수율을_떨어뜨린다() {
+        VisionHarnessCase harnessCase = caseWith(new VisionHarnessCase.Expected(null, null, 270, null, null));
+
+        VisionHarnessReport report = VisionHarnessReport.aggregate("test", List.of(
+                VisionHarnessScorer.score(harnessCase, resultWith(null, null, 270, null, null), 100L),
+                VisionHarnessScorer.CaseScore.failed("broken", 200L,
+                        new AiResponseFormatException("응답이 잘렸습니다", null))
+        ));
+
+        assertThat(report.jsonCompliance().responded()).isEqualTo(2);
+        assertThat(report.jsonCompliance().malformed()).isEqualTo(1);
+        assertThat(report.jsonCompliance().rate()).isEqualTo(0.5);
+    }
+
+    @Test
+    void API_오류는_준수율_분모에서_빠진다() {
+        // 429를 맞은 걸 "형식을 어겼다"고 세면 프롬프트 품질과 무관한 값이 섞인다.
+        VisionHarnessCase harnessCase = caseWith(new VisionHarnessCase.Expected(null, null, 270, null, null));
+
+        VisionHarnessReport report = VisionHarnessReport.aggregate("test", List.of(
+                VisionHarnessScorer.score(harnessCase, resultWith(null, null, 270, null, null), 100L),
+                VisionHarnessScorer.CaseScore.failed("rate-limited", 200L,
+                        new AiApiException("OpenAI Vision API 오류 (status=429)"))
+        ));
+
+        assertThat(report.jsonCompliance().responded()).isEqualTo(1);
+        assertThat(report.jsonCompliance().rate()).isEqualTo(1.0);
+        // 실패 건수 자체는 그대로 보고된다
+        assertThat(report.failureCount()).isEqualTo(1);
+    }
+
+    @Test
+    void 리포트는_실패_종류를_구분해_보여준다() {
+        VisionHarnessReport report = VisionHarnessReport.aggregate("test", List.of(
+                VisionHarnessScorer.CaseScore.failed("a", 100L,
+                        new AiResponseFormatException("파싱 실패", null)),
+                VisionHarnessScorer.CaseScore.failed("b", 200L,
+                        new AiApiException("status=500"))
+        ));
+
+        assertThat(report.toText()).contains("형식 오류", "호출 실패");
     }
 }
