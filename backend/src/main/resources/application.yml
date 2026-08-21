@@ -65,13 +65,17 @@ ai:
 # Actuator 노출 범위.
 #
 # 기본값(전체 노출)을 쓰지 않는다. env는 환경변수를, configprops는 설정값을 그대로 뱉어서
-# API 키가 인증 없이 읽힌다. 지금 필요한 건 "서버와 의존 서비스가 살아있는가"뿐이라
-# health와 info만 연다.
+# API 키가 인증 없이 읽힌다. 필요한 것만 골라 연다.
+#
+# 환경변수로 뺀 이유: 배포 서버에서 무엇을 열지는 배포를 맡은 쪽이 정해야 한다.
+# 코드에 박아두면 노출 범위를 바꾸려고 재배포를 해야 한다.
+# metrics는 호출 수·실패율·latency 분포를 담고 있어 운영 정보가 드러난다.
+# 외부에 열려면 인증을 앞에 두거나, 내부망에서만 접근 가능해야 한다.
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: ${MANAGEMENT_ENDPOINTS:health,info,metrics}
   endpoint:
     health:
       # DB·Redis 연결 상태까지 보려면 상세 정보가 필요하다. 내부 구성이 드러나므로

@@ -22,8 +22,16 @@ import org.springframework.stereotype.Service;
 public class AiCallLogger {
 
     private final AiCallLogWriter aiCallLogWriter;
+    private final AiCallMetrics aiCallMetrics;
 
     public void record(AiCallLog callLog) {
+        // 지표를 먼저 올린다. DB 쓰기가 실패해도 "실패율이 튄다"는 신호는 남아야 한다.
+        try {
+            aiCallMetrics.record(callLog);
+        } catch (Throwable e) {
+            log.warn("AI 호출 지표 집계에 실패했습니다. message={}", e.getMessage());
+        }
+
         try {
             aiCallLogWriter.write(callLog);
         } catch (Throwable e) {
