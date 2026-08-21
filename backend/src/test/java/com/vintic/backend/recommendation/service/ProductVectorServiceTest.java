@@ -92,6 +92,17 @@ class ProductVectorServiceTest {
     }
 
     @Test
+    void 벡터_조회가_실패해도_예외가_새어나가지_않는다() {
+        // 이 메서드는 상품 등록 경로에서 불린다. 여기서 예외가 새면 추천용 부가 작업 때문에
+        // 상품 등록이 실패한다.
+        when(productVectorRepository.findById(1L)).thenThrow(new RuntimeException("DB 연결 실패"));
+
+        Product target = product(1L, "Nike", "Dunk Low");
+        assertThatCode(() -> assertThat(newService().refresh(target)).isNull())
+                .doesNotThrowAnyException();
+    }
+
+    @Test
     void 임베딩할_내용이_없으면_호출하지_않는다() {
         Product empty = product(1L, null, null);
         ReflectionTestUtils.setField(empty, "colorway", null);

@@ -36,12 +36,14 @@ public class ProductVectorService {
             return null;
         }
 
-        Optional<ProductVector> existing = productVectorRepository.findById(product.getId());
-        if (existing.isPresent() && !existing.get().isStale(sourceText)) {
-            return existing.get();
-        }
-
+        // 조회까지 try 안에 둔다. 이 메서드는 상품 등록 경로에서 불리는데, 여기서 예외가
+        // 새어 나가면 추천용 부가 작업 때문에 상품 등록이 실패한다.
         try {
+            Optional<ProductVector> existing = productVectorRepository.findById(product.getId());
+            if (existing.isPresent() && !existing.get().isStale(sourceText)) {
+                return existing.get();
+            }
+
             float[] vector = embeddingClient.embed(sourceText);
             return productVectorRepository.save(ProductVector.of(product.getId(), vector, sourceText));
         } catch (RuntimeException e) {
@@ -59,13 +61,18 @@ public class ProductVectorService {
     public int refreshAll(List<Product> products) {
         int embedded = 0;
         for (Product product : products) {
-            String sourceText = ProductVectorText.of(product);
-            boolean needsEmbedding = productVectorRepository.findById(product.getId())
-                    .map(vector -> vector.isStale(sourceText))
-                    .orElse(true);
+            try {
+                String sourceText = ProductVectorText.of(product);
+                boolean needsEmbedding = productVectorRepository.findById(product.getId())
+                        .map(vector -> vector.isStale(sourceText))
+                        .orElse(true);
 
-            if (refresh(product) != null && needsEmbedding) {
-                embedded++;
+                if (refresh(product) != null && needsEmbedding) {
+                    embedded++;
+                }
+            } catch (RuntimeException e) {
+                // 한 건이 실패해도 나머지는 계속 채운다
+                log.warn("상품 벡터 갱신을 건너뜁니다. productId={}, message={}", product.getId(), e.getMessage());
             }
         }
         return embedded;
