@@ -229,3 +229,5 @@ crawler/data/images/
 # 크롤러 재수집 중 생기는 백업본 (원본 jsonl/csv만 커밋한다)
 *.jsonl.bak
 *.csv.bak
+# 로컬 Gradle 캐시 디렉터리(공백 없는 경로 회피용)
+.gradle-local/

@@ -5,6 +5,7 @@ import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.product.dto.CreateProductRequest;
 import com.vintic.backend.product.dto.ProductResponse;
 import com.vintic.backend.product.repository.ProductRepository;
+import com.vintic.backend.recommendation.service.ProductVectorService;
 import com.vintic.backend.user.domain.User;
 import com.vintic.backend.user.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -31,6 +32,11 @@ class ProductRegistrationServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    // 등록 시 추천용 벡터를 만든다. 벡터 생성 자체는 ProductVectorServiceTest가 검증하므로
+    // 여기서는 등록 흐름을 막지 않는지만 본다.
+    @Mock
+    private ProductVectorService productVectorService;
+
     private ProductRegistrationService sut;
 
     private final CreateProductRequest request = new CreateProductRequest(
@@ -40,7 +46,7 @@ class ProductRegistrationServiceTest {
     );
 
     private void initSut() {
-        sut = new ProductRegistrationService(productRepository, userRepository);
+        sut = new ProductRegistrationService(productRepository, userRepository, productVectorService);
     }
 
     @Test
@@ -65,5 +71,17 @@ class ProductRegistrationServiceTest {
 
         assertThatThrownBy(() -> sut.createProduct(request, 999L))
                 .isInstanceOf(UserNotFoundException.class);
+    }
+
+    @Test
+    void 상품을_등록하면_추천용_벡터를_만든다() {
+        initSut();
+        User seller = User.register("seller@vintic.local", "seller", null);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(seller));
+        when(productRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        sut.createProduct(request, 1L);
+
+        verify(productVectorService).refresh(any());
     }
 }

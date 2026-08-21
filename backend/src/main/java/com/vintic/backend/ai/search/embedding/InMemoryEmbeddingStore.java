@@ -21,7 +21,8 @@ public class InMemoryEmbeddingStore implements EmbeddingStore {
     @Override
     public List<ScoredChunk> search(float[] queryVector, int topK) {
         return store.stream()
-                .map(embedding -> new ScoredChunk(embedding.chunkId(), cosineSimilarity(queryVector, embedding.vector())))
+                .map(embedding -> new ScoredChunk(embedding.chunkId(),
+                        CosineSimilarity.between(queryVector, embedding.vector())))
                 .sorted(Comparator.comparingDouble(ScoredChunk::score).reversed())
                 .limit(topK)
                 .toList();
@@ -29,25 +30,5 @@ public class InMemoryEmbeddingStore implements EmbeddingStore {
 
     public int size() {
         return store.size();
-    }
-
-    private double cosineSimilarity(float[] a, float[] b) {
-        if (a.length != b.length) {
-            throw new IllegalArgumentException("벡터 차원이 서로 다릅니다: %d vs %d".formatted(a.length, b.length));
-        }
-
-        double dotProduct = 0;
-        double normA = 0;
-        double normB = 0;
-        for (int i = 0; i < a.length; i++) {
-            dotProduct += a[i] * b[i];
-            normA += a[i] * a[i];
-            normB += b[i] * b[i];
-        }
-
-        if (normA == 0 || normB == 0) {
-            return 0;
-        }
-        return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
     }
 }

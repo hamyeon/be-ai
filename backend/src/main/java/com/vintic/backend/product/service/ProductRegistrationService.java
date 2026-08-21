@@ -6,6 +6,7 @@ import com.vintic.backend.product.dto.CreateProductRequest;
 import com.vintic.backend.product.dto.ProductListResponse;
 import com.vintic.backend.product.dto.ProductResponse;
 import com.vintic.backend.product.repository.ProductRepository;
+import com.vintic.backend.recommendation.service.ProductVectorService;
 import com.vintic.backend.user.domain.User;
 import com.vintic.backend.user.repository.UserRepository;
 import org.springframework.stereotype.Service;
@@ -18,10 +19,16 @@ public class ProductRegistrationService {
 
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
+    private final ProductVectorService productVectorService;
 
-    public ProductRegistrationService(ProductRepository productRepository, UserRepository userRepository) {
+    public ProductRegistrationService(
+            ProductRepository productRepository,
+            UserRepository userRepository,
+            ProductVectorService productVectorService
+    ) {
         this.productRepository = productRepository;
         this.userRepository = userRepository;
+        this.productVectorService = productVectorService;
     }
 
     @Transactional
@@ -47,6 +54,9 @@ public class ProductRegistrationService {
         );
 
         Product savedProduct = productRepository.save(product);
+        // 추천용 벡터를 만들어 둔다. 임베딩 호출이 실패해도 refresh가 삼키므로 등록은 성공한다 -
+        // 추천 품질을 위한 부가 작업이 상품 등록을 막으면 안 된다.
+        productVectorService.refresh(savedProduct);
         return ProductResponse.from(savedProduct);
     }
 
