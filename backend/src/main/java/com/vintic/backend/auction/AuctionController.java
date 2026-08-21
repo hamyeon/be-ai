@@ -8,6 +8,7 @@ import com.vintic.backend.bid.dto.PlaceBidResponse;
 import com.vintic.backend.bid.service.BidQueryService;
 import com.vintic.backend.bid.service.ManualBidService;
 import com.vintic.backend.common.dto.ApiResponse;
+import com.vintic.backend.recommendation.service.ActivityLogService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -31,20 +32,29 @@ public class AuctionController {
     private final AuctionQueryService auctionQueryService;
     private final BidQueryService bidQueryService;
     private final ManualBidService manualBidService;
+    private final ActivityLogService activityLogService;
 
     public AuctionController(
             AuctionQueryService auctionQueryService,
             BidQueryService bidQueryService,
-            ManualBidService manualBidService
+            ManualBidService manualBidService,
+            ActivityLogService activityLogService
     ) {
         this.auctionQueryService = auctionQueryService;
         this.bidQueryService = bidQueryService;
         this.manualBidService = manualBidService;
+        this.activityLogService = activityLogService;
     }
 
+    // 조회는 인증이 필요 없다. 다만 헤더가 있으면 추천용 행동 로그를 남기므로 선택적으로 받는다.
+    // (인터셉터는 currentUserId를 파라미터로 받는 핸들러만 검증하므로 여기선 헤더를 직접 읽는다)
     @GetMapping("/{auctionId}")
-    public ResponseEntity<ApiResponse<AuctionDetailResponse>> getAuction(@PathVariable Long auctionId) {
+    public ResponseEntity<ApiResponse<AuctionDetailResponse>> getAuction(
+            @PathVariable Long auctionId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId
+    ) {
         AuctionDetailResponse response = auctionQueryService.getAuctionDetail(auctionId);
+        activityLogService.recordView(userId, auctionId, response.productId());
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -74,6 +84,9 @@ public class AuctionController {
             @Valid @RequestBody PlaceBidRequest request
     ) {
         PlaceBidResponse response = manualBidService.placeBid(auctionId, userId, request.amount(), idempotencyKey);
+        // 입찰은 가장 강한 취향 신호다. productId는 여기서 추가 조회하지 않고 null로 두며,
+        // 유저 벡터를 만들 때 auctionId로 상품을 찾는다 - 입찰 경로에 조회 쿼리를 더하지 않기 위함이다.
+        activityLogService.recordBid(userId, auctionId, null);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 }

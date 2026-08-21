@@ -21,6 +21,7 @@ import com.vintic.backend.common.exception.SellerCannotBidException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import com.vintic.backend.recommendation.service.ActivityLogService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -54,6 +55,11 @@ class AuctionControllerTest {
 
     @MockitoBean
     private ManualBidService manualBidService;
+
+    // 조회/입찰 시 추천용 행동 로그를 남긴다. 기록 자체는 여기서 검증하지 않고
+    // ActivityLogServiceTest가 담당하므로 빈만 채워둔다.
+    @MockitoBean
+    private ActivityLogService activityLogService;
 
     @Test
     void 경매_상세조회_성공시_200과_sellerId_bidCount를_포함한_경매_정보를_반환한다() throws Exception {
