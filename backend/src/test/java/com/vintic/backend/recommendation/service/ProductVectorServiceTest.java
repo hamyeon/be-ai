@@ -46,7 +46,7 @@ class ProductVectorServiceTest {
     void 저장된_벡터가_없으면_임베딩을_호출한다() {
         when(productVectorRepository.findById(1L)).thenReturn(Optional.empty());
         when(embeddingClient.embed(anyString())).thenReturn(new float[]{0.1f, 0.2f});
-        when(productVectorRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(productVectorRepository.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
 
         assertThat(newService().refresh(product(1L, "Nike", "Dunk Low"))).isNotNull();
 
@@ -64,7 +64,7 @@ class ProductVectorServiceTest {
         newService().refresh(target);
 
         verify(embeddingClient, never()).embed(anyString());
-        verify(productVectorRepository, never()).save(any());
+        verify(productVectorRepository, never()).saveAndFlush(any());
     }
 
     @Test
@@ -73,7 +73,7 @@ class ProductVectorServiceTest {
         when(productVectorRepository.findById(1L))
                 .thenReturn(Optional.of(ProductVector.of(1L, new float[]{0.1f}, "Nike Dunk Low Panda 270mm")));
         when(embeddingClient.embed(anyString())).thenReturn(new float[]{0.3f});
-        when(productVectorRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(productVectorRepository.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
 
         newService().refresh(changed);
 
@@ -122,7 +122,7 @@ class ProductVectorServiceTest {
         when(embeddingClient.embed(anyString()))
                 .thenThrow(new RuntimeException("일시 오류"))
                 .thenReturn(new float[]{0.2f});
-        when(productVectorRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(productVectorRepository.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
 
         int embedded = newService().refreshAll(
                 List.of(product(1L, "Nike", "Dunk Low"), product(2L, "Adidas", "Samba")));

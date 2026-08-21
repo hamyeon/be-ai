@@ -7,6 +7,7 @@ import com.vintic.backend.recommendation.repository.ProductVectorRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -28,7 +29,9 @@ public class ProductVectorService {
      * 상품 벡터를 최신 상태로 만든다. 이미 같은 텍스트로 만든 벡터가 있으면 임베딩을 호출하지 않는다.
      * 실패하면 null을 돌려주고 예외를 던지지 않는다 - 추천은 없어도 서비스가 돌아가야 한다.
      */
-    @Transactional
+    // REQUIRES_NEW로 트랜잭션을 분리한다. 같은 트랜잭션에서 벡터 저장이 실패하면 예외를 잡아도
+    // 트랜잭션이 rollback-only로 표시돼 호출부(상품 등록)까지 함께 실패한다.
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ProductVector refresh(Product product) {
         String sourceText = ProductVectorText.of(product);
         if (sourceText.isBlank()) {
@@ -45,7 +48,9 @@ public class ProductVectorService {
             }
 
             float[] vector = embeddingClient.embed(sourceText);
-            return productVectorRepository.save(ProductVector.of(product.getId(), vector, sourceText));
+            // save만 하면 INSERT가 트랜잭션 커밋 시점(이 메서드가 반환된 뒤)에 실행돼
+            // 아래 catch를 그냥 빠져나간다. 여기서 flush해야 실패를 이 자리에서 잡을 수 있다.
+            return productVectorRepository.saveAndFlush(ProductVector.of(product.getId(), vector, sourceText));
         } catch (RuntimeException e) {
             log.warn("상품 벡터 생성에 실패했습니다. productId={}, message={}", product.getId(), e.getMessage());
             return null;
@@ -57,7 +62,6 @@ public class ProductVectorService {
      *
      * @return 이번에 새로 임베딩을 호출한 건수
      */
-    @Transactional
     public int refreshAll(List<Product> products) {
         int embedded = 0;
         for (Product product : products) {

@@ -31,8 +31,10 @@ public class ProductVector {
     @Column(name = "product_id")
     private Long productId;
 
+    // columnDefinition을 명시한다. @Lob만 두면 MySQL에서 TINYBLOB(255바이트)으로 생성돼
+    // 1536차원 벡터(6KB)가 들어가지 않는다. (실측: Data too long for column 'vector_bytes')
     @Lob
-    @Column(name = "vector_bytes", nullable = false)
+    @Column(name = "vector_bytes", nullable = false, columnDefinition = "LONGBLOB")
     private byte[] vectorBytes;
 
     @Column(name = "dimension", nullable = false)
