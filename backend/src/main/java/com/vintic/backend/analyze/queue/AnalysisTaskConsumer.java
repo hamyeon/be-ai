@@ -65,7 +65,9 @@ public class AnalysisTaskConsumer implements StreamListener<String, MapRecord<St
 
         VisionAnalysisResult result;
         try {
-            result = visionAnalysisService.analyze(new VisionAnalysisRequest(message.imageUrls()));
+            // 세션 ID를 같이 넘긴다. 이 분석이 부른 3단계 호출을 나중에 세션 기준으로 묶어 보려면 필요하다.
+            result = visionAnalysisService.analyze(
+                    new VisionAnalysisRequest(message.imageUrls(), session.getId()));
         } catch (RuntimeException visionError) {
             if (tryRecordVisionFailure(session.getId(), visionError)) {
                 acknowledge(record);

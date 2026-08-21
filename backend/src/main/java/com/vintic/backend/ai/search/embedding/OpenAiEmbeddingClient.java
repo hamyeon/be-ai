@@ -2,6 +2,11 @@ package com.vintic.backend.ai.search.embedding;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vintic.backend.ai.observability.domain.AiCallFailureType;
+import com.vintic.backend.ai.observability.domain.AiCallLog;
+import com.vintic.backend.ai.observability.domain.AiCallType;
+import com.vintic.backend.ai.observability.service.AiCallLogger;
+import com.vintic.backend.ai.observability.service.AiCallRequestSummary;
 import com.vintic.backend.common.exception.AiApiException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,6 +19,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.UnaryOperator;
 
 // OpenAI Embeddings API(/v1/embeddings) 호출 클라이언트. Vision의 OpenAiService와 별개 엔드포인트라 분리했다.
 @Service
@@ -29,11 +35,51 @@ public class OpenAiEmbeddingClient implements EmbeddingClient {
 
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
+    private final AiCallLogger aiCallLogger;
 
     @Override
     public float[] embed(String text) {
-        ResponseEntity<String> response = callEmbeddingApi(text);
-        return extractEmbedding(response.getBody());
+        String requestSummary = AiCallRequestSummary.ofEmbedding(EMBEDDING_MODEL, text, objectMapper);
+        long startedAt = System.currentTimeMillis();
+
+        ResponseEntity<String> response;
+        try {
+            response = callEmbeddingApi(text);
+        } catch (RuntimeException e) {
+            record(requestSummary, System.currentTimeMillis() - startedAt, 0,
+                    builder -> builder.failure(AiCallFailureType.API_ERROR, e.getMessage()));
+            throw e;
+        }
+
+        long latencyMs = System.currentTimeMillis() - startedAt;
+        try {
+            float[] vector = extractEmbedding(response.getBody());
+            record(requestSummary, latencyMs, promptTokensOf(response.getBody()), builder -> builder);
+            return vector;
+        } catch (RuntimeException e) {
+            record(requestSummary, latencyMs, 0,
+                    builder -> builder.failure(AiCallFailureType.PARSE_ERROR, e.getMessage()));
+            throw e;
+        }
+    }
+
+    private void record(String requestSummary, long latencyMs, int promptTokens,
+                        UnaryOperator<AiCallLog.Builder> customizer) {
+        AiCallLog.Builder builder = AiCallLog.builder(AiCallType.EMBEDDING, EMBEDDING_MODEL)
+                .requestSummary(requestSummary)
+                .latencyMs(latencyMs)
+                // 임베딩 응답에는 completion 토큰이 없다. 입력 토큰만 과금된다.
+                .tokens(promptTokens, 0);
+        // 벡터 1536개를 그대로 남기면 행이 커지기만 하고 되짚을 값이 없다. 벡터는 product_vectors에 있다.
+        aiCallLogger.record(customizer.apply(builder).build());
+    }
+
+    private int promptTokensOf(String responseBody) {
+        try {
+            return objectMapper.readTree(responseBody).path("usage").path("prompt_tokens").asInt(0);
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     private ResponseEntity<String> callEmbeddingApi(String text) {

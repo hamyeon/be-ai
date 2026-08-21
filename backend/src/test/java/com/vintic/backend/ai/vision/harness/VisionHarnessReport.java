@@ -20,7 +20,8 @@ public record VisionHarnessReport(
         long averageLatencyMs,
         Map<Field, FieldStat> fieldStats,
         List<CaseScore> caseScores,
-        Usage usage
+        Usage usage,
+        JsonCompliance jsonCompliance
 ) {
 
     // 호출 비용을 재기 위한 집계. 정확도가 올라도 비용이 몇 배로 뛰면 채택할 수 없으므로 같이 본다.
@@ -85,8 +86,27 @@ public record VisionHarnessReport(
         long averageLatencyMs = caseScores.isEmpty() ? 0L
                 : Math.round(caseScores.stream().mapToLong(CaseScore::latencyMs).average().orElse(0.0));
 
-        return new VisionHarnessReport(
-                label, caseScores.size(), failureCount, averageLatencyMs, fieldStats, caseScores, usage);
+        return new VisionHarnessReport(label, caseScores.size(), failureCount, averageLatencyMs,
+                fieldStats, caseScores, usage, JsonCompliance.from(caseScores));
+    }
+
+    // Structured Outputs를 쓰면 형식은 보장된다는 게 전제지만, 응답이 잘리거나 스키마를 잘못
+    // 만들면 깨진다. 프롬프트를 바꿀 때 이 값이 떨어지면 형식을 건드린 것이므로 바로 알아야 한다.
+    public record JsonCompliance(int responded, int malformed) {
+
+        public static JsonCompliance from(List<CaseScore> caseScores) {
+            // API가 거절해 응답 자체를 못 받은 케이스는 분모에서 뺀다. 429를 맞은 걸
+            // "형식을 어겼다"고 세면 프롬프트 품질과 무관한 값이 섞인다.
+            int responded = (int) caseScores.stream().filter(CaseScore::receivedResponse).count();
+            int malformed = (int) caseScores.stream()
+                    .filter(score -> score.failureKind() == VisionHarnessScorer.FailureKind.FORMAT_ERROR)
+                    .count();
+            return new JsonCompliance(responded, malformed);
+        }
+
+        public double rate() {
+            return responded == 0 ? 0.0 : (double) (responded - malformed) / responded;
+        }
     }
 
     public String toText() {
@@ -95,6 +115,10 @@ public record VisionHarnessReport(
         lines.add("Vision 하네스 결과: " + label);
         lines.add("케이스 %d건 / 호출 실패 %d건 / 케이스당 평균 응답시간 %dms".formatted(
                 caseCount, failureCount, averageLatencyMs));
+        if (jsonCompliance != null && jsonCompliance.responded() > 0) {
+            lines.add("JSON 준수율 %.0f%% (응답 %d건 중 형식 오류 %d건)".formatted(
+                    jsonCompliance.rate() * 100, jsonCompliance.responded(), jsonCompliance.malformed()));
+        }
         if (usage != null && usage.apiCalls() > 0) {
             lines.add("API 호출 %d회 (케이스당 %.1f회) / 토큰 %,d (입력 %,d + 출력 %,d), 케이스당 %,d".formatted(
                     usage.apiCalls(), caseCount == 0 ? 0.0 : (double) usage.apiCalls() / caseCount,
@@ -116,7 +140,12 @@ public record VisionHarnessReport(
         lines.add("케이스별 상세");
         for (CaseScore caseScore : caseScores) {
             String detail = caseScore.isFailure()
-                    ? "호출/파싱 실패: " + caseScore.failureMessage()
+                    // 실패 종류를 같이 남긴다. API 오류는 다시 돌리면 되지만
+                    // 형식 오류는 프롬프트나 스키마를 고쳐야 한다.
+                    ? "%s: %s".formatted(
+                            caseScore.failureKind() == VisionHarnessScorer.FailureKind.FORMAT_ERROR
+                                    ? "형식 오류" : "호출 실패",
+                            caseScore.failureMessage())
                     : formatOutcomes(caseScore);
             lines.add("  %-30s %6dms  %s".formatted(caseScore.caseId(), caseScore.latencyMs(), detail));
             // 틀린 필드는 실제로 뭐라고 답했는지 같이 남긴다. O/X만 있으면 원인을 알 수 없다.

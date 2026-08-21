@@ -1,6 +1,9 @@
 package com.vintic.backend.ai.vision.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vintic.backend.ai.observability.domain.AiCallFailureType;
+import com.vintic.backend.ai.observability.domain.AiCallLog;
+import com.vintic.backend.ai.observability.service.AiCallLogger;
 import com.vintic.backend.ai.prompt.PromptTemplateLoader;
 import com.vintic.backend.ai.vision.client.OpenAiVisionClient;
 import com.vintic.backend.ai.vision.client.VisionChatRequest;
@@ -33,6 +36,9 @@ class StagedVisionAnalysisServiceTest {
     @Mock
     private OpenAiVisionClient visionClient;
 
+    @Mock
+    private AiCallLogger aiCallLogger;
+
     private StagedVisionAnalysisService newService() {
         return newService(new VisionStageProperties());
     }
@@ -40,7 +46,7 @@ class StagedVisionAnalysisServiceTest {
     private StagedVisionAnalysisService newService(VisionStageProperties stageProperties) {
         return new StagedVisionAnalysisService(
                 visionClient, new ObjectMapper(), new VisionEvidenceValidator(),
-                new PromptTemplateLoader(), stageProperties);
+                new PromptTemplateLoader(), stageProperties, aiCallLogger);
     }
 
     private VisionChatResponse responseOf(String content) {
@@ -246,6 +252,65 @@ class StagedVisionAnalysisServiceTest {
 
         assertThatThrownBy(() -> newService().analyze(new VisionAnalysisRequest(IMAGE_URLS)))
                 .isInstanceOf(AiApiException.class);
+    }
+
+    @Test
+    void 세_단계를_각각_별도_기록으로_남긴다() {
+        // 분석 한 건에 호출이 세 번이라, 어느 단계가 느렸는지 보려면 단계별로 남아야 한다.
+        stubAllStages();
+
+        newService().analyze(new VisionAnalysisRequest(IMAGE_URLS, 42L));
+
+        List<AiCallLog> logs = capturedLogs(3);
+        assertThat(logs).extracting(AiCallLog::getStage)
+                .containsExactly("silhouette", "label", "condition");
+        assertThat(logs).allSatisfy(log -> {
+            assertThat(log.isSuccess()).isTrue();
+            assertThat(log.getAnalysisId()).isEqualTo(42L);
+            assertThat(log.getPromptVersion()).isEqualTo("v2");
+            assertThat(log.getModelName()).isEqualTo("gpt-4o");
+            assertThat(log.getPromptTokens()).isEqualTo(100);
+            assertThat(log.getCompletionTokens()).isEqualTo(50);
+            assertThat(log.getLatencyMs()).isEqualTo(1000L);
+        });
+    }
+
+    @Test
+    void API_호출이_실패하면_실패_기록을_남긴다() {
+        when(visionClient.complete(any()))
+                .thenReturn(responseOf(SILHOUETTE_JSON))
+                .thenThrow(new AiApiException("OpenAI Vision API 오류 (status=429)"));
+
+        assertThatThrownBy(() -> newService().analyze(new VisionAnalysisRequest(IMAGE_URLS)))
+                .isInstanceOf(AiApiException.class);
+
+        AiCallLog failed = capturedLogs(2).get(1);
+        assertThat(failed.getStage()).isEqualTo("label");
+        assertThat(failed.isSuccess()).isFalse();
+        assertThat(failed.getFailureType()).isEqualTo(AiCallFailureType.API_ERROR);
+    }
+
+    @Test
+    void 파싱에_실패하면_응답_원문과_함께_기록한다() {
+        // 파싱이 깨진 응답일수록 원문이 필요하다. 무엇이 왔는지 봐야 스키마를 고칠 수 있다.
+        when(visionClient.complete(any())).thenReturn(responseOf("이건 JSON이 아닙니다"));
+
+        assertThatThrownBy(() -> newService().analyze(new VisionAnalysisRequest(IMAGE_URLS)))
+                .isInstanceOf(AiApiException.class);
+
+        AiCallLog failed = capturedLogs(1).get(0);
+        assertThat(failed.getFailureType()).isEqualTo(AiCallFailureType.PARSE_ERROR);
+        assertThat(failed.getResponseBody()).isEqualTo("이건 JSON이 아닙니다");
+    }
+
+    // "기록 실패가 분석을 막지 않는다"는 AiCallLoggerTest에서 검증한다.
+    // record()가 어떤 경우에도 예외를 던지지 않는 게 AiCallLogger의 계약이라,
+    // 호출부마다 방어 코드를 두는 대신 계약을 지키는 쪽을 테스트한다.
+
+    private List<AiCallLog> capturedLogs(int expectedCount) {
+        ArgumentCaptor<AiCallLog> captor = ArgumentCaptor.forClass(AiCallLog.class);
+        verify(aiCallLogger, times(expectedCount)).record(captor.capture());
+        return captor.getAllValues();
     }
 
     private List<VisionChatRequest> capturedRequests() {

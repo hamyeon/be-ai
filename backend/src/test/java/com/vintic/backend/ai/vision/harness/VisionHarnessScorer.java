@@ -2,6 +2,7 @@ package com.vintic.backend.ai.vision.harness;
 
 import com.vintic.backend.ai.vision.dto.ConditionGrade;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
+import com.vintic.backend.common.exception.AiResponseFormatException;
 
 import java.util.EnumMap;
 import java.util.List;
@@ -33,6 +34,13 @@ public final class VisionHarnessScorer {
         NOT_LABELED   // 픽스처에 정답이 없어 채점 제외
     }
 
+    // 실패를 한 덩어리로 세면 JSON 준수율을 낼 수 없다. API가 거절해서 응답 자체가 없는 것과,
+    // 응답은 왔는데 형식이 어긋난 것은 프롬프트 품질 측면에서 전혀 다른 사건이다.
+    public enum FailureKind {
+        API_ERROR,      // 응답을 받지 못함 - 준수율 계산의 분모에서 빠진다
+        FORMAT_ERROR    // 응답은 왔는데 약속한 JSON으로 읽지 못함 - 준수율을 떨어뜨린다
+    }
+
     // mismatches: 틀리거나 근사로 판정된 필드에 대해 "기대=..., 실제=..."를 담는다.
     //
     // 결과에 O/X만 남기면 왜 틀렸는지 알 수 없다. 사이즈 정답이 290인데 285를 낸 것(변환 실수)과
@@ -42,19 +50,30 @@ public final class VisionHarnessScorer {
             Map<Field, Outcome> outcomes,
             Map<Field, String> mismatches,
             long latencyMs,
-            String failureMessage
+            String failureMessage,
+            FailureKind failureKind
     ) {
 
-        public static CaseScore failed(String caseId, long latencyMs, String failureMessage) {
+        public static CaseScore failed(String caseId, long latencyMs, Throwable error) {
             Map<Field, Outcome> outcomes = new EnumMap<>(Field.class);
             for (Field field : Field.values()) {
                 outcomes.put(field, Outcome.ABSTAINED);
             }
-            return new CaseScore(caseId, outcomes, Map.of(), latencyMs, failureMessage);
+            // 메시지 문자열이 아니라 예외 타입으로 가른다. 메시지를 다듬는 순간
+            // 조용히 오분류되기 때문이다.
+            FailureKind kind = error instanceof AiResponseFormatException
+                    ? FailureKind.FORMAT_ERROR
+                    : FailureKind.API_ERROR;
+            return new CaseScore(caseId, outcomes, Map.of(), latencyMs, error.getMessage(), kind);
         }
 
         public boolean isFailure() {
             return failureMessage != null;
+        }
+
+        // 응답 자체는 받아낸 케이스. JSON 준수율의 분모가 된다.
+        public boolean receivedResponse() {
+            return failureKind != FailureKind.API_ERROR;
         }
     }
 
@@ -75,7 +94,7 @@ public final class VisionHarnessScorer {
         recordMismatch(mismatches, outcomes, Field.BOX_INCLUDED, expected.boxIncluded(), result.boxIncluded());
         recordMismatch(mismatches, outcomes, Field.CONDITION_GRADE, expected.conditionGrade(), result.conditionGrade());
 
-        return new CaseScore(harnessCase.id(), outcomes, Map.copyOf(mismatches), latencyMs, null);
+        return new CaseScore(harnessCase.id(), outcomes, Map.copyOf(mismatches), latencyMs, null, null);
     }
 
     private static void recordMismatch(
