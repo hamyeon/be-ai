@@ -22,6 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from model_aliases import find_model  # noqa: E402
 from reference_quality import quality, reason  # noqa: E402
+from listing_filters import exclusion_reason  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 DAANGN = ROOT / "crawler" / "output" / "daangn_shoes_raw.jsonl"
@@ -87,6 +88,10 @@ def main():
 
     ratios_by_cond = defaultdict(list)
     ratios_by_model = defaultdict(list)
+    # 참조가 표준 컬러웨이인 모델만 상태별 계수에 반영한다.
+    # 한정 컬러 참조를 섞으면 S등급이 UNKNOWN보다 낮게 나오는 역전이 생긴다.
+    standard_by_cond = defaultdict(list)
+    excluded = defaultdict(int)
     matched = size_matched = 0
 
     with DAANGN.open(encoding="utf-8") as f:
@@ -109,6 +114,12 @@ def main():
             if not (PRICE_MIN <= price <= PRICE_MAX):
                 continue
 
+            # 분자와 분모가 같은 물건이어야 한다. 협업·묶음·아동용은 그 전제를 깬다.
+            excluded_by = exclusion_reason(blob)
+            if excluded_by:
+                excluded[excluded_by] += 1
+                continue
+
             size = parse_size(blob)
             if size is not None and size >= ADULT_MIN and (model, size) in by_model_size:
                 reference = statistics.median(by_model_size[(model, size)])
@@ -117,18 +128,30 @@ def main():
                 reference = statistics.median(by_model[model])
             matched += 1
             ratio = price / reference
-            ratios_by_cond[d.get("condition_grade_guess") or "UNKNOWN"].append(ratio)
+            grade = d.get("condition_grade_guess") or "UNKNOWN"
+            ratios_by_cond[grade].append(ratio)
             ratios_by_model[model].append(ratio)
+            if quality(model) == "STANDARD":
+                standard_by_cond[grade].append(ratio)
 
     print(f"\n매칭된 당근 매물: {matched}건 (사이즈까지 일치 {size_matched}건)")
+    if excluded:
+        print("  제외: " + ", ".join(f"{k} {v}건" for k, v in sorted(excluded.items())))
 
-    print(f"\n{'추정 상태':<10}{'n':>6}{'중앙값':>10}{'현재 계수':>12}")
     current = {"DS": 0.80, "S": 0.70, "UNKNOWN": 0.60}
+
+    print(f"\n[전체 참조]   {'상태':<9}{'n':>6}{'중앙값':>10}{'현재 계수':>12}")
     for cond in ("DS", "S", "UNKNOWN"):
         vals = ratios_by_cond.get(cond, [])
-        if not vals:
-            continue
-        print(f"{cond:<10}{len(vals):>6}{statistics.median(vals):>10.2f}{current[cond]:>12}")
+        if vals:
+            print(f"{'':<14}{cond:<9}{len(vals):>6}{statistics.median(vals):>10.2f}{current[cond]:>12}")
+
+    # 한정 컬러 참조를 섞으면 S가 UNKNOWN보다 낮게 나오는 역전이 생긴다.
+    print(f"\n[표준 참조만] {'상태':<9}{'n':>6}{'중앙값':>10}{'현재 계수':>12}")
+    for cond in ("DS", "S", "UNKNOWN"):
+        vals = standard_by_cond.get(cond, [])
+        if vals:
+            print(f"{'':<14}{cond:<9}{len(vals):>6}{statistics.median(vals):>10.2f}{current[cond]:>12}")
 
     print(f"\n{'모델':<24}{'n':>6}{'중앙값':>10}  {'참조품질':<9} 근거")
     trusted = []

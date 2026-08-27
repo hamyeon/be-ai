@@ -8,12 +8,21 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Component
 public class MarketPriceDataLoader {
 
     private static final String KREAM_CSV_PATH = "data/kream_normalized.csv";
     private static final String EBAY_CSV_PATH = "data/ebay_normalized.csv";
+
+    // 한국 신발 사이즈로 볼 수 있는 범위. 유아용부터 특대까지 넉넉히 잡는다.
+    private static final int MIN_SIZE_KR = 150;
+    private static final int MAX_SIZE_KR = 350;
+
+    // "200(US 1.5)"에서 앞의 200만 읽기 위한 패턴
+    private static final Pattern LEADING_NUMBER = Pattern.compile("\\d+");
 
     public List<MarketPriceRow> loadKreamRows() {
         return loadRows(KREAM_CSV_PATH, "KREAM");
@@ -75,7 +84,7 @@ public class MarketPriceDataLoader {
         String conditionGrade = getValue(headers, values, "상태");
         String url = getValue(headers, values, "상품 URL");
 
-        Integer sizeKr = parseInteger(sizeKrText);
+        Integer sizeKr = parseSizeKr(sizeKrText);
         Integer price = parseInteger(priceText);
 
         if (isBlank(brand) || isBlank(model) || isBlank(colorway) || sizeKr == null || price == null) {
@@ -105,7 +114,7 @@ public class MarketPriceDataLoader {
         String boxIncludedText = getValue(headers, values, "box_included");
         String url = getValue(headers, values, "item_url");
 
-        Integer sizeKr = parseInteger(sizeKrText);
+        Integer sizeKr = parseSizeKr(sizeKrText);
         Integer price = parseInteger(priceText);
         Boolean boxIncluded = parseBoolean(boxIncludedText);
 
@@ -153,6 +162,36 @@ public class MarketPriceDataLoader {
 
             return Integer.parseInt(onlyNumber);
         } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // 한국 사이즈를 읽는다. parseInteger를 그대로 쓰면 안 된다.
+    //
+    // KREAM CSV에는 "200(US 1.5)", "190(13K)"처럼 괄호로 해외 사이즈를 병기한 행이 있다.
+    // 숫자만 남기는 방식으로는 20015, 19013이 되어 어떤 요청과도 매칭되지 않는다.
+    // 값이 틀리게 나오는 게 아니라 그 행이 조용히 없는 것처럼 동작한다.
+    // (실측: KREAM 75행 중 5행이 해당하고 전부 Samba OG였다)
+    //
+    // 그래서 괄호 앞의 첫 숫자만 읽고, 신발 사이즈로 볼 수 없는 값은 버린다.
+    private Integer parseSizeKr(String value) {
+        if (isBlank(value)) {
+            return null;
+        }
+
+        Matcher matcher = LEADING_NUMBER.matcher(value.trim());
+        if (!matcher.find()) {
+            return null;
+        }
+
+        try {
+            int size = Integer.parseInt(matcher.group());
+            // 신발 사이즈 범위를 벗어나면 표기가 깨진 것으로 보고 버린다.
+            if (size < MIN_SIZE_KR || size > MAX_SIZE_KR) {
+                return null;
+            }
+            return size;
+        } catch (NumberFormatException e) {
             return null;
         }
     }
