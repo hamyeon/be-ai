@@ -35,7 +35,7 @@ public class BidCommandService {
 
     @Transactional
     public PlaceBidResponse placeManualBid(Long auctionId, Long userId, Long amount) {
-        Auction auction = auctionRepository.findById(auctionId)
+        Auction auction = auctionRepository.findByIdForUpdate(auctionId)
                 .orElseThrow(() -> new AuctionNotFoundException("존재하지 않는 경매입니다. auctionId: " + auctionId));
         User bidder = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("존재하지 않는 사용자입니다. userId: " + userId));

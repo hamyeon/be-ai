@@ -2,15 +2,24 @@ package com.vintic.backend.auction.repository;
 
 import com.vintic.backend.auction.domain.Auction;
 import com.vintic.backend.auction.domain.AuctionStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public interface AuctionRepository extends JpaRepository<Auction, Long> {
+
+    // 입찰 read-modify-write의 최초 authoritative read. PESSIMISTIC_WRITE로 이 row에 대한
+    // 다른 트랜잭션의 조회/수정을 이 트랜잭션이 commit/rollback할 때까지 블로킹한다(#35).
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from Auction a where a.id = :auctionId")
+    Optional<Auction> findByIdForUpdate(@Param("auctionId") Long auctionId);
 
     // 추천 후보. 아직 끝나지 않은 경매만 대상이다 - 이미 끝난 경매를 추천해봐야 참여할 수 없다.
     // 상품까지 함께 읽는다. 추천은 상품 벡터로 정렬하므로 매건 product를 다시 조회하면 N+1이 된다.

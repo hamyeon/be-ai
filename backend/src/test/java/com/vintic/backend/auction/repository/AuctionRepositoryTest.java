@@ -56,4 +56,26 @@ class AuctionRepositoryTest {
         assertThat(found.get().getProduct().getId()).isEqualTo(product.getId());
         assertThat(found.get().getCurrentWinner()).isNull();
     }
+
+    // #35: PESSIMISTIC_WRITE 자체가 정상 Auction을 반환하는지만 확인한다. 두 트랜잭션이
+    // 실제로 서로를 블로킹하는지는 이 단일 커넥션 @DataJpaTest로 검증할 수 없고,
+    // ManualBidConcurrencyRaceIT(#35 20회 본 실험)의 실제 MySQL 결과(0/20 invariant
+    // violation, CannotAcquireLockException 0/160)로 확인한다 — 별도 락 대기 테스트를
+    // 새로 만들지 않는다.
+    @Test
+    void findByIdForUpdate로_경매를_조회할_수_있다() {
+        Product product = persistProduct();
+        Auction auction = Auction.schedule(
+                product, 10000L, 5000L, LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2)
+        );
+
+        Auction saved = auctionRepository.save(auction);
+        entityManager.flush();
+        entityManager.clear();
+
+        Optional<Auction> found = auctionRepository.findByIdForUpdate(saved.getId());
+
+        assertThat(found).isPresent();
+        assertThat(found.get().getId()).isEqualTo(saved.getId());
+    }
 }
