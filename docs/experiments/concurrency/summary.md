@@ -45,8 +45,11 @@ raw data 자체는 수정하지 않았고, 이 문서는 그 raw data의 요약/
 | CannotAcquireLockException | 135 |
 | Other exceptions | 0 |
 
-`7/20`(run-level)과 `135/160`(request-level)은 서로 다른 지표이며 혼용하지 않는다. 실패한
-135건은 전부 `CannotAcquireLockException`(MySQL 1213)이었고, 다른 종류의 예외는 없었다.
+`3/20`(run-level)과 `135/160`(request-level)은 서로 다른 지표이며 혼용하지 않는다. 통제된
+correctness stress workload의 160개 request attempt 중 135개가 MySQL lock contention/deadlock에
+의해 `CannotAcquireLockException`(MySQL 1213)으로 종료됐고, 다른 종류의 예외는 없었다. 이 값을
+"no-lock failure rate" 또는 운영 요청 실패율처럼 표현하지 않는다 — test-only delay로 경쟁
+구간을 인위적으로 확대한 통제 실험의 관찰값이며 운영 환경의 자연 발생 확률이 아니다.
 
 ## Representative Failure
 

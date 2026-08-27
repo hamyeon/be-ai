@@ -102,14 +102,16 @@ N-thread로 일반화한 것이다.
 4. **Success/Bid count consistency**: 애플리케이션이 성공으로 보고한 요청 수와 실제 저장된
    `Bid` row 수가 일치하는가(성공 보고와 실제 영속 상태의 불일치를 잡기 위함).
 
-### 기존 6개 invariant와의 관계
+### 기존 6개 business-rule regression 테스트와의 관계
 
 `BidCommandServiceTest`의 6개 규칙(`AuctionNotStartedException`, `AuctionClosedException`,
 `SellerCannotBidException`, `AlreadyHighestBidderException`, `BidAmountTooLowException`,
-`PenaltyRestrictedException`)은 **precondition/error-rule 테스트**이지 재사용 가능한 상태
-checker가 아니라서, 이 문서의 post-state invariant를 위해 억지로 추출하지 않았다. 대신
-기존 6개 테스트 + 수동 입찰/Idempotency 테스트를 그대로 regression suite로 유지하고, 이번
-concurrency harness는 그 위에 "동시 실행 후 상태가 여전히 일관적인가"라는 별도 관점만 추가한다.
+`PenaltyRestrictedException`)은 **precondition/error-rule regression 테스트**이지
+concurrency post-state invariant가 아니다 — "수동 입찰 6불변식"이라고 부르지 않는다.
+재사용 가능한 상태 checker도 아니라서 이 문서의 post-state invariant를 위해 억지로 추출하지
+않았다. 대신 기존 6개 regression 테스트 + 수동 입찰/Idempotency 테스트를 그대로 regression
+suite로 유지하고, 이번 concurrency harness는 그 위에 "동시 실행 후 상태가 여전히
+일관적인가"라는 별도 관점(concurrency post-state invariant)만 추가한다.
 
 ## Pilot
 
