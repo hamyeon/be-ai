@@ -1,0 +1,11 @@
+run=11
+workerCount=8 bidderCount=8 delayMs=1000 initialPrice=10000 bidIncrement=5000
+successCount=5 failureCount=3 businessRejectionCount=3 cannotAcquireLockCount=0 otherExceptionCount=0
+exceptionTypes=[BidAmountTooLowException, BidAmountTooLowException, BidAmountTooLowException]
+businessExceptionTypes=[BidAmountTooLowException, BidAmountTooLowException, BidAmountTooLowException]
+persistedBidCount=5 actualMaxBidAmount=50000 actualMaxBidderId=102
+finalCurrentPrice=50000 finalWinnerId=102
+invariantViolated=false
+violations=[]
+elapsedMillis=8224
+

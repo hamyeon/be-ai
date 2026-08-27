@@ -234,20 +234,75 @@ pessimistic lock 등 비교 실험은 이 표의 값을 그대로 사용한다.
 ```text
 docs/experiments/concurrency/
 ├─ protocol.md          (본 문서)
-├─ environment.md        (#34 실행 시점의 실제 환경 조회값)
+├─ environment.md        (#34/#35 실행 시점의 실제 환경 조회값)
 ├─ summary.md            (raw CSV를 집계한 결과만)
 └─ raw/
-   ├─ no-lock-correctness.csv   (20개 run의 원본 구조화 결과, 1 row = 1 run)
+   ├─ no-lock-correctness.csv       (#34, 20개 run — read-only 참고 자료, #35에서 수정 안 함)
+   ├─ pessimistic-correctness.csv   (#35, 20개 run)
    └─ logs/
-      ├─ no-lock-run-01.log     (run별 원본 로그: success/failure, 예외 타입, 최종 Auction
-      │                          상태, persisted max Bid, invariant violation 목록)
+      ├─ no-lock-run-01.log         (#34 run별 원본 로그)
       ├─ ...
-      └─ no-lock-run-20.log
+      ├─ no-lock-run-20.log
+      ├─ pessimistic-run-01.log     (#35 run별 원본 로그)
+      ├─ ...
+      └─ pessimistic-run-20.log
 ```
 
-`no-lock-correctness.csv`는 최초 생성 후 실수로 덮어쓰지 않도록, harness가 실행 시작 시
-파일이 이미 존재하면 즉시 실패한다 — 재측정하려면 사람이 명시적으로 기존 파일을 옮기거나
-지워야 한다.
+`no-lock-correctness.csv`/`pessimistic-correctness.csv`는 최초 생성 후 실수로 덮어쓰지
+않도록, harness가 실행 시작 시 파일이 이미 존재하면 즉시 실패한다 — 재측정하려면 사람이
+명시적으로 기존 파일을 옮기거나 지워야 한다.
+
+## Pessimistic Lock Strategy (#35)
+
+독립변수는 **Auction read-modify-write의 최초 authoritative read에 `PESSIMISTIC_WRITE`를
+적용하는지 여부** 하나뿐이다. no-lock(#34) 대비 다른 조건(workload, 환경, transaction
+구조, Idempotency 로직)은 전혀 바꾸지 않았다.
+
+- **repository method**: `AuctionRepository.findByIdForUpdate(Long auctionId)`,
+  `@Lock(LockModeType.PESSIMISTIC_WRITE)` + `@Query("select a from Auction a where a.id = :auctionId")`.
+- **RMW 경로 변경**: `BidCommandService.placeManualBid()`에서 기존 `auctionRepository.findById(auctionId)`
+  호출 한 곳만 `findByIdForUpdate(auctionId)`로 교체했다. 이 호출이 입찰 read-modify-write의
+  최초 authoritative read이므로, lock 획득 이전에 stale 상태를 읽는 경로는 없다.
+- **확인된 SQL**(Hibernate 로그, MySQL 8.4.10): `select a1_0.id, ... from auctions a1_0 where
+  a1_0.id=? for update` — 개념적으로 `SELECT ... FOR UPDATE`가 실제로 실행됨을 확인했다.
+- **transaction boundary**: `ManualBidService.placeBid()` → `IdempotencyClaimService.claimAndPlaceBid()`
+  (`@Transactional`) → `BidCommandService.placeManualBid()`(`@Transactional`, 기본
+  propagation `REQUIRED`라 outer transaction에 합류)로 이어지는 기존 구조를 그대로 유지했다.
+  즉 `findByIdForUpdate()`로 획득한 row lock은 `placeManualBid()` 메서드가 끝나는 시점이
+  아니라 `claimAndPlaceBid()`의 물리적 트랜잭션이 commit/rollback될 때까지 유지된다(같은
+  물리 트랜잭션이므로 lock을 별도로 유지하기 위한 추가 코드가 필요 없다).
+- **rollback 시 lock 해제**: production에 별도 코드를 추가하지 않았고, 특정 트랜잭션이
+  rollback되는 순간 row lock이 해제되는 시점을 로그로 직접 관찰하지도 않았다. #35 20회
+  본 실험에서 직접 확인한 사실은 (1) 20회 모두 `future.get(30, TimeUnit.SECONDS)` 안에
+  timeout 없이 완료됐고 (2) 매 run에서 일부 request가 `BidAmountTooLowException`으로
+  종료된 뒤에도 후속 request들이 정상적으로 진행됐으며 (3) `CannotAcquireLockException`이
+  0/160건이었다는 것이다 — lock이 계속 남아 이후 요청을 막는 lock leak은 관찰되지 않았다.
+  트랜잭션 종료 후 후속 요청들이 정상 진행됐으며 lock 누수는 관찰되지 않았다. InnoDB의
+  row lock은 transaction-scoped라 commit뿐 아니라 rollback 시에도 해제되는 구조이며,
+  이번 실험 관찰 결과는 그 동작 특성과 일치한다 — 다만 이는 InnoDB의 알려진 동작 특성에
+  근거한 설명이지, 이번 실험에서 rollback 시점의 lock 해제 자체를 직접 관찰한 것은 아니다.
+- **test-only delay 위치**: `ManualBidConcurrencyRaceIT`의 `DelayConfig`가 감싸는 대상을
+  `findById()`에서 `findByIdForUpdate()`로 변경했다 — production이 더 이상 `findById()`를
+  이 경로에서 호출하지 않으므로, 감싸는 대상을 바꾸지 않으면 delay가 빠져 #34와 조건이
+  달라진다. delay 값(1000ms)/구현(`RaceWindowDelay`)/arm-disarm 로직은 무변경이다. 결과적으로
+  첫 트랜잭션이 `SELECT ... FOR UPDATE`로 row lock을 잡은 채 1000ms 대기하고, 그동안
+  다른 트랜잭션들은 자신의 `SELECT ... FOR UPDATE` 호출 자체에서 블로킹된다(Mockito
+  proxy가 실제 `jpaAuctionRepository.findByIdForUpdate()` 호출이 반환된 "직후"에만
+  sleep하므로, block은 delay 이전에 발생한다).
+- **business rejection과 correctness/contention의 분리**: lock으로 접근이 직렬화되면
+  뒤에 lock을 얻은 bidder는 앞 트랜잭션이 commit한 최신 `currentPrice`를 보게 되어
+  `BidAmountTooLowException` 등 정상 business validation 실패로 종료될 수 있다. 이는
+  DB lock contention도 correctness violation도 아니므로 별도 컬럼
+  (`businessRejectionCount`, `businessExceptionTypes`)으로 raw에 분리해서 기록한다.
+
+## Pessimistic Main Experiment (#35)
+
+#34와 동일하게 frozen 조건(§Frozen Main Experiment Conditions)으로 정확히 20회 반복했다.
+파일럿/escalation 없이 바로 본 실험을 수행했다 — 독립변수가 이미 확정되어 있고(§Pessimistic
+Lock Strategy) 탐색할 조건이 없기 때문이다. 결과는 `raw/pessimistic-correctness.csv` +
+`raw/logs/pessimistic-run-01~20.log`에 저장했다. run-level/request-level 지표 분리, 즉시
+append+flush, overwrite guard는 #34와 동일한 원칙을 그대로 따른다(§Main Experiment
+Procedure, §Data Storage).
 
 ## Interpretation Rules
 
@@ -265,6 +320,18 @@ docs/experiments/concurrency/
   않는다. "no-lock"은 InnoDB 엔진 레벨 락까지 없앤다는 뜻이 아니라 application-level
   (`@Version`, `@Lock`, `SELECT FOR UPDATE`, 분산 락 등) concurrency-control strategy가
   없다는 의미다.
+- **(#35) `business rejection`(예: `BidAmountTooLowException`)은 correctness violation도
+  DB lock contention도 아니다.** lock으로 직렬화된 뒤 최신 `currentPrice`를 보고 정상적으로
+  거부된 것이라 실패로 세더라도 no-lock의 `CannotAcquireLockException`과 같은 종류의 실패로
+  합산하지 않는다.
+- **(#35) `0/20 invariant violation`은 "이 환경에서 실패 확률이 0%"를 뜻하지 않는다.**
+  single application instance, single MySQL, single `Auction` row contention, frozen test
+  workload라는 이번 검증 범위 안에서의 관찰값이다. "Pessimistic Lock이 모든 환경에서
+  정합성을 완벽히 보장한다"처럼 일반화하지 않는다.
+- **(#35) elapsed time을 성능 지표로 해석하지 않는다.** `delay=1000ms`가 포함돼 있고,
+  Pessimistic Lock에서는 첫 트랜잭션이 row lock을 잡은 채 그 시간만큼 대기하므로 지연이
+  no-lock보다 커질 수 있지만, 이는 race reproduction을 위한 인위적 조건이다. median/p95/
+  throughput 비교는 delay를 제거한 별도 #36에서 수행한다.
 - 이 harness는 HTTP/Controller 계층을 거치지 않고 `ManualBidService`를 직접 호출한다 — Controller의
   헤더 파싱/인증 로직은 동시성 실험과 무관해서 제외했다(#32 `ManualBidIdempotencyMySqlIT`는 반대로
   HTTP 전 구간을 검증하는 것이 목적이라 방식이 다르다).
