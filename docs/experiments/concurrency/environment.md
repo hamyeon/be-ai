@@ -35,7 +35,7 @@ discrepancy 없음.
 | Baseline tag | `exp/baseline-no-lock` | `git rev-list -n 1 exp/baseline-no-lock` |
 | Baseline commit | `5bfe881e48f5400b3279c3d04b4191e427742381` | 위와 동일, baseline tag가 가리키는 commit과 일치 확인 |
 | #34 branch | `experiment/#34-no-lock` | baseline commit을 조상으로 포함(`git merge-base --is-ancestor` 확인) |
-| #34 실험 commit | (본 커밋 이후 별도 기록) | 실험 완료 후 커밋 시 확정 |
+| #34 실험 commit | `ea3828c` | `git log --oneline -1` |
 
 ## No-lock 상태 재확인
 
