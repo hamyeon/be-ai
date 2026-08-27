@@ -1,4 +1,4 @@
-# Concurrency Correctness 실험 — 실행 환경 (#34 No-lock / #35 Pessimistic Lock)
+# Concurrency 실험 — 실행 환경 (#34/#35 Correctness / #36-A Performance)
 
 이 문서는 #34 본 실험(20회)을 실제로 실행한 시점에 조회/확인한 값만 기록한다. 추정값은
 없다 — 모두 harness의 실행 로그, `./gradlew dependencies`, `./gradlew javaToolchains`
@@ -102,3 +102,36 @@ a1_0.status from auctions a1_0 where a1_0.id=? for update
 
 `for update`가 실제 실행된 SQL에 포함됨을 확인했다(로그 원문, `pessimistic-experiment-run.log`
 line 264 등).
+
+## #36-A Performance 실행 환경
+
+correctness(#34/#35)와 completely 별도인 성능 실험이다. 두 revision 모두 harness 실행 시
+자동 조회한 `[perf-env]` 로그:
+
+```text
+No-lock:      [perf-env] mysql.version=8.4.10 isolation=REPEATABLE-READ hikari.maximumPoolSize=20 springBootInstances=1
+Pessimistic:  [perf-env] mysql.version=8.4.10 isolation=REPEATABLE-READ hikari.maximumPoolSize=20 springBootInstances=1
+```
+
+| 항목 | No-lock (#36-A) | Pessimistic Lock (#36-A) |
+|---|---|---|
+| MySQL version | 8.4.10 | 8.4.10 |
+| Testcontainers image | `mysql:8.4` | `mysql:8.4` |
+| Transaction isolation | REPEATABLE-READ | REPEATABLE-READ |
+| HikariCP maximumPoolSize | 20 | 20 |
+| Spring Boot application instances | 1 | 1 |
+| Concurrency | 8 | 8 |
+| Warm-up batches | 5 (40 attempts, 폐기) | 5 (40 attempts, 폐기) |
+| Measurement batches | 50 (400 attempts) | 50 (400 attempts) |
+| Test-only delay | 0 (없음) | 0 (없음) |
+| Initial price / Bid increment | 10000 / 5000 | 10000 / 5000 |
+| JVM (Gradle toolchain) | Temurin 17.0.18+8 | Temurin 17.0.18+8 |
+| SQL 콘솔 로깅 | `SPRING_JPA_SHOW_SQL=false` | `SPRING_JPA_SHOW_SQL=false` |
+| 실행 위치 | `git worktree add --detach` → `exp/baseline-no-lock`(`5bfe881`), 별도 디렉터리 | 현재 브랜치(`chore/#36-concurrency-result-freeze`), production 코드가 `exp/pessimistic-lock`(`67cb4c7`)과 동일함을 `git diff`로 확인 |
+| 실행 명령 | `CONCURRENCY_PERFORMANCE_LABEL=no-lock SPRING_JPA_SHOW_SQL=false ./gradlew --no-daemon test --tests "com.vintic.backend.concurrency.ManualBidPerformanceBenchmarkIT"` | `CONCURRENCY_PERFORMANCE_LABEL=pessimistic SPRING_JPA_SHOW_SQL=false ./gradlew --no-daemon test --tests "com.vintic.backend.concurrency.ManualBidPerformanceBenchmarkIT"` |
+| Benchmark harness 동일성 | `ManualBidPerformanceBenchmarkIT.java`, 두 실행 위치에서 `diff` byte-for-byte 동일 확인 | 위와 동일 파일 |
+
+CPU/OS: 두 측정 모두 동일 로컬 머신(Windows, 사용자 워크스테이션)에서 순차 실행 —
+별도로 코어 수/모델을 조회해 기록하지는 않았다(같은 머신에서 두 revision을 순차 측정했다는
+사실 자체가 "동일 환경"의 근거다. 다만 백그라운드 프로세스 등 머신 상태 자체의 완전한
+동일성까지는 보장하지 않는다 — §protocol.md Performance Interpretation Rules 참고).
