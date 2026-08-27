@@ -48,13 +48,20 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 /**
- * #33 no-lock 실험 baseline harness.
+ * #33/#34 no-lock 실험과 #35 pessimistic lock 실험이 공유하는 concurrency harness.
  *
- * 이 브랜치(experiment/no-lock)에서는 Auction.@Version이 제거되어 있어, application-level
- * concurrency control 없이 동시 요청이 같은 Auction row를 두고 경쟁한다. harness가 검증할
- * 것은 "요청이 실패했는가"가 아니라 "동시 실행 종료 후 DB post-state가 실제 persisted Bid와
- * 모순되지 않는가"이다 — setting/#33-concurrency-baseline에서는 @Version이 남아있는 상태로
- * 이 harness 자체의 동작만 검증했었다.
+ * harness가 검증하는 것은 "요청이 실패했는가"가 아니라 "동시 실행 종료 후 DB post-state가
+ * 실제 persisted Bid와 모순되지 않는가"(concurrency post-state invariant)이다.
+ *
+ * - no-lock 계열 테스트(#33/#34, 이 클래스의 기존 메서드)는 `experiment/no-lock`/
+ *   `experiment/#34-no-lock` 브랜치에서 `Auction.@Version` 제거 + 일반 `findById()` 조회
+ *   상태로 실행됐다. 그 raw 결과는 이 브랜치에서 재실행하지 않고 read-only 참고 자료로만
+ *   취급한다.
+ * - `experiment/#35-pessimistic-lock`에서는 production `BidCommandService`가
+ *   `AuctionRepository.findByIdForUpdate()`(`PESSIMISTIC_WRITE`)를 쓰도록 바뀌었고,
+ *   아래 {@code DelayConfig}도 그에 맞춰 `findByIdForUpdate()`를 감싼다 — 이 파일이 있는
+ *   브랜치에서 no-lock 메서드를 다시 실행하면 실제로는 pessimistic lock 하에서 도는 것이니
+ *   주의(§docs/experiments/concurrency/protocol.md).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @ActiveProfiles("local")
@@ -74,8 +81,10 @@ class ManualBidConcurrencyRaceIT {
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> "20");
     }
 
-    // production AuctionRepository를 감싸 findById() 결과를 실제로 받은 "직후"에만
+    // production AuctionRepository를 감싸 findByIdForUpdate() 결과를 실제로 받은 "직후"에만
     // 지연시키는 test-only 대리 빈. @Primary로 이 테스트 컨텍스트에서만 실제 빈을 대체한다.
+    // #35부터 production의 RMW 최초 조회가 findByIdForUpdate()(PESSIMISTIC_WRITE)로 바뀌어서
+    // 여기도 그 메서드를 감싼다 — findById()를 감싸면 실제 RMW 경로에는 delay가 걸리지 않는다.
     @TestConfiguration
     static class DelayConfig {
 
@@ -94,10 +103,10 @@ class ManualBidConcurrencyRaceIT {
             );
             Mockito.doAnswer(invocation -> {
                 Long id = invocation.getArgument(0);
-                Optional<Auction> result = jpaAuctionRepository.findById(id);
+                Optional<Auction> result = jpaAuctionRepository.findByIdForUpdate(id);
                 raceWindowDelay.applyIfTarget(id);
                 return result;
-            }).when(proxy).findById(Mockito.anyLong());
+            }).when(proxy).findByIdForUpdate(Mockito.anyLong());
             return proxy;
         }
     }
@@ -384,6 +393,66 @@ class ManualBidConcurrencyRaceIT {
                 + " (raw data: " + MAIN_EXPERIMENT_CSV.toAbsolutePath() + ")");
     }
 
+    // #35 pessimistic lock raw data 저장 위치. no-lock(#34)과 같은 raw/logs 디렉터리를
+    // 공유하고 파일명 prefix로만 구분한다(§concurrency/protocol.md Data Storage 참고).
+    private static final Path PESSIMISTIC_EXPERIMENT_CSV = RAW_DIR.resolve("pessimistic-correctness.csv");
+    private static final String PESSIMISTIC_CSV_HEADER = String.join(",",
+            "run", "workerCount", "bidderCount", "delayMs", "initialPrice", "bidIncrement",
+            "successCount", "failureCount", "businessRejectionCount", "cannotAcquireLockCount",
+            "otherExceptionCount", "persistedBidCount", "currentPrice", "maxPersistedBid",
+            "currentWinner", "maxBidBidder", "priceMismatch", "winnerMismatch",
+            "successPersistedMismatch", "lostUpdate", "invariantViolation", "violations",
+            "businessExceptionTypes"
+    );
+    // 기존 6개 business-rule regression 테스트(BidCommandServiceTest)가 검증하는 precondition/
+    // error-rule 예외들. concurrency post-state invariant와는 별개 개념이라 여기서는 "정상
+    // business validation으로 인한 request-level rejection" 분류에만 쓴다.
+    private static final java.util.Set<String> BUSINESS_REJECTION_EXCEPTIONS = java.util.Set.of(
+            "AuctionNotStartedException", "AuctionClosedException", "SellerCannotBidException",
+            "AlreadyHighestBidderException", "BidAmountTooLowException", "PenaltyRestrictedException"
+    );
+
+    // #35 pessimistic write lock 본 실험: #34와 정확히 동일한 frozen 조건(workers=8,
+    // bidders=8, delayMs=1000, startPrice=10000, bidIncrement=5000)으로 20회 반복한다.
+    // runOnce()/WorkloadConfig/post-state checker는 no-lock과 완전히 동일하게 재사용하고,
+    // 이 브랜치의 production 변경(AuctionRepository.findByIdForUpdate + PESSIMISTIC_WRITE)만
+    // 독립변수로 검증한다. business validation rejection은 correctness violation도 DB lock
+    // contention도 아니므로 별도 컬럼(businessRejectionCount)으로 분리해서 기록한다.
+    @Test
+    void pessimistic_write_lock_상태에서_frozen_workload로_20회_본실험을_수행한다() throws Exception {
+        logEnvironment();
+
+        if (Files.exists(PESSIMISTIC_EXPERIMENT_CSV)) {
+            throw new IllegalStateException(
+                    "본 실험 raw CSV가 이미 존재합니다(덮어쓰기 방지): "
+                            + PESSIMISTIC_EXPERIMENT_CSV.toAbsolutePath()
+                            + " — 재측정하려면 기존 파일을 사람이 명시적으로 옮기거나 삭제해야 합니다."
+            );
+        }
+        Files.createDirectories(MAIN_EXPERIMENT_LOG_DIR);
+        writeLine(PESSIMISTIC_EXPERIMENT_CSV, PESSIMISTIC_CSV_HEADER, false);
+
+        WorkloadConfig frozen = new WorkloadConfig(8, 1000, 10000, 5000);
+        int violatedRuns = 0;
+        for (int runNumber = 1; runNumber <= 20; runNumber++) {
+            RunResult result = runOnce(runNumber, frozen);
+
+            appendPessimisticCsvRow(frozen, result);
+            writePessimisticRunLog(frozen, result);
+
+            if (result.invariantViolated()) {
+                violatedRuns++;
+            }
+            System.out.println("[pessimistic run=" + runNumber + "/20] success=" + result.successCount()
+                    + " failure=" + result.failureCount()
+                    + " invariantViolated=" + result.invariantViolated()
+                    + " violations=" + result.violations()
+                    + " exceptions=" + result.exceptionTypes());
+        }
+        System.out.println("[pessimistic summary] " + violatedRuns + "/20 runs violated invariants"
+                + " (raw data: " + PESSIMISTIC_EXPERIMENT_CSV.toAbsolutePath() + ")");
+    }
+
     private long countCannotAcquireLock(List<String> exceptionTypes) {
         return exceptionTypes.stream().filter(t -> t.equals("CannotAcquireLockException")).count();
     }
@@ -449,6 +518,79 @@ class ManualBidConcurrencyRaceIT {
         log.append("elapsedMillis=").append(result.elapsedMillis()).append('\n');
 
         writeLine(MAIN_EXPERIMENT_LOG_DIR.resolve("no-lock-run-" + runId + ".log"), log.toString(), false);
+    }
+
+    private long countBusinessRejection(List<String> exceptionTypes) {
+        return exceptionTypes.stream().filter(BUSINESS_REJECTION_EXCEPTIONS::contains).count();
+    }
+
+    private List<String> businessExceptionTypes(List<String> exceptionTypes) {
+        return exceptionTypes.stream().filter(BUSINESS_REJECTION_EXCEPTIONS::contains).toList();
+    }
+
+    private void appendPessimisticCsvRow(WorkloadConfig config, RunResult result) throws IOException {
+        long businessRejectionCount = countBusinessRejection(result.exceptionTypes());
+        long cannotAcquireLockCount = countCannotAcquireLock(result.exceptionTypes());
+        long otherExceptionCount = result.exceptionTypes().size() - businessRejectionCount - cannotAcquireLockCount;
+
+        String row = String.join(",",
+                String.valueOf(result.runNumber()),
+                String.valueOf(config.workerCount()),
+                String.valueOf(config.workerCount()),
+                String.valueOf(config.delayMillis()),
+                String.valueOf(config.startPrice()),
+                String.valueOf(config.bidIncrement()),
+                String.valueOf(result.successCount()),
+                String.valueOf(result.failureCount()),
+                String.valueOf(businessRejectionCount),
+                String.valueOf(cannotAcquireLockCount),
+                String.valueOf(otherExceptionCount),
+                String.valueOf(result.persistedBidCount()),
+                String.valueOf(result.finalCurrentPrice()),
+                String.valueOf(result.actualMaxBidAmount()),
+                String.valueOf(result.finalWinnerId()),
+                String.valueOf(result.actualMaxBidderId()),
+                String.valueOf(hasViolation(result, "PRICE_MISMATCH")),
+                String.valueOf(hasViolation(result, "WINNER_MISMATCH")),
+                String.valueOf(hasViolation(result, "SUCCESS_COUNT_MISMATCH")),
+                String.valueOf(hasViolation(result, "LOST_UPDATE")),
+                String.valueOf(result.invariantViolated()),
+                "\"" + String.join(";", result.violations()) + "\"",
+                "\"" + String.join(";", businessExceptionTypes(result.exceptionTypes())) + "\""
+        );
+        writeLine(PESSIMISTIC_EXPERIMENT_CSV, row, true);
+    }
+
+    private void writePessimisticRunLog(WorkloadConfig config, RunResult result) throws IOException {
+        long businessRejectionCount = countBusinessRejection(result.exceptionTypes());
+        long cannotAcquireLockCount = countCannotAcquireLock(result.exceptionTypes());
+        long otherExceptionCount = result.exceptionTypes().size() - businessRejectionCount - cannotAcquireLockCount;
+        String runId = String.format("%02d", result.runNumber());
+
+        StringBuilder log = new StringBuilder();
+        log.append("run=").append(result.runNumber()).append('\n');
+        log.append("workerCount=").append(config.workerCount())
+                .append(" bidderCount=").append(config.workerCount())
+                .append(" delayMs=").append(config.delayMillis())
+                .append(" initialPrice=").append(config.startPrice())
+                .append(" bidIncrement=").append(config.bidIncrement()).append('\n');
+        log.append("successCount=").append(result.successCount())
+                .append(" failureCount=").append(result.failureCount())
+                .append(" businessRejectionCount=").append(businessRejectionCount)
+                .append(" cannotAcquireLockCount=").append(cannotAcquireLockCount)
+                .append(" otherExceptionCount=").append(otherExceptionCount).append('\n');
+        log.append("exceptionTypes=").append(result.exceptionTypes()).append('\n');
+        log.append("businessExceptionTypes=").append(businessExceptionTypes(result.exceptionTypes())).append('\n');
+        log.append("persistedBidCount=").append(result.persistedBidCount())
+                .append(" actualMaxBidAmount=").append(result.actualMaxBidAmount())
+                .append(" actualMaxBidderId=").append(result.actualMaxBidderId()).append('\n');
+        log.append("finalCurrentPrice=").append(result.finalCurrentPrice())
+                .append(" finalWinnerId=").append(result.finalWinnerId()).append('\n');
+        log.append("invariantViolated=").append(result.invariantViolated()).append('\n');
+        log.append("violations=").append(result.violations()).append('\n');
+        log.append("elapsedMillis=").append(result.elapsedMillis()).append('\n');
+
+        writeLine(MAIN_EXPERIMENT_LOG_DIR.resolve("pessimistic-run-" + runId + ".log"), log.toString(), false);
     }
 
     private void writeLine(Path path, String content, boolean append) throws IOException {
