@@ -111,7 +111,12 @@ checker가 아니라서, 이 문서의 post-state invariant를 위해 억지로 
 기존 6개 테스트 + 수동 입찰/Idempotency 테스트를 그대로 regression suite로 유지하고, 이번
 concurrency harness는 그 위에 "동시 실행 후 상태가 여전히 일관적인가"라는 별도 관점만 추가한다.
 
-## Pilot Procedure
+## Pilot
+
+파일럿 단계(조건 탐색)의 절차와 결과. **본 실험(§Main Experiment Procedure) 조건 탐색은
+여기서 끝났고, 이후 조건은 변경하지 않는다.**
+
+### Pilot Procedure
 
 1. `setting/#33-concurrency-baseline`에서 harness 자체가 정상 동작하는지 확인
    (`Auction.@Version` 유지 상태, `ManualBidConcurrencyRaceIT`) — 완료.
@@ -122,9 +127,9 @@ concurrency harness는 그 위에 "동시 실행 후 상태가 여전히 일관�
 5. 조정 불가(고정)로 유지: 입찰 비즈니스 로직, transaction 구조, Idempotency 로직, DB isolation
    level, repository 구현, `Auction` 상태 변경 로직, invariant/assertion 기준.
 
-## Pilot Results
+### Pilot Results
 
-### 1차 탐색 (한 변수씩 escalation)
+#### 1차 탐색 (한 변수씩 escalation)
 
 | Pilot | Workers | Delay(ms) | Success | Failure | Persisted Bids | Actual Max Bid | Auction.currentPrice | Invariant Violation | 주요 결과 |
 |---:|---:|---:|---:|---:|---:|---:|---:|---|---|
@@ -134,7 +139,7 @@ concurrency harness는 그 위에 "동시 실행 후 상태가 여전히 일관�
 | 4 | 8 | 1000 | 2 | 6 | 2 | 50000 | 30000 | **Yes** | PRICE_MISMATCH / WINNER_MISMATCH / LOST_UPDATE |
 | 5 | 10 | 1000 | 1 | 9 | 1 | 25000 | 25000 | No | 정상 — 1건만 성공 |
 
-### 재현성 확인 (workers=8, delay=1000ms 고정, 5회 반복)
+#### 재현성 확인 (workers=8, delay=1000ms 고정, 5회 반복)
 
 | Pilot | Success | Failure | Persisted Bids | Actual Max Bid | Auction.currentPrice | Invariant Violation | 주요 결과 |
 |---:|---:|---:|---:|---:|---:|---|---|
@@ -145,7 +150,7 @@ concurrency harness는 그 위에 "동시 실행 후 상태가 여전히 일관�
 | 5 | 3 | 5 | 3 | 35000 | 30000 | **Yes** | PRICE_MISMATCH / WINNER_MISMATCH / LOST_UPDATE |
 
 **동일한 통제된 파일럿 조건(workers=8, delay=1000ms) 5회 중 2회에서 invariant violation 관찰.**
-이 수치를 운영 환경의 race 발생 확률이나 no-lock failure rate로 표현하지 않는다 — §Limitations 참고.
+이 수치를 운영 환경의 race 발생 확률이나 no-lock failure rate로 표현하지 않는다 — §Interpretation Rules 참고.
 
 `SUCCESS_COUNT_MISMATCH`(성공 보고 수와 persisted Bid 수 불일치)는 5회 전부 발생하지 않았다 —
 deadlock으로 롤백된 트랜잭션의 Bid insert도 정확히 함께 롤백된다는 뜻이다(ACID 자체는 깨지지
@@ -157,7 +162,11 @@ deadlock으로 롤백된 트랜잭션의 Bid insert도 정확히 함께 롤백�
 (2) 버전 조건 없는 UPDATE라 lost update가 구조적으로 가능했으며 (3) 관찰된 최종 상태가 이
 가능성과 부합한다는 것이다.
 
-## Frozen Main Experiment Conditions
+## Frozen Conditions
+
+파일럿에서 확정되어 본 실험(§Main Experiment Procedure)까지 변경 없이 그대로 사용하는 조건.
+
+### Frozen Main Experiment Conditions
 
 ```text
 MySQL version: 8.4.10 (Testcontainers mysql:8.4)
@@ -177,7 +186,7 @@ DB reset method: run마다 새 Auction/Product/User row 생성(§DB Reset Method
 concurrency start mechanism: CountDownLatch(ready N + start 1) — §Synchronization Method
 
 관찰 결과: 동일한 통제된 파일럿 조건 5회 중 2회에서 post-state invariant violation 관찰
-(운영 환경 race 발생 확률이나 no-lock failure rate로 해석하지 않는다 — §Limitations 참고)
+(운영 환경 race 발생 확률이나 no-lock failure rate로 해석하지 않는다 — §Interpretation Rules 참고)
 ```
 
 이 조건은 **frozen no-lock baseline으로 확정**되었다. worker/bidder 수, delay, bid amount,
@@ -185,13 +194,60 @@ initialPrice, bidIncrement, Hikari maximumPoolSize, MySQL version, isolation lev
 instance count, DB reset 방식, CountDownLatch 구조 — 전부 더 이상 변경하지 않는다. 이후
 pessimistic lock 등 비교 실험은 이 표의 값을 그대로 사용한다.
 
-## Baseline Git Reference
+### Baseline Git Reference
 
 - Branch: `experiment/no-lock`
 - Tag: `exp/baseline-no-lock`
 - Baseline commit: `5bfe881e48f5400b3279c3d04b4191e427742381`
 
-## Limitations
+## Main Experiment Procedure
+
+#33 파일럿에서 확정한 frozen 조건(§Frozen Main Experiment Conditions)으로 동일 workload를
+20회 반복 실행하는 것이 #34 본 실험이다. 파일럿의 5회 반복은 재현성 확인용이었고, 본 실험은
+**반복 횟수만 20으로 고정**한다 — workload 자체(worker/bidder 수, delay, bid amount, 초기
+상태, DB reset 방식, CountDownLatch 구조)는 변경하지 않는다.
+
+- 각 run은 §DB Reset Method와 동일하게 이전 run과 독립적인 새 `Auction`/`Product`/`User`
+  row에서 시작한다(PK만 다르고 의미상 초기 상태는 동일).
+- 각 run 종료 직후 결과를 즉시 raw data(§Data Storage)에 append + flush한다 — 20회를 메모리에
+  들고 있다가 마지막에 한 번에 기록하지 않는다. 실험 도중 중단되어도 이미 끝난 run의 결과는
+  남는다.
+- run-level 지표(예: "invariant violation 발생 run 수 / 20")와 request-level 지표(예: "전체
+  160 request attempts 중 성공/실패/CannotAcquireLockException 수")는 서로 다른 분모이므로
+  섞어서 보고하지 않는다. 한 run = 8 concurrent request attempts, 20 runs = 160 attempts.
+- contention/request failure(`CannotAcquireLockException` 등 MySQL 1213)와 post-state
+  correctness violation(PRICE_MISMATCH 등)은 서로 다른 지표다. 요청 예외가 발생했다고 자동으로
+  invariant violation으로 세지 않고, 요청이 성공했어도 최종 DB state가 틀리면 correctness
+  violation으로 센다.
+- post-state invariant 검사는 동시 실행이 끝난 뒤 별도 트랜잭션에서 `AuctionRepository`/
+  `BidRepository`를 재조회해 판정한다. 테스트 클래스가 `@Transactional`이 아니고
+  `WebEnvironment.NONE`이라 Open-Session-In-View도 적용되지 않으므로, worker 스레드들의
+  트랜잭션이 각자 커밋된 뒤 메인 스레드의 재조회는 항상 새 영속성 컨텍스트로 실제 커밋된
+  DB 상태를 읽는다 — 별도의 `EntityManager.clear()` 없이도 stale 1차 캐시 문제가 없다.
+
+## Data Storage
+
+본 실험(#34)부터 raw data를 README/summary와 분리해서 저장한다.
+
+```text
+docs/experiments/concurrency/
+├─ protocol.md          (본 문서)
+├─ environment.md        (#34 실행 시점의 실제 환경 조회값)
+├─ summary.md            (raw CSV를 집계한 결과만)
+└─ raw/
+   ├─ no-lock-correctness.csv   (20개 run의 원본 구조화 결과, 1 row = 1 run)
+   └─ logs/
+      ├─ no-lock-run-01.log     (run별 원본 로그: success/failure, 예외 타입, 최종 Auction
+      │                          상태, persisted max Bid, invariant violation 목록)
+      ├─ ...
+      └─ no-lock-run-20.log
+```
+
+`no-lock-correctness.csv`는 최초 생성 후 실수로 덮어쓰지 않도록, harness가 실행 시작 시
+파일이 이미 존재하면 즉시 실패한다 — 재측정하려면 사람이 명시적으로 기존 파일을 옮기거나
+지워야 한다.
+
+## Interpretation Rules
 
 - **Test-only delay는 운영 환경에서의 실제 race 발생 확률을 측정하는 장치가 아니다.** 이 실험은
   race window를 의도적으로 확대해 correctness failure가 "가능한지"를 재현하는 실험이다.
