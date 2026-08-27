@@ -8,6 +8,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -147,6 +148,20 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleIdempotencyPayloadMismatchException(IdempotencyPayloadMismatchException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiResponse.fail(40905, e.getMessage()));
+    }
+
+    // 존재하지 않는 경로 (404 Not Found)
+    //
+    // 이 핸들러가 없으면 아래 Exception 포괄 핸들러가 잡아서 500을 준다. 그러면 오타 난 URL과
+    // 서버 장애가 응답으로 구분되지 않는다. 헬스체크나 모니터링이 경로를 잘못 치면
+    // "앱이 죽었다"로 읽힌다. 관리 엔드포인트를 별도 포트로 분리하면서 실제로 겪었다.
+    //
+    // 부수 효과로 로그도 정리된다. 포괄 핸들러가 printStackTrace를 호출하기 때문에
+    // 그동안 404가 날 때마다 스택트레이스가 찍히고 있었다.
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFoundException(NoResourceFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40404, "존재하지 않는 경로입니다: " + e.getResourcePath()));
     }
 
     @ExceptionHandler(Exception.class)
