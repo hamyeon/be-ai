@@ -30,6 +30,11 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import javax.sql.DataSource;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -135,6 +140,8 @@ class ManualBidConcurrencyRaceIT {
             long finalCurrentPrice,
             Long finalWinnerId,
             long actualMaxBidAmount,
+            Long actualMaxBidderId,
+            int persistedBidCount,
             boolean invariantViolated,
             List<String> violations,
             List<String> exceptionTypes,
@@ -268,7 +275,8 @@ class ManualBidConcurrencyRaceIT {
                     runNumber, workerCount, successCount, workerCount - successCount,
                     reloaded.getCurrentPrice(),
                     reloaded.getCurrentWinner() != null ? reloaded.getCurrentWinner().getId() : null,
-                    actualMaxBidAmount, !violations.isEmpty(), violations, exceptionTypes, elapsedMillis
+                    actualMaxBidAmount, actualMaxBidderId, bids.size(),
+                    !violations.isEmpty(), violations, exceptionTypes, elapsedMillis
             );
         } catch (Exception e) {
             raceWindowDelay.disarm();
@@ -322,5 +330,135 @@ class ManualBidConcurrencyRaceIT {
             runNumber++;
         }
         System.out.println("[summary] " + violatedCount + "/" + pilots.size() + " runs violated invariants");
+    }
+
+    // #34 본 실험 raw data 저장 위치. Gradle test task의 working dir은 backend/ 모듈
+    // 디렉터리라서 repo root 기준 상대 경로로 한 단계 올라간다(§concurrency/protocol.md
+    // Data Storage 참고).
+    private static final Path RAW_DIR = Path.of("..", "docs", "experiments", "concurrency", "raw");
+    private static final Path MAIN_EXPERIMENT_CSV = RAW_DIR.resolve("no-lock-correctness.csv");
+    private static final Path MAIN_EXPERIMENT_LOG_DIR = RAW_DIR.resolve("logs");
+    private static final String CSV_HEADER = String.join(",",
+            "run", "workerCount", "bidderCount", "delayMs", "initialPrice", "bidIncrement",
+            "successCount", "failureCount", "cannotAcquireLockCount", "otherExceptionCount",
+            "persistedBidCount", "currentPrice", "maxPersistedBid", "currentWinner", "maxBidBidder",
+            "priceMismatch", "winnerMismatch", "successPersistedMismatch", "lostUpdate",
+            "invariantViolation", "violations"
+    );
+
+    // #34 no-lock correctness 본 실험: #33에서 확정한 frozen 조건(§Frozen Main Experiment
+    // Conditions)으로 동일 workload를 20회 반복한다. runOnce()/WorkloadConfig 등 파일럿과
+    // 동일한 로직을 그대로 재사용하고, 이 메서드는 반복 횟수 고정(20)과 raw data 즉시
+    // 저장(§Data Storage)만 담당한다.
+    @Test
+    void no_lock_상태에서_frozen_workload로_20회_본실험을_수행한다() throws Exception {
+        logEnvironment();
+
+        if (Files.exists(MAIN_EXPERIMENT_CSV)) {
+            throw new IllegalStateException(
+                    "본 실험 raw CSV가 이미 존재합니다(덮어쓰기 방지): "
+                            + MAIN_EXPERIMENT_CSV.toAbsolutePath()
+                            + " — 재측정하려면 기존 파일을 사람이 명시적으로 옮기거나 삭제해야 합니다."
+            );
+        }
+        Files.createDirectories(MAIN_EXPERIMENT_LOG_DIR);
+        writeLine(MAIN_EXPERIMENT_CSV, CSV_HEADER, false);
+
+        WorkloadConfig frozen = new WorkloadConfig(8, 1000, 10000, 5000);
+        int violatedRuns = 0;
+        for (int runNumber = 1; runNumber <= 20; runNumber++) {
+            RunResult result = runOnce(runNumber, frozen);
+
+            appendCsvRow(frozen, result);
+            writeRunLog(frozen, result);
+
+            if (result.invariantViolated()) {
+                violatedRuns++;
+            }
+            System.out.println("[main run=" + runNumber + "/20] success=" + result.successCount()
+                    + " failure=" + result.failureCount()
+                    + " invariantViolated=" + result.invariantViolated()
+                    + " violations=" + result.violations());
+        }
+        System.out.println("[main summary] " + violatedRuns + "/20 runs violated invariants"
+                + " (raw data: " + MAIN_EXPERIMENT_CSV.toAbsolutePath() + ")");
+    }
+
+    private long countCannotAcquireLock(List<String> exceptionTypes) {
+        return exceptionTypes.stream().filter(t -> t.equals("CannotAcquireLockException")).count();
+    }
+
+    private boolean hasViolation(RunResult result, String prefix) {
+        return result.violations().stream().anyMatch(v -> v.startsWith(prefix));
+    }
+
+    private void appendCsvRow(WorkloadConfig config, RunResult result) throws IOException {
+        long cannotAcquireLockCount = countCannotAcquireLock(result.exceptionTypes());
+        long otherExceptionCount = result.exceptionTypes().size() - cannotAcquireLockCount;
+
+        String row = String.join(",",
+                String.valueOf(result.runNumber()),
+                String.valueOf(config.workerCount()),
+                String.valueOf(config.workerCount()),
+                String.valueOf(config.delayMillis()),
+                String.valueOf(config.startPrice()),
+                String.valueOf(config.bidIncrement()),
+                String.valueOf(result.successCount()),
+                String.valueOf(result.failureCount()),
+                String.valueOf(cannotAcquireLockCount),
+                String.valueOf(otherExceptionCount),
+                String.valueOf(result.persistedBidCount()),
+                String.valueOf(result.finalCurrentPrice()),
+                String.valueOf(result.actualMaxBidAmount()),
+                String.valueOf(result.finalWinnerId()),
+                String.valueOf(result.actualMaxBidderId()),
+                String.valueOf(hasViolation(result, "PRICE_MISMATCH")),
+                String.valueOf(hasViolation(result, "WINNER_MISMATCH")),
+                String.valueOf(hasViolation(result, "SUCCESS_COUNT_MISMATCH")),
+                String.valueOf(hasViolation(result, "LOST_UPDATE")),
+                String.valueOf(result.invariantViolated()),
+                "\"" + String.join(";", result.violations()) + "\""
+        );
+        writeLine(MAIN_EXPERIMENT_CSV, row, true);
+    }
+
+    private void writeRunLog(WorkloadConfig config, RunResult result) throws IOException {
+        long cannotAcquireLockCount = countCannotAcquireLock(result.exceptionTypes());
+        long otherExceptionCount = result.exceptionTypes().size() - cannotAcquireLockCount;
+        String runId = String.format("%02d", result.runNumber());
+
+        StringBuilder log = new StringBuilder();
+        log.append("run=").append(result.runNumber()).append('\n');
+        log.append("workerCount=").append(config.workerCount())
+                .append(" bidderCount=").append(config.workerCount())
+                .append(" delayMs=").append(config.delayMillis())
+                .append(" initialPrice=").append(config.startPrice())
+                .append(" bidIncrement=").append(config.bidIncrement()).append('\n');
+        log.append("successCount=").append(result.successCount())
+                .append(" failureCount=").append(result.failureCount())
+                .append(" cannotAcquireLockCount=").append(cannotAcquireLockCount)
+                .append(" otherExceptionCount=").append(otherExceptionCount).append('\n');
+        log.append("exceptionTypes=").append(result.exceptionTypes()).append('\n');
+        log.append("persistedBidCount=").append(result.persistedBidCount())
+                .append(" actualMaxBidAmount=").append(result.actualMaxBidAmount())
+                .append(" actualMaxBidderId=").append(result.actualMaxBidderId()).append('\n');
+        log.append("finalCurrentPrice=").append(result.finalCurrentPrice())
+                .append(" finalWinnerId=").append(result.finalWinnerId()).append('\n');
+        log.append("invariantViolated=").append(result.invariantViolated()).append('\n');
+        log.append("violations=").append(result.violations()).append('\n');
+        log.append("elapsedMillis=").append(result.elapsedMillis()).append('\n');
+
+        writeLine(MAIN_EXPERIMENT_LOG_DIR.resolve("no-lock-run-" + runId + ".log"), log.toString(), false);
+    }
+
+    private void writeLine(Path path, String content, boolean append) throws IOException {
+        StandardOpenOption[] options = append
+                ? new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.APPEND}
+                : new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING};
+        try (BufferedWriter writer = Files.newBufferedWriter(path, options)) {
+            writer.write(content);
+            writer.newLine();
+            writer.flush();
+        }
     }
 }

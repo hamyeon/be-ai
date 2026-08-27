@@ -1,0 +1,10 @@
+run=4
+workerCount=8 bidderCount=8 delayMs=1000 initialPrice=10000 bidIncrement=5000
+successCount=2 failureCount=6 cannotAcquireLockCount=6 otherExceptionCount=0
+exceptionTypes=[CannotAcquireLockException, CannotAcquireLockException, CannotAcquireLockException, CannotAcquireLockException, CannotAcquireLockException, CannotAcquireLockException]
+persistedBidCount=2 actualMaxBidAmount=50000 actualMaxBidderId=39
+finalCurrentPrice=20000 finalWinnerId=33
+invariantViolated=true
+violations=[PRICE_MISMATCH: currentPrice=20000 actualMaxBid=50000, WINNER_MISMATCH: currentWinner=33 actualMaxBidder=39, LOST_UPDATE: a Bid amount exceeds Auction.currentPrice]
+elapsedMillis=1064
+
