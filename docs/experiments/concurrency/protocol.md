@@ -234,11 +234,13 @@ pessimistic lock 등 비교 실험은 이 표의 값을 그대로 사용한다.
 ```text
 docs/experiments/concurrency/
 ├─ protocol.md          (본 문서)
-├─ environment.md        (#34/#35 실행 시점의 실제 환경 조회값)
+├─ environment.md        (#34/#35/#36-A 실행 시점의 실제 환경 조회값)
 ├─ summary.md            (raw CSV를 집계한 결과만)
 └─ raw/
-   ├─ no-lock-correctness.csv       (#34, 20개 run — read-only 참고 자료, #35에서 수정 안 함)
-   ├─ pessimistic-correctness.csv   (#35, 20개 run)
+   ├─ no-lock-correctness.csv       (#34, 20 rows — read-only 참고 자료, 이후 실험에서 수정 안 함)
+   ├─ pessimistic-correctness.csv   (#35, 20 rows — 위와 동일하게 read-only)
+   ├─ no-lock-performance.csv       (#36-A, 400 rows, request-level raw)
+   ├─ pessimistic-performance.csv   (#36-A, 400 rows, request-level raw)
    └─ logs/
       ├─ no-lock-run-01.log         (#34 run별 원본 로그)
       ├─ ...
@@ -248,9 +250,10 @@ docs/experiments/concurrency/
       └─ pessimistic-run-20.log
 ```
 
-`no-lock-correctness.csv`/`pessimistic-correctness.csv`는 최초 생성 후 실수로 덮어쓰지
-않도록, harness가 실행 시작 시 파일이 이미 존재하면 즉시 실패한다 — 재측정하려면 사람이
-명시적으로 기존 파일을 옮기거나 지워야 한다.
+`*-correctness.csv`/`*-performance.csv` 전부 최초 생성 후 실수로 덮어쓰지 않도록, harness가
+실행 시작 시 파일이 이미 존재하면 즉시 실패한다 — 재측정하려면 사람이 명시적으로 기존
+파일을 옮기거나 지워야 한다. `*-performance.csv`는 request-level raw(batch당 8행)라 별도
+run-log 디렉터리를 두지 않았다 — CSV 자체가 이미 요청 단위로 충분히 세분화되어 있다.
 
 ## Pessimistic Lock Strategy (#35)
 
@@ -343,3 +346,122 @@ Procedure, §Data Storage).
   것이라 no-lock 결과가 아니다 — harness 정상 동작 확인 용도로만 사용했다.
 - correctness violation의 정확한 원인(어느 트랜잭션이 몇 번째로 commit됐는지)은 commit 순서를
   로그로 특정하지 않아 확정 사실로 서술하지 않는다 — §Pilot Results의 원인 서술 참고.
+
+---
+
+# Performance Experiment (#36-A)
+
+지금까지의 모든 섹션(§목적 ~ 바로 위 Interpretation Rules)은 **correctness 실험(#33/#34/#35)**
+전용이다. 이 섹션부터는 완전히 별도인 **performance 실험(#36-A)**을 다룬다 — 둘을 섞지 않는다.
+
+```text
+Correctness (#33/#34/#35)   delay = 1000ms   목적 = race correctness 검증
+Performance (#36-A)         delay = 0        목적 = latency/throughput 비용 측정
+```
+
+## Independent Variable
+
+correctness와 동일하게 독립변수는 **Auction 최초 조회에 `PESSIMISTIC_WRITE`를 적용하는지
+여부** 하나뿐이다. workload(초기 상태, bidder 수, bid amount 생성 규칙, Idempotency-Key
+정책, CountDownLatch 시작 방식, DB reset 방식)는 correctness와 동일한 원칙을 유지하되,
+**test-only 1000ms delay만 제거한다.**
+
+## Revision Isolation
+
+Pessimistic production 코드를 Mockito로 "락 없는 것처럼" 되돌려서 No-lock 성능을 측정하는
+방식은 쓰지 않았다 — 그렇게 하면 실제 no-lock revision과 다른 실행 경로를 측정하게 된다.
+대신 두 revision을 물리적으로 분리했다.
+
+- **No-lock revision**: `exp/baseline-no-lock`(`5bfe881`)을 `git worktree add --detach`로
+  별도 디렉터리에 체크아웃했다(새 branch 생성 없음, commit 없음). 이 worktree의
+  `AuctionRepository`/`BidCommandService`는 baseline 그대로 `findById()`를 사용한다(재확인:
+  `grep`으로 `@Version`/`findByIdForUpdate` 없음 확인).
+- **Pessimistic revision**: 현재 작업 브랜치(`chore/#36-concurrency-result-freeze`)에서 직접
+  측정했다. `git merge-base --is-ancestor exp/pessimistic-lock HEAD`로 태그가 조상임을,
+  `git diff exp/pessimistic-lock..HEAD -- backend/src/main`이 비어 있음(무변경)을 확인해
+  현재 production 코드가 `exp/pessimistic-lock`(`67cb4c7`) 태그 시점과 동일함을 검증했다.
+- **benchmark harness 동일성**: 두 실행 모두 `ManualBidPerformanceBenchmarkIT.java` 파일을
+  사용했고, `diff`로 두 위치의 파일이 byte-for-byte 동일함을 확인했다. 이 harness는
+  `AuctionRepository`를 감싸는 proxy를 전혀 두지 않고(따라서 method 이름 `findById` vs
+  `findByIdForUpdate`를 알 필요가 없다) production `ManualBidService`를 그대로 호출한다.
+  출력 CSV 파일명만 실행 시점의 `CONCURRENCY_PERFORMANCE_LABEL` 환경변수(`no-lock` 또는
+  `pessimistic`)로 구분했다 — 소스 코드 자체는 조건 분기 없이 완전히 동일하다.
+- worktree는 측정 후 `git worktree remove`로 정리했다(branch가 아니라 detached 상태였으므로
+  삭제 대상인 branch 자체가 없다).
+- worktree에는 gitignore 대상인 `application-secret.yml`(OpenAI API key 등 로컬 전용 설정)이
+  없어 Spring context 기동이 실패했다 — 현재 저장소의 동일 파일을 그대로 복사해 넣어
+  해결했다. 이 파일은 lock/트랜잭션 로직과 무관한 로컬 시크릿 설정이라 벤치마크 결과에
+  영향을 주지 않는다.
+
+## Measurement Boundary
+
+- **Latency**: `ManualBidService.placeBid()` 호출 시작부터 반환(성공 또는 예외)까지 —
+  **service-level(application-to-DB) latency**다. HTTP Controller, JSON 직렬화, 네트워크
+  왕복은 포함하지 않는다. "API latency"라고 부르지 않는다.
+- **Throughput**: batch별 `start` latch release 직전(`measurement start`)부터 해당 batch
+  concurrency개 request 전부 완료 직후(`measurement end`)까지의 wall-clock. Auction/Product/
+  User 생성(DB reset/setup)은 이 구간 밖에서 수행한다.
+
+## Workload (Frozen, 측정 전 확정)
+
+```text
+concurrency: 8 (1 batch = 8 concurrent request attempts)
+warm-up: 5 batches (40 attempts, raw에서 폐기)
+measurement: 50 batches (400 attempts)
+delay: 0 (RaceWindowDelay 미사용)
+initial price: 10000
+bid increment: 5000
+bid amounts: 15000, 20000, ..., 50000 (correctness와 동일 생성 규칙)
+idempotency key: 매 요청 UUID.randomUUID() 기반(correctness와 동일 정책)
+DB reset: 매 batch 새 Auction/Product/User row 생성(PK만 다름, 의미상 초기 상태 동일)
+```
+
+실제 측정 결과를 본 뒤 위 값을 변경하지 않았다.
+
+## Outcome Classification
+
+```text
+SUCCESS                 예외 없이 반환
+BUSINESS_REJECTION      6개 business-rule 예외(AuctionNotStartedException 등,
+                         §기존 6개 business-rule regression 테스트와의 관계 참고)
+CONCURRENCY_DB_FAILURE  CannotAcquireLockException
+OTHER_FAILURE           위 어디에도 속하지 않는 예외
+```
+
+request-level raw CSV(`batch,requestIndex,concurrency,latencyMs,outcome,exceptionType,
+batchElapsedMs`)에 매 요청의 실제 `exceptionType` 문자열도 함께 남긴다.
+
+## Percentile / Median 계산 규칙
+
+**nearest-rank** 방식을 사용한다: 정렬된 latency N개에 대해 `rank = ceil(percentile × N)`
+(1-indexed), 그 rank의 값을 그대로 사용한다. median은 `percentile = 0.5`로 동일 방식을
+적용한다. No-lock/Pessimistic 모두 같은 계산법(같은 awk 스크립트)으로 raw CSV에서
+재계산했다. sample 수가 적은 outcome(예: 특정 예외 종류가 몇 건뿐인 경우)에 대해서는
+percentile 값과 함께 N을 반드시 병기한다.
+
+## Throughput 정의
+
+```text
+attempt throughput    = 측정된 전체 request attempts / 측정 batch들의 wall-clock 합(초)
+successful throughput = 측정된 성공 request 수 / 측정 batch들의 wall-clock 합(초)
+```
+
+request latency의 평균으로 계산하지 않는다. batch는 순차 실행되므로(동시에 여러 batch가
+겹치지 않음) 각 batch의 `batchElapsedMs`를 batch 번호 기준으로 중복 없이 합산해 분모로
+쓴다.
+
+## Logging
+
+성능 측정 시 두 revision 모두 `SPRING_JPA_SHOW_SQL=false`로 Hibernate SQL 콘솔 로깅을
+껐다 — correctness 실험(§SQL 확인 목적)과 달리 로깅 자체가 latency를 왜곡하지 않도록
+분리했다. 다른 로깅 레벨(`logging.level.root=INFO` 등)은 변경하지 않았다.
+
+## Performance Interpretation Rules
+
+- outcome mix가 전략마다 다르므로(No-lock: DB 예외 위주, Pessimistic: business rejection
+  위주) overall median/p95 차이만으로 "그 전략의 순수 오버헤드"를 단정하지 않는다.
+- 정확한 해석 표현: "동일한 로컬 경합 workload에서 해당 concurrency-control strategy를
+  적용했을 때 관찰된 end-to-end service-level latency/throughput 차이" 정도로 한정한다.
+- 로컬 단일 인스턴스·단일 MySQL 결과를 production latency/throughput으로 일반화하지 않는다.
+- correctness(#34/#35)의 elapsed time(1000ms delay 포함)을 이 성능 결과와 비교하지 않는다
+  — 서로 다른 실험이다.
