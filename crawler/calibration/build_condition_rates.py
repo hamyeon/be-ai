@@ -168,6 +168,37 @@ def main():
               f"중앙값 {statistics.median(trusted):.2f}")
         print("  -> '일반 중고는 정가의 몇 배인가'에 대한 현재 최선의 추정")
 
+    write_csv(standard_by_cond)
+
+
+# 표본이 이보다 적으면 계수로 쓰지 않는다.
+#
+# S등급이 12건인데 그 숫자로 0.70을 0.55로 바꾸면, 근거 없는 계수를 근거 없는 계수로
+# 바꾸는 것뿐이다. 표본이 쌓일 때까지는 기존 값을 그대로 두는 편이 정직하다.
+MIN_SAMPLE = 50
+
+
+def write_csv(standard_by_cond):
+    """실측 계수만 CSV로 내보낸다. 기준 미달 등급은 넣지 않고 코드 기본값을 쓰게 둔다."""
+    out = ROOT / "backend" / "src" / "main" / "resources" / "data" / "condition_rates.csv"
+    lines = ["condition_grade,rate,sample_size,source_note"]
+    kept, skipped = [], []
+    for grade, vals in sorted(standard_by_cond.items()):
+        if len(vals) < MIN_SAMPLE:
+            skipped.append((grade, len(vals)))
+            continue
+        rate = round(statistics.median(vals), 3)
+        lines.append(f"{grade},{rate},{len(vals)},"
+                     f"당근 실거래 중앙값 / KREAM 표준 컬러웨이 참조 중앙값")
+        kept.append((grade, rate, len(vals)))
+
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"\n{out.relative_to(ROOT)} 작성")
+    for grade, rate, n in kept:
+        print(f"  {grade:<9} {rate:.2f}  (n={n})")
+    for grade, n in skipped:
+        print(f"  {grade:<9} 제외    (n={n} < {MIN_SAMPLE}, 코드 기본값 유지)")
+
 
 if __name__ == "__main__":
     main()

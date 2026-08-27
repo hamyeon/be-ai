@@ -14,13 +14,17 @@ public class PriceCalculationService {
     private static final double KREAM_WEIGHT = 0.7;
     private static final double EBAY_WEIGHT = 0.3;
     private static final double PRICE_RANGE_RATE = 0.05;
-    private static final double DEFAULT_CONDITION_RATE = 0.60;
     private static final String UNKNOWN_CONDITION_GRADE = "UNKNOWN";
 
     private final MarketPriceDataLoader marketPriceDataLoader;
+    private final ConditionRateProvider conditionRateProvider;
 
-    public PriceCalculationService(MarketPriceDataLoader marketPriceDataLoader) {
+    public PriceCalculationService(
+            MarketPriceDataLoader marketPriceDataLoader,
+            ConditionRateProvider conditionRateProvider
+    ) {
         this.marketPriceDataLoader = marketPriceDataLoader;
+        this.conditionRateProvider = conditionRateProvider;
     }
 
     public CalculatePriceResponse calculate(CalculatePriceRequest request) {
@@ -51,7 +55,7 @@ public class PriceCalculationService {
         int baseMarketPrice = calculateBaseMarketPrice(kreamAveragePrice, ebayAveragePrice);
 
         String normalizedConditionGrade = normalizeConditionGrade(request.conditionGrade());
-        double conditionRate = getConditionRate(normalizedConditionGrade);
+        double conditionRate = conditionRateProvider.rateOf(normalizedConditionGrade);
         double componentRate = getComponentRate(request.componentStatus());
 
         int calculatedPrice = (int) Math.round(baseMarketPrice * conditionRate * componentRate);
@@ -126,17 +130,6 @@ public class PriceCalculationService {
         }
 
         return conditionGrade.trim().toUpperCase();
-    }
-
-    private double getConditionRate(String normalizedConditionGrade) {
-        return switch (normalizedConditionGrade) {
-            case "DS" -> 0.80;
-            case "S" -> 0.70;
-            case "A" -> 0.60;
-            case "B" -> 0.40;
-            case "C" -> 0.20;
-            default -> DEFAULT_CONDITION_RATE;
-        };
     }
 
     private double getComponentRate(String componentStatus) {
@@ -241,27 +234,46 @@ public class PriceCalculationService {
 
     private String makeConditionText(String normalizedConditionGrade, double conditionRate) {
         String description = getConditionDescription(normalizedConditionGrade);
+        String basis = makeRateBasisText(normalizedConditionGrade);
 
         if (UNKNOWN_CONDITION_GRADE.equals(normalizedConditionGrade)) {
             return String.format(
-                    "상품 상태 등급이 명확하지 않아 기본 반영률 %.0f%%를 적용했습니다.",
-                    conditionRate * 100
+                    "상품 상태 등급이 명확하지 않아 기본 반영률 %.0f%%를 적용했습니다.%s",
+                    conditionRate * 100,
+                    basis
             );
         }
 
         if ("기타 상태".equals(description)) {
             return String.format(
-                    "상품 상태 등급 %s는 사전에 정의되지 않은 값이므로 기본 반영률 %.0f%%를 적용했습니다.",
+                    "상품 상태 등급 %s는 사전에 정의되지 않은 값이므로 기본 반영률 %.0f%%를 적용했습니다.%s",
                     normalizedConditionGrade,
-                    conditionRate * 100
+                    conditionRate * 100,
+                    basis
             );
         }
 
         return String.format(
-                "상품 상태는 %s(%s)로 판단하여 %.0f%% 반영률을 적용했습니다.",
+                "상품 상태는 %s(%s)로 판단하여 %.0f%% 반영률을 적용했습니다.%s",
                 normalizedConditionGrade,
                 description,
-                conditionRate * 100
+                conditionRate * 100,
+                basis
+        );
+    }
+
+    // 반영률이 실측에서 나온 값인지 밝힌다.
+    //
+    // 실측 계수를 쓴 것과 기본값으로 떨어진 것이 구분되지 않으면, 사용자는 두 값을 같은
+    // 신뢰도로 받아들이고 우리도 이번 보정이 실제로 어떤 요청에 적용됐는지 알 수 없다.
+    private String makeRateBasisText(String normalizedConditionGrade) {
+        if (!conditionRateProvider.isMeasured(normalizedConditionGrade)) {
+            return " (실거래 표본이 부족해 기본값을 사용했습니다)";
+        }
+
+        return String.format(
+                " (당근마켓 실거래 %d건과 KREAM 시세를 대조해 산출한 값입니다)",
+                conditionRateProvider.sampleSizeOf(normalizedConditionGrade)
         );
     }
 
