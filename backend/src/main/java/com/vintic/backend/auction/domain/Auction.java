@@ -157,7 +157,7 @@ public class Auction {
                     "이미 현재 최고입찰자입니다. auctionId: " + id
             );
         }
-        long minAmount = currentPrice + bidIncrement;
+        long minAmount = getMinNextBidAmount();
         if (amount < minAmount) {
             throw new BidAmountTooLowException(
                     "입찰 금액은 " + minAmount + "원 이상이어야 합니다. 입력값: " + amount
@@ -166,6 +166,34 @@ public class Auction {
 
         this.currentPrice = amount;
         this.currentWinner = bidder;
+    }
+
+    // 직접입찰 금액 하한이자, 신규 AutoBid가 유효한 상한가로 받아들여지기 위한 최소값(minCapAmount)이기도 하다 -
+    // 두 곳에서 같은 값을 각자 계산하면 어긋날 수 있어 이 메서드 하나로 통일한다.
+    public Long getMinNextBidAmount() {
+        return currentPrice + bidIncrement;
+    }
+
+    // /live의 canBid 판정 전용이다. placeManualBid()와 같은 순서(제재→미시작→종료→판매자→최고입찰자)를
+    // 따르되 금액 검증(BID_AMOUNT_TOO_LOW/BID_NOT_ALIGNED)은 포함하지 않는다 - 계약상 canBid는
+    // 금액을 입력하기 전에 버튼을 눌러도 되는지만 의미하기 때문이다.
+    public CannotBidReason determineCannotBidReason(User user, LocalDateTime now) {
+        if (user.isBidRestricted(now)) {
+            return CannotBidReason.PENALTY_RESTRICTED;
+        }
+        if (status == AuctionStatus.SCHEDULED) {
+            return CannotBidReason.AUCTION_NOT_STARTED;
+        }
+        if (status != AuctionStatus.LIVE) {
+            return CannotBidReason.AUCTION_CLOSED;
+        }
+        if (product.getSeller().isSameUser(user)) {
+            return CannotBidReason.SELLER_CANNOT_BID;
+        }
+        if (currentWinner != null && currentWinner.isSameUser(user)) {
+            return CannotBidReason.ALREADY_HIGHEST_BIDDER;
+        }
+        return null;
     }
 
     public Long getId() {

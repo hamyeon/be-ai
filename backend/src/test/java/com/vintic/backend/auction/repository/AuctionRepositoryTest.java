@@ -78,4 +78,42 @@ class AuctionRepositoryTest {
         assertThat(found).isPresent();
         assertThat(found.get().getId()).isEqualTo(saved.getId());
     }
+
+    @Test
+    void findByIdWithProductAndWinner로_product_seller_currentWinner를_함께_조회할_수_있다() {
+        Product product = persistProduct();
+        User bidder = User.register("bidder@vintic.local", "bidder", null);
+        entityManager.persist(bidder);
+        Auction auction = Auction.schedule(
+                product, 10000L, 5000L, LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2)
+        );
+        auction.start();
+        auction.placeManualBid(bidder, 15000L);
+        Auction saved = auctionRepository.save(auction);
+        entityManager.flush();
+        entityManager.clear();
+
+        Optional<Auction> found = auctionRepository.findByIdWithProductAndWinner(saved.getId());
+
+        assertThat(found).isPresent();
+        assertThat(found.get().getProduct().getSeller().getId()).isEqualTo(product.getSeller().getId());
+        assertThat(found.get().getCurrentWinner().getId()).isEqualTo(bidder.getId());
+    }
+
+    @Test
+    void findByIdWithProductAndWinner는_최고입찰자가_없으면_currentWinner가_null이다() {
+        Product product = persistProduct();
+        Auction auction = Auction.schedule(
+                product, 10000L, 5000L, LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2)
+        );
+
+        Auction saved = auctionRepository.save(auction);
+        entityManager.flush();
+        entityManager.clear();
+
+        Optional<Auction> found = auctionRepository.findByIdWithProductAndWinner(saved.getId());
+
+        assertThat(found).isPresent();
+        assertThat(found.get().getCurrentWinner()).isNull();
+    }
 }

@@ -21,6 +21,17 @@ public interface AuctionRepository extends JpaRepository<Auction, Long> {
     @Query("select a from Auction a where a.id = :auctionId")
     Optional<Auction> findByIdForUpdate(@Param("auctionId") Long auctionId);
 
+    // /live 전용 조회. 락 없이 product(판매자 비교용)와 currentWinner(마스킹/isMine용)만 한 번에 가져온다 -
+    // polling마다 지연로딩으로 흩어진 쿼리를 내지 않기 위함이다. description/AI 필드/이미지 등은 건드리지 않는다.
+    @Query("""
+            select a from Auction a
+            join fetch a.product p
+            join fetch p.seller
+            left join fetch a.currentWinner
+            where a.id = :auctionId
+            """)
+    Optional<Auction> findByIdWithProductAndWinner(@Param("auctionId") Long auctionId);
+
     // 추천 후보. 아직 끝나지 않은 경매만 대상이다 - 이미 끝난 경매를 추천해봐야 참여할 수 없다.
     // 상품까지 함께 읽는다. 추천은 상품 벡터로 정렬하므로 매건 product를 다시 조회하면 N+1이 된다.
     @Query("""
