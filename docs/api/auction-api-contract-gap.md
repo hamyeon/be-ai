@@ -33,7 +33,7 @@ unchanged.
 | Manual bid cancels AutoBid | 자동입찰 사용 중 직접 입찰 시 기존 `AutoBidSetting` → `CANCELED`, `autoBidCanceled=true`. (명세 §9) |
 | AutoBid re-registration | `CANCELED`는 terminal — 재등록 시 새 `AutoBidSetting` 생성(기존 설정을 되살리지 않음). (명세 §5) |
 | RESERVED cap modification | 상향/하향/동일값 모두 허용(`>= minCapAmount`). (명세 §7) |
-| ACTIVE/CAP_REACHED modification | 상향만 허용, 아니면 `409 / 40907 CAP_NOT_INCREASED`. (명세 §7) |
+| ACTIVE/CAP_REACHED modification | 상향만 허용, 아니면 `409 / 40907 CAP_NOT_INCREASED`. `40906`(minCapAmount 미달)과 동시 위반 시 `40906`이 우선한다 — 공통 하한 체크가 상향 체크보다 먼저 실행된다(#41, 명세엔 순서가 명시되지 않아 확정한 판단). (명세 §7) |
 | Idempotency | 4개 지정 endpoint, `UNIQUE(user_id, operation_scope, idempotency_key)`, 누락→400/40004, 동일 payload→replay, 다른 payload→409/40905. (명세 §0.11) |
 | Numeric error contract | §0-A 오류 코드표 40001~40915 전부 확정. |
 | Concurrent conflict contract | `40909 CONCURRENT_CONFLICT`(409) — 프론트 자동 재시도 **최대 1회**만 허용되는 유일한 코드. (명세 §0-A) |
@@ -56,11 +56,11 @@ unchanged.
 | Numeric error mapping | Frozen (§0-A) | 불일치: `AuctionNotFoundException`이 40401이 아닌 **40402** 사용, 스펙의 40402/40403(ORDER_NOT_FOUND/BACKUP_OFFER_NOT_FOUND) 자리를 각각 `AuctionNotFoundException`/`UserNotFoundException`이 점유 중. `/live`, `/auto-bid/recommendation`(#40 신규)도 동일하게 40402를 그대로 사용해 기존 gap과 번호를 맞춤 | 후속 issue — Order/BackupOffer 구현 전에 정리 필요(그때 가서 번호 충돌 발생) |
 | `40909 CONCURRENT_CONFLICT` mapping | Frozen (§0-A, HTTP 409 / code 40909 / 재시도 최대 1회) | 없음 — DB lock 예외(`CannotAcquireLockException`, #34 raw에서 135/160 관찰)가 catch-all `Exception` 핸들러로 떨어져 **500 / 50001**로 응답됨 | 후속 issue |
 | Auth: Bearer token | Frozen (§0.1) | Mock 인증(`X-User-Id` 헤더 + `MockAuthInterceptor`) | 후속 issue(인증 시스템 도입 시) |
-| Time 직렬화: ISO-8601 절대시각 (저장된 timestamp) | Frozen (§0.4) | DTO가 `LocalDateTime` 사용 — 실제 직렬화 결과가 `+09:00` 같은 절대 offset을 포함하지 않음. `/live.endsAt`(#40 신규, `Auction.endAt` 그대로 사용)도 동일 gap을 공유한다 — JVM timezone/DB 저장 timezone/배포 환경 timezone convention이 프로젝트 전체에서 확정되어 있지 않아(`application-local.yml`의 `serverTimezone=Asia/Seoul`은 로컬 프로필의 JDBC 연결 파라미터일 뿐이고 DATETIME↔LocalDateTime 매핑에는 적용되지 않으며, `application-dev.yml`엔 그 설정조차 없고, JVM `-Duser.timezone`/`TZ`도 프로젝트 어디에도 없음) 임의로 offset을 부여하지 않았다. `/live.serverTime`은 저장값이 아니라 응답 생성 시점에 새로 만드는 값이라 이 gap과 무관 — `Instant`로 구현해 계약을 충족한다(아래 `#40 Implementation Notes` 참고) | 후속 issue — 전역 time semantics 확정 후 저장된 auction timestamp 전체(startAt/endAt 등)를 absolute-time contract에 맞게 정리 |
+| Time 직렬화: ISO-8601 절대시각 (저장된 timestamp) | **RESOLVED** | 아래 `Time Policy (#41 후속)` 참고 — Asia/Seoul 고정 정책으로 `+09:00` 절대시각을 전 응답에 일관 적용 | — |
 | Endpoint #1 응답 shape (`myState`, `product`, `seller`, AI 필드, `isLiked`/`likeCount`, `finalPrice`, `serverTime`, `minNextBidAmount`/`minCapAmount`) | Frozen (§1) | `AuctionDetailResponse`가 flat한 내부 표현(`id, productId, sellerId, currentWinnerId, ...`)만 제공 | 후속 issue |
-| Endpoint #9 응답 shape (`minNextBidAmount`, `highestBidderMasked`, `isHighestBidder`, `autoBidCanceled`, `proxyResponded`, `endsAt`, `extensionCount`) | Frozen (§9) | `PlaceBidResponse`에 없음(대신 비계약 필드 `auctionId`, raw `currentWinnerId`, `bidAt` 보유) | 후속 issue, alignment 구현과 함께 진행 권장 |
-| `/live.extensionCount` / `/live.maxExtensions` | Frozen (§2, 둘 다 required) | **필드 자체를 응답에서 생략**(#40) — 종료 연장 정책(트리거 시점/연장 분/최대 횟수)이 도메인 어디에도 없고(`Auction` 엔티티, `application.yml` 등 전체 확인), #40 지시사항상 이 수치를 이번 이슈에서 새로 결정하지 말라고 명시돼 있어 구조적으로 값을 만들 수 없음. 임의 값(예: `extensionCount=0` 고정, `maxExtensions=3` 등)으로 계약을 가짜로 통과시키지 않았다 | 종료 연장 정책/구현 이슈에서 필드 추가 |
-| `AutoBidSetting` 재등록 스키마 제약 | Frozen (§5, "CANCELED는 terminal, 재등록 시 새 row 생성") | `auto_bid_settings`에 `UNIQUE(auction_id, user_id)` 제약이 있어(#40에서 확인) 같은 (경매, 사용자) 조합으로 CANCELED row와 신규 row를 동시에 가질 수 없음 — 재등록 정책이 스키마 레벨에서 구조적으로 막혀 있음. #40은 `/live`가 이 제약(항상 0~1건) 덕분에 "최신 row 조회" 로직 없이 단순 조회로 충분하다는 점만 활용했고 제약 자체는 변경하지 않음 | AutoBid 등록 API 구현 이슈에서 unique 제약 재설계 필요(예: 복합 unique에 상태/버전 포함, 또는 CANCELED row soft-delete) |
+| Endpoint #9 응답 shape (`minNextBidAmount`, `highestBidderMasked`, `isHighestBidder`, `autoBidCanceled`, `proxyResponded`, `endsAt`) | **RESOLVED (#41 후속)** | `PlaceBidResponse`를 FINAL contract shape로 전면 재작성. `extensionCount`만 별도 gap으로 남음(바로 아래 행) | — |
+| `/live.extensionCount` / `/live.maxExtensions` / `POST bids.extensionCount` | Frozen (필수 required) | **필드 자체를 응답에서 생략**(#40, #41 후속에서도 유지) — 종료 연장 정책(트리거 시점/연장 분/최대 횟수)이 도메인 어디에도 없고, 이 수치를 새로 결정하지 말라는 지시가 반복 확인됨 — 구조적으로 값을 만들 수 없음. 임의 값으로 계약을 가짜로 통과시키지 않았다 | 종료 연장 정책/구현 이슈에서 필드 추가, 그 시점에 `POST /bids`/`/live` 계약을 마저 닫음 |
+| `AutoBidSetting` 재등록 스키마 제약 | **RESOLVED (#41)**, 단 migration limitation 있음 | 아래 `#41 Implementation Notes` 참고 | — |
 
 ## Not Implemented Yet
 
@@ -68,10 +68,6 @@ unchanged.
 
 | # | Endpoint | 비고 |
 | --- | --- | --- |
-| 5 | POST /auctions/{id}/auto-bids | `AutoBidSetting` 도메인 엔티티 + `AutoBidSettingStatus` enum(RESERVED/ACTIVE/CAP_REACHED/CANCELED, 명세와 일치)만 존재, service/controller 없음 |
-| 6 | GET /auctions/{id}/auto-bids/me | — |
-| 7 | PATCH /auctions/{id}/auto-bids/me | — |
-| 8 | DELETE /auctions/{id}/auto-bids/me | — |
 | 10 | GET /auctions/{id}/result | — |
 | 11 | POST /auctions/{id}/award/forfeit | — |
 | 12 | GET /orders/{id} | Order 패키지 자체가 없음 |
@@ -87,14 +83,14 @@ unchanged.
 ## Endpoint Status Summary
 
 ```text
-endpoint implemented (엔드포인트 존재 여부 기준, contract 완전 일치를 의미하지 않음): 5/20 (#1, #2, #3, #4, #9)
-not implemented yet: 15/20
+endpoint implemented (엔드포인트 존재 여부 기준, contract 완전 일치를 의미하지 않음): 9/20 (#1, #2, #3, #4, #5, #6, #7, #8, #9)
+not implemented yet: 11/20
 implementation gaps (contract resolved, code lagging): #1, #2, #3, #9 — 위 §Deferred Implementation Gaps 참고
-  (#4는 이번 #40에서 확정한 fallback-only 정책을 그대로 구현해 gap 없음 — 아래 §40 Implementation Notes 참고)
+  (#4, #5, #6, #7, #8은 각각 #40/#41에서 확정한 정책을 그대로 구현해 gap 없음 — §40/§41 Implementation Notes 참고)
 contract conflicts: 0/20
 ```
 
-`5/20`은 endpoint가 존재하는지만 세는 카운트다 — 그 endpoint가 계약 전 필드를 충족한다는
+`9/20`은 endpoint가 존재하는지만 세는 카운트다 — 그 endpoint가 계약 전 필드를 충족한다는
 뜻이 아니다. 특히 #2 `/live`는 field-level 상태가 아래처럼 갈려 endpoint 자체 상태를
 **`IMPLEMENTED WITH DEFERRED GAPS`**로 기록한다(`IMPLEMENTATION_GAP`과 동일 범주,
 "완전 MATCH"가 아님을 명확히 하기 위한 표기).
@@ -132,6 +128,196 @@ contract conflicts: 0/20
 `minCapAmount`와 같은 것은 미구현이 아니라 §4에 명시된 fallback 정책 자체가 그렇다
 (buyer 전용 AI 추천 소스가 도메인에 없음, `Product`의 판매가 추천값은 seller-side라 재사용
 대상이 아님).
+
+## #41 Implementation Notes
+
+`POST /auctions/{id}/auto-bids`(#5), `GET /auctions/{id}/auto-bids/me`(#6),
+`PATCH /auctions/{id}/auto-bids/me`(#7), `DELETE /auctions/{id}/auto-bids/me`(#8)를 이번
+#41에서 구현했다. Proxy Bidding engine 자체는 이번에도 구현하지 않는다.
+
+### AutoBidSetting 재등록 스키마 제약 — RESOLVED
+
+`auto_bid_settings`에 nullable `active_slot`(Boolean) 컬럼을 추가하고 unique 제약을
+`UNIQUE(auction_id, user_id)` → `UNIQUE(auction_id, user_id, active_slot)`로 교체했다.
+`RESERVED`/`ACTIVE`/`CAP_REACHED`는 `activeSlot=true`, `CANCELED`는 `activeSlot=null`이며
+MySQL이 NULL을 서로 다른 값으로 취급하는 성질을 이용해 "CANCELED 이력은 여러 건, 현재
+설정은 최대 1건"을 DB 레벨에서 보장한다. `status`/`activeSlot`은 `AutoBidSetting` 도메인
+메서드(`reserve/activate/markCapReached/reactivateAfterCapIncrease/cancel`) 안에서만 함께
+바뀐다 — Service가 둘을 개별적으로 건드리지 않는다.
+
+**Migration limitation**: `ddl-auto: update`는 기존 UNIQUE 제약의 DROP/교체를 안정적으로
+보장하지 않는다. 이미 뜬 적이 있는 공유 dev/local MySQL에 옛 `uk_auto_bid_setting_auction_user`
+제약이 남아있을 수 있으며, 이 경우 수동으로 해당 인덱스를 확인/정리해야 한다. Testcontainers/
+CI는 매번 새 스키마이므로 영향 없다.
+
+**동시성 검증**: `AutoBidConcurrencyMySqlIT`(Testcontainers MySQL, InnoDB)로 같은
+(경매, 사용자)에 서로 다른 Idempotency-Key로 동시 `POST`를 보내는 케이스를 검증했다 —
+정확히 하나만 `201`, 다른 하나는 raw DB 예외가 새지 않고 `409/40908`로 응답하며, 최종
+current row는 1개만 남는다.
+
+### Idempotency exact replay — RESOLVED (CREATE_AUTO_BID/UPDATE_AUTO_BID 범위)
+
+`PLACE_BID`의 기존 replay(`resultBidId` 기반, #32)는 변경하지 않았다. `Idempotency`에
+nullable `response_snapshot`(TEXT) 컬럼을 추가하고, `IdempotencyClaimService`에 제네릭
+`claimAndExecute`/`resolveAfterConflict`(커맨드 executor + 응답 타입 기반)를 추가해
+`CREATE_AUTO_BID`/`UPDATE_AUTO_BID`가 재사용한다. 최초 성공 응답을 `ObjectMapper`로 JSON
+직렬화해 저장하고, replay는 그 스냅샷을 역직렬화해 반환한다 — 커맨드를 다시 실행하지 않고,
+그사이 `Auction.currentPrice`가 바뀌어도 replay 응답은 최초 성공 시점 값을 그대로 유지한다
+(`AutoBidServiceTest`로 검증).
+
+### Proxy integration boundary — 그대로 유지(#40과 동일 전제)
+
+LIVE 등록/수정 응답의 `bidOccurred`/`resultingBidAmount`/`isHighestBidder`는 항상
+`false`/`null`/`false`다 — Proxy engine이 없어 실제 가격 경쟁 결과를 계산하지 않는다.
+`CAP_REACHED`에서 cap을 올려도 이번 응답에서 `ACTIVE`로 되돌리지 않는다(Proxy resolution
+없이는 확정할 수 없음, 명세 §부록/canonical Proxy policy와 일치). Springdoc에
+"temporary until Proxy Bidding integration"으로 명시했다.
+
+### startsAt — endsAt과 동일 gap 공유
+
+`GET /auto-bids/me`의 `startsAt`, `POST /auto-bids`의 `startsAt`은 `Auction.startAt`
+(`LocalDateTime`)을 그대로 사용한다 — `/live.endsAt`과 동일한 전역 timezone 미확정 gap을
+공유한다(위 `Time 직렬화` 항목 참고). `serverTime`(GET 응답)은 #40과 동일하게 `Instant`로
+구현해 계약을 충족한다.
+
+### PATCH validation precedence 확정
+
+`newMaxAmount < minCapAmount`(`40906`)를 공통으로 먼저 확인하고, 그다음 `ACTIVE`/
+`CAP_REACHED`에서만 `newMaxAmount <= oldMaxAmount`(`40907`)를 확인한다 — 두 조건을 동시에
+위반하면 `40906`이 우선한다. `RESERVED`는 `minCapAmount` 하한만 적용하고 상향/하향/동일값을
+모두 허용한다. `AutoBidCommandServiceTest`에 이 precedence를 고정하는 테스트가 있다.
+
+### DELETE 재요청
+
+재요청 시(이미 `CANCELED`, 즉 현재 설정 없음) `404/40404 AUTO_BID_NOT_FOUND`로 응답한다 —
+명세 §8에 이미 그 실패 예시가 있어 별도 성공-멱등 처리를 만들지 않았다.
+
+## Time Policy (#41 후속)
+
+FINAL contract가 요구하는 `2026-08-17T20:00:00+09:00` 형태의 절대시각을 다음 정책으로 확정했다.
+
+```text
+- DB 컬럼 타입은 그대로(LocalDateTime) - migration 없음.
+- 애플리케이션 기준 timezone은 Asia/Seoul로 고정(ClockConfig.APP_ZONE).
+- 시간이 필요한 서비스(penalty 판정, serverTime 등)는 LocalDateTime.now()/Instant.now()를
+  직접 호출하지 않고 주입된 Clock을 쓴다. production Clock 빈은 Clock.system(Asia/Seoul).
+  테스트는 같은 Clock 타입을 Clock.fixed(...)로 교체한다(TestClockConfig, production에서는
+  Clock.fixed를 쓰지 않는다).
+- API 응답 DTO의 시간 필드(startsAt/endsAt/serverTime/canceledAt/bidRestrictedUntil)는
+  OffsetDateTime 타입으로 통일했다. 저장된 LocalDateTime → OffsetDateTime 변환은
+  common/util/TimePolicy.toApiTime() 한 곳에서만 한다(LocalDateTime.atZone(Asia/Seoul)).
+- paymentDeadline/BackupOffer.deadline/paidAt 등 아직 구현하지 않은 필드도 같은
+  TimePolicy를 재사용하면 된다(신규 정책을 또 만들지 않는다).
+```
+
+**Jackson 함정과 수정**: jackson-datatype-jsr310은 `OffsetDateTime`을 역직렬화할 때 기본적으로
+ObjectMapper의 timezone에 맞춰 오프셋을 재조정한다(`ADJUST_DATES_TO_CONTEXT_TIME_ZONE`). 이
+timezone을 앱 정책과 맞추지 않으면(기본값 UTC) Idempotency `response_snapshot`을 JSON으로
+왕복시킨 replay 응답의 시간 필드가 `+09:00`이 아니라 `Z`로 조용히 바뀐다 — 같은 instant인데
+표기가 달라 최초 응답과도 값이 달라 보이고, FINAL contract의 `+09:00` 요구도 깨진다.
+`config/JacksonConfig.java`(`Jackson2ObjectMapperBuilderCustomizer`)로 애플리케이션의
+공유 `ObjectMapper` 빈 timezone을 Asia/Seoul로 맞춰 해결했다 — replay 경로에서 실제로
+회귀 테스트(`AutoBidServiceTest`)로 확인했다.
+
+## Proxy Bidding 실제 구현 (#41 후속)
+
+이전까지는 §0.13에 정책만 문서화하고 실제 계산은 하지 않는 stub이었다. 이번에 실제 가격
+결정 로직(`autobid/service/ProxyPriceEngine.java`)을 구현했다 — Proxy Bidding "엔진 자체를
+구현"한 것은 맞지만, 범위는 다음 두 트리거로 한정했다(§0.13에서 이미 확정된 정책의 코드화):
+
+```text
+1. AutoBid 등록/수정(LIVE)이 트리거 - resolveForAutoBidEntrant()
+2. Manual Bid 성공 직후의 즉시 반격 - resolveAfterManualBid()
+```
+
+두 메서드는 같은 pairwise 비교 로직(effectiveCap 계산 + FIRST-IN WINS tie-break)을
+공유한다. **경쟁자 판정은 "다른 사용자의 ACTIVE AutoBid" 여부만으로 하지 않는다** —
+`Auction.currentWinner`/`currentPrice`가 항상 competitor 판정의 기준이다.
+
+```text
+currentWinner == null                              → 경쟁자 없음, 가격 그대로
+currentWinner == entrant 본인                        → 자기 자신과 경쟁하지 않음
+currentWinner != entrant, 그 사용자에 ACTIVE AutoBid 없음 → ceiling = 현재 currentPrice(manual-only, 더 늘어나지 않음)
+그 외(다른 사용자의 ACTIVE AutoBid가 auction 전체에서 발견됨) → 그 effectiveCap이 ceiling
+```
+
+마지막 케이스는 "recorded currentWinner가 보유한 AutoBid"로 한정하지 않고, entrant를
+제외한 auction 전체의 ACTIVE 중 최고 effectiveCap을 찾는다(동률이면 `createdAt` 빠른 쪽,
+그마저 같으면 `id` 빠른 쪽).
+
+**복수 ACTIVE dirty data 처리 방침**: #41 초판(Proxy 미구현 기간)에 등록된 LIVE AutoBid는
+경쟁 없이 무조건 ACTIVE로 저장됐으므로, 한 경매에 여러 명이 동시에 ACTIVE로 남아있는
+상태가 이미 만들어졌을 수 있다. 정상 상태라면 "경쟁 가능한 incumbent AutoBid는 최대 1개만
+ACTIVE"여야 한다. 두 방식(①과거 데이터를 스캔해 즉시 정리 vs ②resolution마다 자연 정상화)
+중 **②를 선택했다** — 매 resolution이 "entrant를 제외한 전체 ACTIVE 중 objectively 가장 강한
+경쟁자"를 다시 찾기 때문에, dirty 상태라도 그 순간 관여하는 두 참가자(entrant, 최강
+경쟁자)는 항상 올바르게 정리된다(패배자→`CAP_REACHED`). 다만 이번 resolution에 관여하지
+않은 다른 dirty ACTIVE row(예: 최강 경쟁자보다도 약한 제3의 row)는 그 자리에서 정리되지
+않고, 그 row 자신이 나중에 entrant가 되거나 다시 조회 대상이 될 때 점진적으로 정리된다 —
+전체를 즉시 일괄 정리하는 배치 작업은 이번 범위가 아니다. "잘못된 winner가 나오지 않는다"는
+`ProxyPriceEngineTest#복수_ACTIVE_dirty_data_상태에서도_가장_강한_경쟁자_기준으로_정상_판정된다`로
+검증했다.
+
+## `/bids/{auctionId}` PLACE_BID 확장 (#41 후속)
+
+`PlaceBidResponse`를 FINAL contract shape(`submittedAmount`/`currentPrice`/
+`minNextBidAmount`/`highestBidderMasked`/`isHighestBidder`/`autoBidCanceled`/
+`proxyResponded`/`endsAt`)로 전면 재작성했다. `extensionCount`만 여전히 gap이다(위 표 참고).
+
+- **`autoBidCanceled`**: `BidCommandService.placeManualBid()`가 기존 Manual Bid validation
+  (상태/판매자/최고입찰자/최소금액)을 **전부 통과한 뒤에만** 요청자의 ACTIVE/CAP_REACHED
+  `AutoBidSetting`을 `cancel()`한다 — validation 실패는 예외를 던지고 트랜잭션 전체가
+  롤백되므로, 실패한 직접입찰 때문에 기존 AutoBid가 취소되는 일은 없다
+  (`BidCommandServiceTest#검증에_실패한_직접입찰은_기존_AutoBid을_취소하지_않는다`로 검증).
+- **`proxyResponded`**: Manual Bid가 실제로 반영된 뒤 `ProxyPriceEngine.resolveAfterManualBid()`로
+  다른 사용자의 경쟁 AutoBid가 즉시 반격하는지 확인한다. AutoBid-vs-AutoBid와 같은 엔진을
+  공유하므로 별도의 가격 알고리즘을 중복 구현하지 않았다.
+- Manual Bid와 Proxy counter 모두 기존 `findByIdForUpdate` 트랜잭션(Pessimistic Lock) 안에서
+  처리된다 - 이 부분의 락 구조 자체는 변경하지 않았다.
+
+**Idempotency exact replay 확장**: PLACE_BID도 #41의 제네릭 `response_snapshot` 메커니즘으로
+옮겼다 — AutoBid cancel + Manual bid + Proxy counter가 모두 끝난 최종 응답을 스냅샷으로
+저장하고, replay는 그 시점 Auction 상태를 다시 읽지 않고 스냅샷을 그대로 반환한다
+(`AutoBidServiceTest`와 동일한 패턴을 `BidCommandServiceTest`/`ManualBidServiceTest`에도
+적용). 기존 PLACE_BID 전용 `claimAndPlaceBid`/`resolveAfterConflict`(`resultBidId` 기반)는
+완전히 미사용이 되어 제거했다 — 삭제 전 기존 메서드가 보장하던 트랜잭션 경계/UNIQUE 충돌 후
+별도 트랜잭션 조회/rollback 동작이 제네릭 버전에서도 동일한지 `ManualBidIdempotencyMySqlIT`
+(실제 MySQL, 동시 same-key 요청)로 회귀 검증했다 — 그대로 통과했다.
+
+## Active-slot UNIQUE Migration Limitation — 실측 확인 (#41 후속)
+
+`docs/api/auction-api-contract-gap.md`(#41 원본)에 "ddl-auto:update가 기존 UNIQUE 제약
+DROP을 보장하지 않는다"를 이론적 우려로 적어뒀는데, 이번에 `AutoBidSettingSchemaMigrationIT`
+(Testcontainers MySQL)로 **실제로 재현/확인했다**:
+
+```text
+1. @BeforeAll에서 raw JDBC로 #40/#41 이전 스키마(UNIQUE(auction_id, user_id)만 있는
+   auto_bid_settings 테이블)를 미리 만들어둔다.
+2. 그 위에서 Spring context가 뜨며 ddl-auto:update가 실행된다(현재 엔티티 기준).
+3. information_schema.TABLE_CONSTRAINTS로 실제 남은 제약을 조회한다.
+
+관찰 결과:
+  uk_auto_bid_setting_auction_user (구)  → 그대로 남음
+  uk_auto_bid_setting_active_slot  (신)  → 추가로 생성됨
+  → 두 제약이 동시에 존재한다.
+```
+
+**실제 기능 영향도 확인**: 이 상태에서 같은 (auction, user)로 CANCELED row를 2건 저장하면
+신규 제약(activeSlot 다름)은 통과하지만 **구 제약(auction_id+user_id만) 때문에 여전히
+`DataIntegrityViolationException`이 발생한다** — #41 재등록 정책이 스키마 레벨에서 다시
+막히는 실제 회귀다. 이 결과도 같은 IT의 두 번째 테스트로 확인했다.
+
+**공유 dev/local DB 수동 정리 SQL** (이미 #40/#41 이전 스키마로 떠 있던 MySQL에 한해 실행):
+
+```sql
+ALTER TABLE auto_bid_settings DROP INDEX uk_auto_bid_setting_auction_user;
+```
+
+`information_schema.TABLE_CONSTRAINTS`로 실행 전/후 제약 목록을 확인하는 것을 권장한다.
+Testcontainers/CI로 매번 새로 뜨는 스키마는 애초에 구 제약이 존재한 적이 없으므로 영향 없다.
+이 문서 작성 시점 기준 이 프로젝트에 실제로 연결 가능한 공유 dev/local MySQL이 없어(로컬
+Docker에 떠 있는 MySQL 컨테이너는 이 프로젝트와 무관한 별도 프로젝트의 것이었다) 위 SQL을
+실제 운영 DB에 적용하지는 않았다 — 적용이 필요해지면 이 SQL을 그대로 실행하면 된다.
 
 ## Freeze Blockers
 
