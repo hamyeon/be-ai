@@ -13,7 +13,9 @@ import com.vintic.backend.bid.domain.Bid;
 import com.vintic.backend.bid.domain.BidType;
 import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.common.exception.AuctionNotFoundException;
+import com.vintic.backend.common.util.TimePolicy;
 import com.vintic.backend.product.domain.Product;
+import com.vintic.backend.support.TestClockConfig;
 import com.vintic.backend.user.domain.User;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -27,11 +29,13 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 
 // @DataJpaTest 슬라이스에 서비스를 직접 Import해, sellerId/bidCount가 실제 저장된
 // Product.seller / Bid 개수와 일치하는지 실제 DB 조회로 검증한다.
+// Clock(#41+): AuctionQueryService의 신규 의존성 - TestClockConfig로 채운다.
 @DataJpaTest
-@Import(AuctionQueryService.class)
+@Import({AuctionQueryService.class, TestClockConfig.class})
 class AuctionQueryServiceTest {
 
     @Autowired
@@ -175,7 +179,7 @@ class AuctionQueryServiceTest {
         assertThat(response.bidIncrement()).isEqualTo(5000L);
         assertThat(response.minCapAmount()).isEqualTo(15000L);
         // DB 왕복 시 nanosecond precision이 잘려나가므로(H2 microsecond 저장) nanos는 비교에서 제외한다.
-        assertThat(response.endsAt()).isEqualToIgnoringNanos(auction.getEndAt());
+        assertThat(response.endsAt()).isCloseTo(TimePolicy.toApiTime(auction.getEndAt()), within(1, java.time.temporal.ChronoUnit.SECONDS));
         assertThat(response.serverTime()).isNotNull();
     }
 
@@ -298,7 +302,7 @@ class AuctionQueryServiceTest {
         assertThat(response.canBid()).isFalse();
         assertThat(response.cannotBidReason()).isEqualTo(CannotBidReason.PENALTY_RESTRICTED);
         // DB 왕복 시 nanosecond precision이 잘려나가므로(H2 microsecond 저장) nanos는 비교에서 제외한다.
-        assertThat(response.bidRestrictedUntil()).isEqualToIgnoringNanos(restrictedUntil);
+        assertThat(response.bidRestrictedUntil()).isCloseTo(TimePolicy.toApiTime(restrictedUntil), within(1, java.time.temporal.ChronoUnit.SECONDS));
     }
 
     @Test

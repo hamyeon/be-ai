@@ -7,7 +7,14 @@ import com.vintic.backend.auction.dto.AuctionDetailResponse;
 import com.vintic.backend.auction.dto.AuctionLiveResponse;
 import com.vintic.backend.auction.service.AuctionQueryService;
 import com.vintic.backend.autobid.domain.AutoBidSettingStatus;
+import com.vintic.backend.autobid.dto.AutoBidCancelResponse;
+import com.vintic.backend.autobid.dto.AutoBidMaxAmountRequest;
+import com.vintic.backend.autobid.dto.AutoBidMeResponse;
 import com.vintic.backend.autobid.dto.AutoBidRecommendationResponse;
+import com.vintic.backend.autobid.dto.AutoBidRegisterResponse;
+import com.vintic.backend.autobid.dto.AutoBidUpdateResponse;
+import com.vintic.backend.autobid.service.AutoBidQueryService;
+import com.vintic.backend.autobid.service.AutoBidService;
 import com.vintic.backend.bid.domain.BidType;
 import com.vintic.backend.bid.dto.BidHistoryResponse;
 import com.vintic.backend.bid.dto.BidResponse;
@@ -19,7 +26,11 @@ import com.vintic.backend.common.exception.AlreadyHighestBidderException;
 import com.vintic.backend.common.exception.AuctionClosedException;
 import com.vintic.backend.common.exception.AuctionNotFoundException;
 import com.vintic.backend.common.exception.AuctionNotStartedException;
+import com.vintic.backend.common.exception.AutoBidAlreadyExistsException;
+import com.vintic.backend.common.exception.AutoBidNotFoundException;
 import com.vintic.backend.common.exception.BidAmountTooLowException;
+import com.vintic.backend.common.exception.CapNotIncreasedException;
+import com.vintic.backend.common.exception.CapTooLowException;
 import com.vintic.backend.common.exception.PenaltyRestrictedException;
 import com.vintic.backend.common.exception.SellerCannotBidException;
 import org.junit.jupiter.api.Test;
@@ -29,8 +40,8 @@ import com.vintic.backend.recommendation.service.ActivityLogService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -38,7 +49,9 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -60,6 +73,12 @@ class AuctionControllerTest {
 
     @MockitoBean
     private ManualBidService manualBidService;
+
+    @MockitoBean
+    private AutoBidService autoBidService;
+
+    @MockitoBean
+    private AutoBidQueryService autoBidQueryService;
 
     // 조회/입찰 시 추천용 행동 로그를 남긴다. 기록 자체는 여기서 검증하지 않고
     // ActivityLogServiceTest가 담당하므로 빈만 채워둔다.
@@ -134,7 +153,10 @@ class AuctionControllerTest {
 
     @Test
     void 입찰_성공시_201과_PlaceBidResponse를_반환한다() throws Exception {
-        PlaceBidResponse response = new PlaceBidResponse(1L, 1L, 15000L, 15000L, 2L, LocalDateTime.now());
+        PlaceBidResponse response = new PlaceBidResponse(
+                1L, 15000L, 15000L, 20000L, "bid****", true, false, false,
+                OffsetDateTime.now().plusHours(1)
+        );
         when(manualBidService.placeBid(1L, 2L, 15000L, "abc")).thenReturn(response);
 
         mockMvc.perform(post("/api/auctions/1/bids")
@@ -145,10 +167,11 @@ class AuctionControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.bidId").value(1))
-                .andExpect(jsonPath("$.data.auctionId").value(1))
                 .andExpect(jsonPath("$.data.submittedAmount").value(15000))
                 .andExpect(jsonPath("$.data.currentPrice").value(15000))
-                .andExpect(jsonPath("$.data.currentWinnerId").value(2));
+                .andExpect(jsonPath("$.data.isHighestBidder").value(true))
+                .andExpect(jsonPath("$.data.autoBidCanceled").value(false))
+                .andExpect(jsonPath("$.data.proxyResponded").value(false));
     }
 
     @Test
@@ -264,7 +287,7 @@ class AuctionControllerTest {
         AuctionLiveResponse response = new AuctionLiveResponse(
                 1L, AuctionStatus.LIVE, 105000L, 110000L, 5000L,
                 "mma****", true, false, CannotBidReason.ALREADY_HIGHEST_BIDDER, null,
-                LocalDateTime.now().plusHours(1), Instant.now(),
+                OffsetDateTime.now().plusHours(1), OffsetDateTime.now(),
                 AutoBidSettingStatus.ACTIVE, 120000L, 110000L
         );
         when(auctionQueryService.getLiveView(1L, 2L)).thenReturn(response);
@@ -317,5 +340,166 @@ class AuctionControllerTest {
         mockMvc.perform(get("/api/auctions/999/auto-bid/recommendation").requestAttr("currentUserId", 2L))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value(40402));
+    }
+
+    @Test
+    void 자동입찰_등록_성공시_201과_등록_결과를_반환한다() throws Exception {
+        AutoBidRegisterResponse response = new AutoBidRegisterResponse(
+                15L, 1L, AutoBidSettingStatus.RESERVED, 120000L, 50000L, 55000L, 55000L,
+                OffsetDateTime.now().plusHours(1), false, null, false
+        );
+        when(autoBidService.createAutoBid(1L, 2L, 120000L, "abc")).thenReturn(response);
+
+        mockMvc.perform(post("/api/auctions/1/auto-bids")
+                        .requestAttr("currentUserId", 2L)
+                        .header("Idempotency-Key", "abc")
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(new AutoBidMaxAmountRequest(120000L))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.autoBidSettingId").value(15))
+                .andExpect(jsonPath("$.data.status").value("RESERVED"))
+                .andExpect(jsonPath("$.data.bidOccurred").value(false))
+                .andExpect(jsonPath("$.data.resultingBidAmount").doesNotExist())
+                .andExpect(jsonPath("$.data.isHighestBidder").value(false));
+    }
+
+    @Test
+    void 자동입찰_등록시_상한가가_너무_낮으면_409와_40906을_반환한다() throws Exception {
+        when(autoBidService.createAutoBid(anyLong(), anyLong(), anyLong(), anyString()))
+                .thenThrow(new CapTooLowException("자동입찰 상한가가 너무 낮습니다."));
+
+        mockMvc.perform(post("/api/auctions/1/auto-bids")
+                        .requestAttr("currentUserId", 2L)
+                        .header("Idempotency-Key", "abc")
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(new AutoBidMaxAmountRequest(1000L))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value(40906));
+    }
+
+    @Test
+    void 자동입찰_등록시_이미_설정이_있으면_409와_40908을_반환한다() throws Exception {
+        when(autoBidService.createAutoBid(anyLong(), anyLong(), anyLong(), anyString()))
+                .thenThrow(new AutoBidAlreadyExistsException("이미 자동입찰이 등록되어 있습니다."));
+
+        mockMvc.perform(post("/api/auctions/1/auto-bids")
+                        .requestAttr("currentUserId", 2L)
+                        .header("Idempotency-Key", "abc")
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(new AutoBidMaxAmountRequest(120000L))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value(40908));
+    }
+
+    @Test
+    void 자동입찰_등록시_Idempotency_Key_헤더가_없으면_400과_40004를_반환한다() throws Exception {
+        mockMvc.perform(post("/api/auctions/1/auto-bids")
+                        .requestAttr("currentUserId", 2L)
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(new AutoBidMaxAmountRequest(120000L))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value(40004));
+    }
+
+    @Test
+    void 내_자동입찰_조회_성공시_200과_현재_설정을_반환한다() throws Exception {
+        AutoBidMeResponse response = new AutoBidMeResponse(
+                15L, 1L, AutoBidSettingStatus.ACTIVE, 120000L, 105000L, 110000L,
+                OffsetDateTime.now().minusHours(1), OffsetDateTime.now(), true, true
+        );
+        when(autoBidQueryService.getMyAutoBid(1L, 2L)).thenReturn(response);
+
+        mockMvc.perform(get("/api/auctions/1/auto-bids/me").requestAttr("currentUserId", 2L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.autoBidSettingId").value(15))
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.data.canModify").value(true))
+                .andExpect(jsonPath("$.data.canCancel").value(true));
+    }
+
+    @Test
+    void 내_자동입찰이_없으면_404와_40404를_반환한다() throws Exception {
+        when(autoBidQueryService.getMyAutoBid(1L, 2L))
+                .thenThrow(new AutoBidNotFoundException("등록된 자동입찰이 없습니다."));
+
+        mockMvc.perform(get("/api/auctions/1/auto-bids/me").requestAttr("currentUserId", 2L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value(40404));
+    }
+
+    @Test
+    void 자동입찰_수정_성공시_200과_수정_결과를_반환한다() throws Exception {
+        AutoBidUpdateResponse response = new AutoBidUpdateResponse(
+                15L, AutoBidSettingStatus.ACTIVE, 140000L, 105000L, 110000L, false, null, false
+        );
+        when(autoBidService.updateAutoBid(1L, 2L, 140000L, "abc")).thenReturn(response);
+
+        mockMvc.perform(patch("/api/auctions/1/auto-bids/me")
+                        .requestAttr("currentUserId", 2L)
+                        .header("Idempotency-Key", "abc")
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(new AutoBidMaxAmountRequest(140000L))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.maxAmount").value(140000));
+    }
+
+    @Test
+    void 자동입찰_수정시_상향하지_않으면_409와_40907을_반환한다() throws Exception {
+        when(autoBidService.updateAutoBid(anyLong(), anyLong(), anyLong(), anyString()))
+                .thenThrow(new CapNotIncreasedException("상한가는 현재 설정값보다 높아야 합니다."));
+
+        mockMvc.perform(patch("/api/auctions/1/auto-bids/me")
+                        .requestAttr("currentUserId", 2L)
+                        .header("Idempotency-Key", "abc")
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(new AutoBidMaxAmountRequest(100000L))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value(40907));
+    }
+
+    @Test
+    void 자동입찰_수정시_Idempotency_Key_헤더가_없으면_400과_40004를_반환한다() throws Exception {
+        mockMvc.perform(patch("/api/auctions/1/auto-bids/me")
+                        .requestAttr("currentUserId", 2L)
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(new AutoBidMaxAmountRequest(140000L))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value(40004));
+    }
+
+    @Test
+    void 자동입찰_수정시_설정이_없으면_404와_40404를_반환한다() throws Exception {
+        when(autoBidService.updateAutoBid(anyLong(), anyLong(), anyLong(), anyString()))
+                .thenThrow(new AutoBidNotFoundException("등록된 자동입찰이 없습니다."));
+
+        mockMvc.perform(patch("/api/auctions/1/auto-bids/me")
+                        .requestAttr("currentUserId", 2L)
+                        .header("Idempotency-Key", "abc")
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(new AutoBidMaxAmountRequest(140000L))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value(40404));
+    }
+
+    @Test
+    void 자동입찰_취소_성공시_200과_CANCELED를_반환한다() throws Exception {
+        AutoBidCancelResponse response = new AutoBidCancelResponse(15L, AutoBidSettingStatus.CANCELED, OffsetDateTime.now());
+        when(autoBidService.cancelAutoBid(1L, 2L)).thenReturn(response);
+
+        mockMvc.perform(delete("/api/auctions/1/auto-bids/me").requestAttr("currentUserId", 2L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.autoBidSettingId").value(15))
+                .andExpect(jsonPath("$.data.status").value("CANCELED"));
+    }
+
+    @Test
+    void 자동입찰_취소시_설정이_없으면_404와_40404를_반환한다() throws Exception {
+        when(autoBidService.cancelAutoBid(1L, 2L))
+                .thenThrow(new AutoBidNotFoundException("등록된 자동입찰이 없습니다."));
+
+        mockMvc.perform(delete("/api/auctions/1/auto-bids/me").requestAttr("currentUserId", 2L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value(40404));
     }
 }

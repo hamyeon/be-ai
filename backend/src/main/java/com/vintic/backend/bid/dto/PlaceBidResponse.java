@@ -1,43 +1,22 @@
 package com.vintic.backend.bid.dto;
 
-import com.vintic.backend.auction.domain.Auction;
-import com.vintic.backend.bid.domain.Bid;
+import java.time.OffsetDateTime;
 
-import java.time.LocalDateTime;
-
+// FINAL contract §9 shape. extensionCount는 의도적으로 생략한다 - 종료 연장 정책/필드가 도메인
+// 어디에도 없어 값을 지어낼 수 없다(docs/api/auction-api-contract-gap.md 참고, 종료 연장 구현
+// 이슈에서 endsAt/extensionCount 계약을 마저 닫는다).
+// 모든 필드는 AutoBid 취소 + Manual bid 반영 + Proxy counter resolution까지 전부 끝난 최종 상태를
+// 기준으로 한다 - BidCommandService가 트랜잭션 마지막에 조립해서 반환하고, 그 값을 그대로
+// Idempotency response_snapshot에 저장한다.
 public record PlaceBidResponse(
         Long bidId,
-        Long auctionId,
         Long submittedAmount,
         Long currentPrice,
-        Long currentWinnerId,
-        LocalDateTime bidAt
+        Long minNextBidAmount,
+        String highestBidderMasked,
+        boolean isHighestBidder,
+        boolean autoBidCanceled,
+        boolean proxyResponded,
+        OffsetDateTime endsAt
 ) {
-    public static PlaceBidResponse of(Bid bid, Auction auction) {
-        return new PlaceBidResponse(
-                bid.getId(),
-                auction.getId(),
-                bid.getAmount(),
-                auction.getCurrentPrice(),
-                auction.getCurrentWinner() != null ? auction.getCurrentWinner().getId() : null,
-                bid.getCreatedAt()
-        );
-    }
-
-    // Idempotency replay 전용. 현재(=Auction의 최신) 상태가 아니라 최초 성공 시점의 의미를
-    // 그대로 재구성해야 한다. placeManualBid()가 성공하는 순간에는 항상
-    // auction.currentPrice == bid.amount, auction.currentWinner == bid.user였다는 불변식에
-    // 기대어, Auction을 다시 조회하지 않고 Bid 값만으로 그 시점의 응답을 복원한다 — 그래야
-    // 경매가 이후 더 진행돼도(다른 사용자의 상위 입찰 등) replay 응답이 최초 성공 응답과
-    // 달라지지 않는다.
-    public static PlaceBidResponse ofReplay(Bid bid) {
-        return new PlaceBidResponse(
-                bid.getId(),
-                bid.getAuction().getId(),
-                bid.getAmount(),
-                bid.getAmount(),
-                bid.getUser().getId(),
-                bid.getCreatedAt()
-        );
-    }
 }

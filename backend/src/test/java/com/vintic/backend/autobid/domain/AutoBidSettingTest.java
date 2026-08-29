@@ -142,4 +142,62 @@ class AutoBidSettingTest {
         assertThatThrownBy(setting::reactivateAfterCapIncrease).isInstanceOf(InvalidAutoBidSettingStatusException.class);
         assertThatThrownBy(setting::cancel).isInstanceOf(InvalidAutoBidSettingStatusException.class);
     }
+
+    @Test
+    void 생성하면_activeSlot은_true다() {
+        AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 100000L);
+
+        assertThat(setting.getActiveSlot()).isTrue();
+    }
+
+    @Test
+    void activate_markCapReached_reactivateAfterCapIncrease_이후에도_activeSlot은_true로_유지된다() {
+        AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 100000L);
+
+        setting.activate();
+        assertThat(setting.getActiveSlot()).isTrue();
+
+        setting.markCapReached();
+        assertThat(setting.getActiveSlot()).isTrue();
+
+        setting.reactivateAfterCapIncrease();
+        assertThat(setting.getActiveSlot()).isTrue();
+    }
+
+    @Test
+    void cancel하면_activeSlot은_null이_된다() {
+        AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 100000L);
+
+        setting.cancel();
+
+        assertThat(setting.getActiveSlot()).isNull();
+    }
+
+    @Test
+    void changeMaxAmount로_상한가를_바꿀_수_있다() {
+        AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 100000L);
+
+        setting.changeMaxAmount(150000L);
+
+        assertThat(setting.getMaxAmount()).isEqualTo(150000L);
+    }
+
+    @Test
+    void changeMaxAmount는_status를_바꾸지_않는다() {
+        AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 100000L);
+        setting.activate();
+        setting.markCapReached();
+
+        setting.changeMaxAmount(150000L);
+
+        assertThat(setting.getStatus()).isEqualTo(AutoBidSettingStatus.CAP_REACHED);
+    }
+
+    @Test
+    void changeMaxAmount에_0이하_값을_주면_실패한다() {
+        AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 100000L);
+
+        assertThatThrownBy(() -> setting.changeMaxAmount(0L))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

@@ -5,6 +5,8 @@ import com.vintic.backend.auction.AuctionController;
 import com.vintic.backend.auction.domain.AuctionStatus;
 import com.vintic.backend.auction.dto.AuctionDetailResponse;
 import com.vintic.backend.auction.service.AuctionQueryService;
+import com.vintic.backend.autobid.service.AutoBidQueryService;
+import com.vintic.backend.autobid.service.AutoBidService;
 import com.vintic.backend.bid.dto.PlaceBidRequest;
 import com.vintic.backend.bid.dto.PlaceBidResponse;
 import com.vintic.backend.bid.service.BidQueryService;
@@ -23,6 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -58,6 +61,12 @@ class MockAuthInterceptorTest {
     @MockitoBean
     private ManualBidService manualBidService;
 
+    @MockitoBean
+    private AutoBidService autoBidService;
+
+    @MockitoBean
+    private AutoBidQueryService autoBidQueryService;
+
     // 경매 조회/입찰은 추천용 행동 로그를 남긴다. 인증 검증에는 영향이 없어 목으로 둔다.
     @MockitoBean
     private ActivityLogService activityLogService;
@@ -89,7 +98,9 @@ class MockAuthInterceptorTest {
     void 존재하는_유저면_통과한다() throws Exception {
         when(userRepository.existsById(1L)).thenReturn(true);
         when(manualBidService.placeBid(anyLong(), anyLong(), anyLong(), any()))
-                .thenReturn(new PlaceBidResponse(1L, 1L, 15000L, 15000L, 1L, LocalDateTime.now()));
+                .thenReturn(new PlaceBidResponse(
+                        1L, 15000L, 15000L, 20000L, "bid****", true, false, false, OffsetDateTime.now().plusHours(1)
+                ));
 
         mockMvc.perform(placeBid().header("X-User-Id", "1"))
                 .andExpect(status().isCreated())

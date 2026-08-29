@@ -174,6 +174,29 @@ public class Auction {
         return currentPrice + bidIncrement;
     }
 
+    // Proxy 가격 결정(ProxyPriceEngine) 결과를 반영하는 전용 mutator다. cap/tie/effectiveCap 같은
+    // Proxy 정책 판단은 이 메서드의 책임이 아니다(Engine/Service가 이미 끝낸 뒤 호출) - 다만
+    // Auction 자신이 지켜야 하는 최소 구조적 불변식(승자 필수, 가격 하락 금지)은 여기서 방어한다.
+    public void applyProxyResult(User winner, Long newPrice) {
+        if (winner == null) {
+            throw new IllegalArgumentException("Proxy 결과의 승자는 필수입니다.");
+        }
+        if (newPrice == null || newPrice < currentPrice) {
+            throw new IllegalArgumentException(
+                    "Proxy 결과 가격은 현재가보다 낮을 수 없습니다. currentPrice: " + currentPrice + ", newPrice: " + newPrice
+            );
+        }
+        this.currentPrice = newPrice;
+        this.currentWinner = winner;
+    }
+
+    // AutoBid PATCH/DELETE 등 placeManualBid 밖에서도 "이미 끝난 경매인가"를 판정해야 하는
+    // 곳이 있어 분리했다. SCHEDULED는 포함하지 않는다 - AutoBid는 SCHEDULED에서도 정상 동작해야
+    // 하므로(RESERVED) placeManualBid의 "status != LIVE ⇒ closed" 판정을 그대로 재사용할 수 없다.
+    public boolean isClosed() {
+        return status == AuctionStatus.ENDED || status == AuctionStatus.CANCELED;
+    }
+
     // /live의 canBid 판정 전용이다. placeManualBid()와 같은 순서(제재→미시작→종료→판매자→최고입찰자)를
     // 따르되 금액 검증(BID_AMOUNT_TOO_LOW/BID_NOT_ALIGNED)은 포함하지 않는다 - 계약상 canBid는
     // 금액을 입력하기 전에 버튼을 눌러도 되는지만 의미하기 때문이다.

@@ -2,6 +2,9 @@ package com.vintic.backend.bid.service;
 
 import com.vintic.backend.auction.domain.Auction;
 import com.vintic.backend.auction.repository.AuctionRepository;
+import com.vintic.backend.autobid.domain.AutoBidSetting;
+import com.vintic.backend.autobid.domain.AutoBidSettingStatus;
+import com.vintic.backend.autobid.repository.AutoBidSettingRepository;
 import com.vintic.backend.bid.dto.PlaceBidResponse;
 import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.common.exception.AlreadyHighestBidderException;
@@ -10,7 +13,9 @@ import com.vintic.backend.common.exception.AuctionNotStartedException;
 import com.vintic.backend.common.exception.BidAmountTooLowException;
 import com.vintic.backend.common.exception.PenaltyRestrictedException;
 import com.vintic.backend.common.exception.SellerCannotBidException;
+import com.vintic.backend.autobid.service.ProxyPriceEngine;
 import com.vintic.backend.product.domain.Product;
+import com.vintic.backend.support.TestClockConfig;
 import com.vintic.backend.user.domain.User;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -26,8 +31,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 // @DataJpaTest 슬라이스에 서비스를 직접 Import해, 실제 저장/갱신 결과를 DB 재조회로 검증한다.
+// ProxyPriceEngine/Clock(#41+): BidCommandService의 신규 의존성 - 이 슬라이스엔 자동으로 없어 명시 Import.
 @DataJpaTest
-@Import(BidCommandService.class)
+@Import({BidCommandService.class, ProxyPriceEngine.class, TestClockConfig.class})
 class BidCommandServiceTest {
 
     @Autowired
@@ -38,6 +44,9 @@ class BidCommandServiceTest {
 
     @Autowired
     private BidRepository bidRepository;
+
+    @Autowired
+    private AutoBidSettingRepository autoBidSettingRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -85,7 +94,8 @@ class BidCommandServiceTest {
 
         assertThat(response.submittedAmount()).isEqualTo(15000L);
         assertThat(response.currentPrice()).isEqualTo(15000L);
-        assertThat(response.currentWinnerId()).isEqualTo(bidder.getId());
+        assertThat(response.isHighestBidder()).isTrue();
+        assertThat(response.highestBidderMasked()).isNotNull();
 
         Auction reloaded = auctionRepository.findById(auction.getId()).orElseThrow();
         assertThat(reloaded.getCurrentPrice()).isEqualTo(15000L);
@@ -189,7 +199,9 @@ class BidCommandServiceTest {
     void bidRestrictedUntil이_미래인_사용자는_입찰에_실패하고_Auction_Bid가_바뀌지_않는다() {
         User seller = persistUser("seller@vintic.local");
         User bidder = persistUser("bidder@vintic.local");
-        ReflectionTestUtils.setField(bidder, "bidRestrictedUntil", LocalDateTime.now().plusDays(1));
+        // 서비스는 이제 TestClockConfig의 고정 시각을 기준으로 판정하므로, 실제 시스템 시각 기준
+        // 상대값(now().plusDays)이 아니라 확실히 미래/과거인 절대 시각을 쓴다.
+        ReflectionTestUtils.setField(bidder, "bidRestrictedUntil", LocalDateTime.of(2099, 1, 1, 0, 0));
         Product product = persistProduct(seller);
         Auction auction = persistLiveAuction(product);
         flushAndClear();
@@ -207,14 +219,14 @@ class BidCommandServiceTest {
     void bidRestrictedUntil이_과거이거나_없는_사용자는_정상적으로_입찰할_수_있다() {
         User seller = persistUser("seller@vintic.local");
         User bidder = persistUser("bidder@vintic.local");
-        ReflectionTestUtils.setField(bidder, "bidRestrictedUntil", LocalDateTime.now().minusDays(1));
+        ReflectionTestUtils.setField(bidder, "bidRestrictedUntil", LocalDateTime.of(2000, 1, 1, 0, 0));
         Product product = persistProduct(seller);
         Auction auction = persistLiveAuction(product);
         flushAndClear();
 
         PlaceBidResponse response = bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 15000L);
 
-        assertThat(response.currentWinnerId()).isEqualTo(bidder.getId());
+        assertThat(response.isHighestBidder()).isTrue();
     }
 
     @Test
@@ -259,5 +271,91 @@ class BidCommandServiceTest {
         assertThat(reloaded.getCurrentPrice()).isEqualTo(third.submittedAmount());
         assertThat(reloaded.getCurrentWinner().getId()).isEqualTo(bidderA.getId());
         assertThat(bidRepository.countByAuctionId(auction.getId())).isEqualTo(3);
+    }
+
+    @Test
+    void 기존_ACTIVE_AutoBid이_있는_사용자가_직접입찰하면_autoBidCanceled가_true다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 100000L);
+        setting.activate();
+        autoBidSettingRepository.saveAndFlush(setting);
+        flushAndClear();
+
+        PlaceBidResponse response = bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 15000L);
+
+        assertThat(response.autoBidCanceled()).isTrue();
+        AutoBidSetting reloaded = autoBidSettingRepository.findById(setting.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(AutoBidSettingStatus.CANCELED);
+    }
+
+    @Test
+    void AutoBid이_없는_사용자가_직접입찰하면_autoBidCanceled가_false다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        flushAndClear();
+
+        PlaceBidResponse response = bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 15000L);
+
+        assertThat(response.autoBidCanceled()).isFalse();
+    }
+
+    @Test
+    void 검증에_실패한_직접입찰은_기존_AutoBid을_취소하지_않는다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 100000L);
+        setting.activate();
+        autoBidSettingRepository.saveAndFlush(setting);
+        flushAndClear();
+
+        assertThatThrownBy(() -> bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 14999L))
+                .isInstanceOf(BidAmountTooLowException.class);
+
+        AutoBidSetting reloaded = autoBidSettingRepository.findById(setting.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(AutoBidSettingStatus.ACTIVE);
+    }
+
+    @Test
+    void 다른_사용자의_경쟁_AutoBid이_직접입찰을_즉시_반격하면_proxyResponded가_true다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        User autoBidder = persistUser("autobidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        AutoBidSetting competitor = AutoBidSetting.reserve(auction, autoBidder, 100000L);
+        competitor.activate();
+        autoBidSettingRepository.saveAndFlush(competitor);
+        flushAndClear();
+
+        PlaceBidResponse response = bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 15000L);
+
+        assertThat(response.proxyResponded()).isTrue();
+        assertThat(response.isHighestBidder()).isFalse();
+        assertThat(response.currentPrice()).isEqualTo(20000L); // min(100000, 15000+5000)
+
+        Auction reloaded = auctionRepository.findById(auction.getId()).orElseThrow();
+        assertThat(reloaded.getCurrentWinner().getId()).isEqualTo(autoBidder.getId());
+        assertThat(bidRepository.countByAuctionId(auction.getId())).isEqualTo(2);
+    }
+
+    @Test
+    void 경쟁_AutoBid이_없으면_proxyResponded가_false다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        flushAndClear();
+
+        PlaceBidResponse response = bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 15000L);
+
+        assertThat(response.proxyResponded()).isFalse();
+        assertThat(response.isHighestBidder()).isTrue();
     }
 }
