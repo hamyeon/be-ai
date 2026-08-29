@@ -1,7 +1,9 @@
 package com.vintic.backend.auction;
 
 import com.vintic.backend.auction.dto.AuctionDetailResponse;
+import com.vintic.backend.auction.dto.AuctionLiveResponse;
 import com.vintic.backend.auction.service.AuctionQueryService;
+import com.vintic.backend.autobid.dto.AutoBidRecommendationResponse;
 import com.vintic.backend.bid.dto.BidHistoryResponse;
 import com.vintic.backend.bid.dto.PlaceBidRequest;
 import com.vintic.backend.bid.dto.PlaceBidResponse;
@@ -55,6 +57,26 @@ public class AuctionController {
     ) {
         AuctionDetailResponse response = auctionQueryService.getAuctionDetail(auctionId);
         activityLogService.recordView(userId, auctionId, response.productId());
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    // 개인화 필드(isMine/canBid/myAutoBidStatus 등)가 있어 상세조회와 달리 인증을 필수로 건다.
+    @GetMapping("/{auctionId}/live")
+    public ResponseEntity<ApiResponse<AuctionLiveResponse>> getLiveView(
+            @PathVariable Long auctionId,
+            @RequestAttribute("currentUserId") Long userId
+    ) {
+        AuctionLiveResponse response = auctionQueryService.getLiveView(auctionId, userId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    // 응답 자체는 사용자별로 달라지지 않지만, 계약상 인증이 필수이므로 currentUserId 파라미터로 검증을 건다.
+    @GetMapping("/{auctionId}/auto-bid/recommendation")
+    public ResponseEntity<ApiResponse<AutoBidRecommendationResponse>> getAutoBidRecommendation(
+            @PathVariable Long auctionId,
+            @RequestAttribute("currentUserId") Long userId
+    ) {
+        AutoBidRecommendationResponse response = auctionQueryService.getAutoBidRecommendation(auctionId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

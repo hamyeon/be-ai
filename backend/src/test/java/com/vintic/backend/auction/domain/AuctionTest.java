@@ -9,6 +9,7 @@ import com.vintic.backend.common.exception.SellerCannotBidException;
 import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.user.domain.User;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 
@@ -202,5 +203,93 @@ class AuctionTest {
                 .isInstanceOf(AlreadyHighestBidderException.class);
         assertThat(auction.getCurrentPrice()).isEqualTo(15000L);
         assertThat(auction.getCurrentWinner()).isEqualTo(bidder);
+    }
+
+    @Test
+    void getMinNextBidAmount는_currentPrice와_bidIncrement의_합이다() {
+        Auction auction = schedule();
+
+        assertThat(auction.getMinNextBidAmount()).isEqualTo(15000L);
+    }
+
+    @Test
+    void getMinNextBidAmount는_입찰_후_갱신된_currentPrice를_반영한다() {
+        Auction auction = schedule();
+        auction.start();
+        auction.placeManualBid(bidder, 15000L);
+
+        assertThat(auction.getMinNextBidAmount()).isEqualTo(20000L);
+    }
+
+    @Test
+    void determineCannotBidReason은_제재중인_사용자에게_PENALTY_RESTRICTED를_최우선으로_반환한다() {
+        User restrictedBidder = User.register("restricted@vintic.local", "restricted", null);
+        LocalDateTime now = LocalDateTime.now();
+        restrict(restrictedBidder, now.plusDays(1));
+        Auction auction = schedule();
+        auction.start();
+
+        assertThat(auction.determineCannotBidReason(restrictedBidder, now))
+                .isEqualTo(CannotBidReason.PENALTY_RESTRICTED);
+    }
+
+    @Test
+    void determineCannotBidReason은_제재중이면_판매자_본인이어도_PENALTY_RESTRICTED가_우선한다() {
+        LocalDateTime now = LocalDateTime.now();
+        restrict(seller, now.plusDays(1));
+        Auction auction = schedule();
+        auction.start();
+
+        assertThat(auction.determineCannotBidReason(seller, now))
+                .isEqualTo(CannotBidReason.PENALTY_RESTRICTED);
+    }
+
+    @Test
+    void determineCannotBidReason은_SCHEDULED_상태면_AUCTION_NOT_STARTED를_반환한다() {
+        Auction auction = schedule();
+
+        assertThat(auction.determineCannotBidReason(bidder, LocalDateTime.now()))
+                .isEqualTo(CannotBidReason.AUCTION_NOT_STARTED);
+    }
+
+    @Test
+    void determineCannotBidReason은_ENDED_상태면_AUCTION_CLOSED를_반환한다() {
+        Auction auction = schedule();
+        auction.start();
+        auction.end();
+
+        assertThat(auction.determineCannotBidReason(bidder, LocalDateTime.now()))
+                .isEqualTo(CannotBidReason.AUCTION_CLOSED);
+    }
+
+    @Test
+    void determineCannotBidReason은_판매자_본인에게_SELLER_CANNOT_BID를_반환한다() {
+        Auction auction = schedule();
+        auction.start();
+
+        assertThat(auction.determineCannotBidReason(seller, LocalDateTime.now()))
+                .isEqualTo(CannotBidReason.SELLER_CANNOT_BID);
+    }
+
+    @Test
+    void determineCannotBidReason은_현재_최고입찰자에게_ALREADY_HIGHEST_BIDDER를_반환한다() {
+        Auction auction = schedule();
+        auction.start();
+        auction.placeManualBid(bidder, 15000L);
+
+        assertThat(auction.determineCannotBidReason(bidder, LocalDateTime.now()))
+                .isEqualTo(CannotBidReason.ALREADY_HIGHEST_BIDDER);
+    }
+
+    @Test
+    void determineCannotBidReason은_입찰_가능한_사용자에게_null을_반환한다() {
+        Auction auction = schedule();
+        auction.start();
+
+        assertThat(auction.determineCannotBidReason(bidder, LocalDateTime.now())).isNull();
+    }
+
+    private void restrict(User user, LocalDateTime until) {
+        ReflectionTestUtils.setField(user, "bidRestrictedUntil", until);
     }
 }

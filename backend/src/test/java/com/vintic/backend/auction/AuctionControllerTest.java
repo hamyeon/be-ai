@@ -2,8 +2,12 @@ package com.vintic.backend.auction;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.auction.domain.AuctionStatus;
+import com.vintic.backend.auction.domain.CannotBidReason;
 import com.vintic.backend.auction.dto.AuctionDetailResponse;
+import com.vintic.backend.auction.dto.AuctionLiveResponse;
 import com.vintic.backend.auction.service.AuctionQueryService;
+import com.vintic.backend.autobid.domain.AutoBidSettingStatus;
+import com.vintic.backend.autobid.dto.AutoBidRecommendationResponse;
 import com.vintic.backend.bid.domain.BidType;
 import com.vintic.backend.bid.dto.BidHistoryResponse;
 import com.vintic.backend.bid.dto.BidResponse;
@@ -25,6 +29,7 @@ import com.vintic.backend.recommendation.service.ActivityLogService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -252,5 +257,65 @@ class AuctionControllerTest {
                         .content(objectMapper.writeValueAsString(new PlaceBidRequest(15000L))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value(40004));
+    }
+
+    @Test
+    void live_조회_성공시_200과_현재_상태를_반환한다() throws Exception {
+        AuctionLiveResponse response = new AuctionLiveResponse(
+                1L, AuctionStatus.LIVE, 105000L, 110000L, 5000L,
+                "mma****", true, false, CannotBidReason.ALREADY_HIGHEST_BIDDER, null,
+                LocalDateTime.now().plusHours(1), Instant.now(),
+                AutoBidSettingStatus.ACTIVE, 120000L, 110000L
+        );
+        when(auctionQueryService.getLiveView(1L, 2L)).thenReturn(response);
+
+        mockMvc.perform(get("/api/auctions/1/live").requestAttr("currentUserId", 2L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.auctionId").value(1))
+                .andExpect(jsonPath("$.data.currentPrice").value(105000))
+                .andExpect(jsonPath("$.data.minNextBidAmount").value(110000))
+                .andExpect(jsonPath("$.data.highestBidderMasked").value("mma****"))
+                .andExpect(jsonPath("$.data.isMine").value(true))
+                .andExpect(jsonPath("$.data.canBid").value(false))
+                .andExpect(jsonPath("$.data.cannotBidReason").value("ALREADY_HIGHEST_BIDDER"))
+                .andExpect(jsonPath("$.data.myAutoBidStatus").value("ACTIVE"))
+                .andExpect(jsonPath("$.data.myCap").value(120000))
+                .andExpect(jsonPath("$.data.minCapAmount").value(110000));
+    }
+
+    @Test
+    void 존재하지_않는_경매의_live_조회는_404를_반환한다() throws Exception {
+        when(auctionQueryService.getLiveView(999L, 2L))
+                .thenThrow(new AuctionNotFoundException("존재하지 않는 경매입니다. auctionId: 999"));
+
+        mockMvc.perform(get("/api/auctions/999/live").requestAttr("currentUserId", 2L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value(40402));
+    }
+
+    @Test
+    void 추천_조회_성공시_200과_aiRecommendedCap을_반환한다() throws Exception {
+        AutoBidRecommendationResponse response = new AutoBidRecommendationResponse(1L, 15000L, 10000L, 15000L, 5000L);
+        when(auctionQueryService.getAutoBidRecommendation(1L)).thenReturn(response);
+
+        mockMvc.perform(get("/api/auctions/1/auto-bid/recommendation").requestAttr("currentUserId", 2L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.auctionId").value(1))
+                .andExpect(jsonPath("$.data.aiRecommendedCap").value(15000))
+                .andExpect(jsonPath("$.data.currentPrice").value(10000))
+                .andExpect(jsonPath("$.data.minCapAmount").value(15000))
+                .andExpect(jsonPath("$.data.bidIncrement").value(5000));
+    }
+
+    @Test
+    void 존재하지_않는_경매의_추천_조회는_404를_반환한다() throws Exception {
+        when(auctionQueryService.getAutoBidRecommendation(999L))
+                .thenThrow(new AuctionNotFoundException("존재하지 않는 경매입니다. auctionId: 999"));
+
+        mockMvc.perform(get("/api/auctions/999/auto-bid/recommendation").requestAttr("currentUserId", 2L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value(40402));
     }
 }
