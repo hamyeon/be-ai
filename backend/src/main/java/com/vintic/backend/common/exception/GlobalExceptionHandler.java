@@ -149,6 +149,34 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail(40905, e.getMessage()));
     }
 
+    // 등록된 자동입찰이 없음 (404 Not Found)
+    @ExceptionHandler(AutoBidNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAutoBidNotFoundException(AutoBidNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40404, e.getMessage()));
+    }
+
+    // 자동입찰 상한가가 minCapAmount 미만 (409 Conflict)
+    @ExceptionHandler(CapTooLowException.class)
+    public ResponseEntity<ApiResponse<Void>> handleCapTooLowException(CapTooLowException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40906, e.getMessage()));
+    }
+
+    // ACTIVE/CAP_REACHED 상태에서 상한가를 올리지 않고 수정 시도 (409 Conflict)
+    @ExceptionHandler(CapNotIncreasedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleCapNotIncreasedException(CapNotIncreasedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40907, e.getMessage()));
+    }
+
+    // 이미 현재 자동입찰 설정이 존재함(RESERVED/ACTIVE/CAP_REACHED) (409 Conflict)
+    @ExceptionHandler(AutoBidAlreadyExistsException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAutoBidAlreadyExistsException(AutoBidAlreadyExistsException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40908, e.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleException(Exception exception) {
         // 1. 에러 내용을 콘솔에 강제로 출력

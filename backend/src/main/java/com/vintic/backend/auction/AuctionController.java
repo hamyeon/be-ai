@@ -3,7 +3,14 @@ package com.vintic.backend.auction;
 import com.vintic.backend.auction.dto.AuctionDetailResponse;
 import com.vintic.backend.auction.dto.AuctionLiveResponse;
 import com.vintic.backend.auction.service.AuctionQueryService;
+import com.vintic.backend.autobid.dto.AutoBidCancelResponse;
+import com.vintic.backend.autobid.dto.AutoBidMaxAmountRequest;
+import com.vintic.backend.autobid.dto.AutoBidMeResponse;
 import com.vintic.backend.autobid.dto.AutoBidRecommendationResponse;
+import com.vintic.backend.autobid.dto.AutoBidRegisterResponse;
+import com.vintic.backend.autobid.dto.AutoBidUpdateResponse;
+import com.vintic.backend.autobid.service.AutoBidQueryService;
+import com.vintic.backend.autobid.service.AutoBidService;
 import com.vintic.backend.bid.dto.BidHistoryResponse;
 import com.vintic.backend.bid.dto.PlaceBidRequest;
 import com.vintic.backend.bid.dto.PlaceBidResponse;
@@ -17,7 +24,9 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
@@ -35,17 +44,23 @@ public class AuctionController {
     private final BidQueryService bidQueryService;
     private final ManualBidService manualBidService;
     private final ActivityLogService activityLogService;
+    private final AutoBidService autoBidService;
+    private final AutoBidQueryService autoBidQueryService;
 
     public AuctionController(
             AuctionQueryService auctionQueryService,
             BidQueryService bidQueryService,
             ManualBidService manualBidService,
-            ActivityLogService activityLogService
+            ActivityLogService activityLogService,
+            AutoBidService autoBidService,
+            AutoBidQueryService autoBidQueryService
     ) {
         this.auctionQueryService = auctionQueryService;
         this.bidQueryService = bidQueryService;
         this.manualBidService = manualBidService;
         this.activityLogService = activityLogService;
+        this.autoBidService = autoBidService;
+        this.autoBidQueryService = autoBidQueryService;
     }
 
     // 조회는 인증이 필요 없다. 다만 헤더가 있으면 추천용 행동 로그를 남기므로 선택적으로 받는다.
@@ -110,5 +125,71 @@ public class AuctionController {
         // 유저 벡터를 만들 때 auctionId로 상품을 찾는다 - 입찰 경로에 조회 쿼리를 더하지 않기 위함이다.
         activityLogService.recordBid(userId, auctionId, null);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
+    }
+
+    @Operation(
+            summary = "자동입찰 등록",
+            description = "Proxy Bidding 통합 전까지는 LIVE 등록이어도 실제 가격 경쟁을 계산하지 않는다 - "
+                    + "temporary until Proxy Bidding integration: bidOccurred=false, resultingBidAmount=null, "
+                    + "isHighestBidder=false를 항상 반환한다. 동일 Idempotency-Key로 재시도해도 새로 생성되지 않고 "
+                    + "최초 성공 결과가 반환된다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "등록 성공 또는 동일 요청 replay"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "판매자 본인(40301) 또는 입찰 제한 기간(40302)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "상한가 미달(40906) / 기존 설정 존재(40908) / 종료된 경매(40903) / Idempotency payload mismatch(40905)")
+    })
+    @PostMapping("/{auctionId}/auto-bids")
+    public ResponseEntity<ApiResponse<AutoBidRegisterResponse>> createAutoBid(
+            @PathVariable Long auctionId,
+            @RequestAttribute("currentUserId") Long userId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody AutoBidMaxAmountRequest request
+    ) {
+        AutoBidRegisterResponse response = autoBidService.createAutoBid(auctionId, userId, request.maxAmount(), idempotencyKey);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
+    }
+
+    @GetMapping("/{auctionId}/auto-bids/me")
+    public ResponseEntity<ApiResponse<AutoBidMeResponse>> getMyAutoBid(
+            @PathVariable Long auctionId,
+            @RequestAttribute("currentUserId") Long userId
+    ) {
+        AutoBidMeResponse response = autoBidQueryService.getMyAutoBid(auctionId, userId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(
+            summary = "자동입찰 상한가 수정",
+            description = "Proxy Bidding 통합 전까지는 cap을 올려도 실제 가격 경쟁을 계산하지 않는다 - "
+                    + "temporary until Proxy Bidding integration: bidOccurred=false, resultingBidAmount=null, "
+                    + "isHighestBidder=false를 항상 반환하고, CAP_REACHED는 cap을 올려도 이 응답에서 ACTIVE로 "
+                    + "복귀시키지 않는다. 동일 Idempotency-Key로 재시도해도 다시 처리되지 않고 최초 성공 결과가 반환된다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "수정 성공 또는 동일 요청 replay"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "등록된 자동입찰 없음(40404)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "상한가 미달(40906) / 상향하지 않음(40907, ACTIVE/CAP_REACHED만) / 종료된 경매(40903) / Idempotency payload mismatch(40905)")
+    })
+    @PatchMapping("/{auctionId}/auto-bids/me")
+    public ResponseEntity<ApiResponse<AutoBidUpdateResponse>> updateAutoBid(
+            @PathVariable Long auctionId,
+            @RequestAttribute("currentUserId") Long userId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody AutoBidMaxAmountRequest request
+    ) {
+        AutoBidUpdateResponse response = autoBidService.updateAutoBid(auctionId, userId, request.maxAmount(), idempotencyKey);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    // row를 삭제하지 않고 CANCELED로 전이한다. Idempotency-Key를 요구하지 않는다(§0.11) - 재요청 시
+    // 이미 현재 설정이 없으므로(CANCELED는 activeSlot=null) 40404로 응답한다.
+    @DeleteMapping("/{auctionId}/auto-bids/me")
+    public ResponseEntity<ApiResponse<AutoBidCancelResponse>> cancelAutoBid(
+            @PathVariable Long auctionId,
+            @RequestAttribute("currentUserId") Long userId
+    ) {
+        AutoBidCancelResponse response = autoBidService.cancelAutoBid(auctionId, userId);
+        return ResponseEntity.ok(ApiResponse.success(response));
     }
 }

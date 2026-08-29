@@ -13,12 +13,13 @@ import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.common.exception.AuctionNotFoundException;
 import com.vintic.backend.common.exception.UserNotFoundException;
 import com.vintic.backend.common.util.NicknameMasker;
+import com.vintic.backend.common.util.TimePolicy;
 import com.vintic.backend.user.domain.User;
 import com.vintic.backend.user.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
@@ -29,17 +30,20 @@ public class AuctionQueryService {
     private final BidRepository bidRepository;
     private final UserRepository userRepository;
     private final AutoBidSettingRepository autoBidSettingRepository;
+    private final Clock clock;
 
     public AuctionQueryService(
             AuctionRepository auctionRepository,
             BidRepository bidRepository,
             UserRepository userRepository,
-            AutoBidSettingRepository autoBidSettingRepository
+            AutoBidSettingRepository autoBidSettingRepository,
+            Clock clock
     ) {
         this.auctionRepository = auctionRepository;
         this.bidRepository = bidRepository;
         this.userRepository = userRepository;
         this.autoBidSettingRepository = autoBidSettingRepository;
+        this.clock = clock;
     }
 
     @Transactional(readOnly = true)
@@ -62,16 +66,18 @@ public class AuctionQueryService {
         String highestBidderMasked = winner == null ? null : NicknameMasker.mask(winner.getNickname());
         boolean isMine = winner != null && winner.isSameUser(currentUser);
 
-        CannotBidReason cannotBidReason = auction.determineCannotBidReason(currentUser, LocalDateTime.now());
+        CannotBidReason cannotBidReason = auction.determineCannotBidReason(currentUser, LocalDateTime.now(clock));
         boolean canBid = cannotBidReason == null;
         LocalDateTime bidRestrictedUntil = cannotBidReason == CannotBidReason.PENALTY_RESTRICTED
                 ? currentUser.getBidRestrictedUntil()
                 : null;
 
+        // #41: activeSlot=true인 "현재 설정"만 조회하므로(CANCELED는 항상 activeSlot=null이라
+        // 이 쿼리에 아예 안 걸림) 여기서 status로 다시 CANCELED를 걸러낼 필요가 없다.
         AutoBidSettingStatus myAutoBidStatus = null;
         Long myCap = null;
-        Optional<AutoBidSetting> setting = autoBidSettingRepository.findByAuctionIdAndUserId(auctionId, userId);
-        if (setting.isPresent() && setting.get().getStatus() != AutoBidSettingStatus.CANCELED) {
+        Optional<AutoBidSetting> setting = autoBidSettingRepository.findByAuctionIdAndUserIdAndActiveSlotTrue(auctionId, userId);
+        if (setting.isPresent()) {
             myAutoBidStatus = setting.get().getStatus();
             myCap = setting.get().getMaxAmount();
         }
@@ -86,9 +92,9 @@ public class AuctionQueryService {
                 isMine,
                 canBid,
                 cannotBidReason,
-                bidRestrictedUntil,
-                auction.getEndAt(),
-                Instant.now(),
+                TimePolicy.toApiTime(bidRestrictedUntil),
+                TimePolicy.toApiTime(auction.getEndAt()),
+                TimePolicy.toApiTime(LocalDateTime.now(clock)),
                 myAutoBidStatus,
                 myCap,
                 minNextBidAmount

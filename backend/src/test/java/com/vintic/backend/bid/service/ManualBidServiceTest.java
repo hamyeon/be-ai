@@ -6,7 +6,10 @@ import com.vintic.backend.bid.dto.PlaceBidResponse;
 import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.bid.repository.IdempotencyRepository;
 import com.vintic.backend.common.exception.IdempotencyPayloadMismatchException;
+import com.vintic.backend.autobid.service.ProxyPriceEngine;
 import com.vintic.backend.product.domain.Product;
+import com.vintic.backend.support.TestClockConfig;
+import com.vintic.backend.support.TestObjectMapperConfig;
 import com.vintic.backend.user.domain.User;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -22,8 +25,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 // #32 범위: Idempotency 처리 자체만 검증한다. 수동 입찰 validation(#30/#31 커버 범위)은
 // BidCommandServiceTest에 이미 있으므로 여기서 다시 만들지 않는다.
+// ObjectMapper(#41)/ProxyPriceEngine·Clock(#41+): 신규 의존성 - 이 슬라이스엔 기본으로
+// 없어 TestObjectMapperConfig/TestClockConfig로 명시적으로 채운다.
 @DataJpaTest
-@Import({BidCommandService.class, IdempotencyClaimService.class, ManualBidService.class})
+@Import({
+        BidCommandService.class, IdempotencyClaimService.class, ManualBidService.class,
+        ProxyPriceEngine.class, TestObjectMapperConfig.class, TestClockConfig.class
+})
 class ManualBidServiceTest {
 
     @Autowired
