@@ -2,6 +2,8 @@ package com.vintic.backend.common.exception;
 
 import com.vintic.backend.auction.AuctionController;
 import com.vintic.backend.auction.service.AuctionQueryService;
+import com.vintic.backend.autobid.service.AutoBidQueryService;
+import com.vintic.backend.autobid.service.AutoBidService;
 import com.vintic.backend.bid.service.BidQueryService;
 import com.vintic.backend.bid.service.ManualBidService;
 import com.vintic.backend.recommendation.service.ActivityLogService;
@@ -40,6 +42,12 @@ class GlobalExceptionHandlerTest {
     @MockitoBean
     private UserRepository userRepository;
 
+    @MockitoBean
+    private AutoBidService autoBidService;
+
+    @MockitoBean
+    private AutoBidQueryService autoBidQueryService;
+
     @Test
     void 존재하지_않는_경로는_404를_반환한다() {
         // Exception 포괄 핸들러가 잡으면 500이 나간다. 그러면 오타 난 URL과 서버 장애가
@@ -57,7 +65,7 @@ class GlobalExceptionHandlerTest {
             mockMvc.perform(get(path))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.success").value(false))
-                    .andExpect(jsonPath("$.error.code").value(40404));
+                    .andExpect(jsonPath("$.error.code").value(40400));
         } catch (Exception e) {
             throw new AssertionError("요청 수행에 실패했습니다: " + path, e);
         }
