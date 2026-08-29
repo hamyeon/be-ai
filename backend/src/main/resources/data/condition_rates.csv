@@ -1,3 +1,9 @@
-condition_grade,rate,sample_size,source_note
-DS,0.778,63,당근 실거래 중앙값 / KREAM 표준 컬러웨이 참조 중앙값
-UNKNOWN,0.415,234,당근 실거래 중앙값 / KREAM 표준 컬러웨이 참조 중앙값
+model,condition_grade,rate,sample_size,source_note
+,DS,0.778,63,당근 실거래 중앙값 / KREAM 표준 컬러웨이 참조 중앙값
+,UNKNOWN,0.415,234,당근 실거래 중앙값 / KREAM 표준 컬러웨이 참조 중앙값
+993,UNKNOWN,0.602,11,당근 실거래 중앙값 / KREAM 표준 컬러웨이 참조 중앙값
+airforce1low,DS,0.786,39,당근 실거래 중앙값 / KREAM 표준 컬러웨이 참조 중앙값
+airforce1low,UNKNOWN,0.394,144,당근 실거래 중앙값 / KREAM 표준 컬러웨이 참조 중앙값
+gazelleindoor,DS,0.778,14,당근 실거래 중앙값 / KREAM 표준 컬러웨이 참조 중앙값
+gazelleindoor,UNKNOWN,0.394,56,당근 실거래 중앙값 / KREAM 표준 컬러웨이 참조 중앙값
+xt6,UNKNOWN,0.525,21,당근 실거래 중앙값 / KREAM 표준 컬러웨이 참조 중앙값

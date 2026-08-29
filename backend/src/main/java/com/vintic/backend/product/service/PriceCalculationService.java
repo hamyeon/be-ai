@@ -55,7 +55,9 @@ public class PriceCalculationService {
         int baseMarketPrice = calculateBaseMarketPrice(kreamAveragePrice, ebayAveragePrice);
 
         String normalizedConditionGrade = normalizeConditionGrade(request.conditionGrade());
-        double conditionRate = conditionRateProvider.rateOf(normalizedConditionGrade);
+        ConditionRateProvider.ConditionRate rate =
+                conditionRateProvider.resolve(request.modelName(), normalizedConditionGrade);
+        double conditionRate = rate.rate();
         double componentRate = getComponentRate(request.componentStatus());
 
         int calculatedPrice = (int) Math.round(baseMarketPrice * conditionRate * componentRate);
@@ -73,7 +75,7 @@ public class PriceCalculationService {
                 baseMarketPrice,
                 recommendedPrice,
                 normalizedConditionGrade,
-                conditionRate,
+                rate,
                 request.componentStatus(),
                 componentRate,
                 priceRange
@@ -169,7 +171,7 @@ public class PriceCalculationService {
             int baseMarketPrice,
             int recommendedPrice,
             String normalizedConditionGrade,
-            double conditionRate,
+            ConditionRateProvider.ConditionRate rate,
             String componentStatus,
             double componentRate,
             String priceRange
@@ -182,7 +184,7 @@ public class PriceCalculationService {
                 baseMarketPrice
         );
 
-        String conditionText = makeConditionText(normalizedConditionGrade, conditionRate);
+        String conditionText = makeConditionText(normalizedConditionGrade, rate);
         String componentText = makeComponentText(componentStatus, componentRate);
         String comparisonText = makeComparisonText(kreamAveragePrice, ebayAveragePrice, recommendedPrice);
 
@@ -232,9 +234,11 @@ public class PriceCalculationService {
         );
     }
 
-    private String makeConditionText(String normalizedConditionGrade, double conditionRate) {
+    private String makeConditionText(
+            String normalizedConditionGrade, ConditionRateProvider.ConditionRate rate) {
         String description = getConditionDescription(normalizedConditionGrade);
-        String basis = makeRateBasisText(normalizedConditionGrade);
+        double conditionRate = rate.rate();
+        String basis = makeRateBasisText(rate);
 
         if (UNKNOWN_CONDITION_GRADE.equals(normalizedConditionGrade)) {
             return String.format(
@@ -266,15 +270,16 @@ public class PriceCalculationService {
     //
     // 실측 계수를 쓴 것과 기본값으로 떨어진 것이 구분되지 않으면, 사용자는 두 값을 같은
     // 신뢰도로 받아들이고 우리도 이번 보정이 실제로 어떤 요청에 적용됐는지 알 수 없다.
-    private String makeRateBasisText(String normalizedConditionGrade) {
-        if (!conditionRateProvider.isMeasured(normalizedConditionGrade)) {
-            return " (실거래 표본이 부족해 기본값을 사용했습니다)";
-        }
-
-        return String.format(
-                " (당근마켓 실거래 %d건과 KREAM 시세를 대조해 산출한 값입니다)",
-                conditionRateProvider.sampleSizeOf(normalizedConditionGrade)
-        );
+    private String makeRateBasisText(ConditionRateProvider.ConditionRate rate) {
+        return switch (rate.basis()) {
+            case MEASURED_MODEL -> String.format(
+                    " (이 모델의 당근마켓 실거래 %d건과 KREAM 시세를 대조해 산출한 값입니다)",
+                    rate.sampleSize());
+            case MEASURED_COMMON -> String.format(
+                    " (모델별 실거래 표본이 부족해, 여러 모델의 실거래 %d건으로 산출한 공통값을 적용했습니다)",
+                    rate.sampleSize());
+            case DEFAULT -> " (실거래 표본이 부족해 기본값을 사용했습니다)";
+        };
     }
 
     private String getConditionDescription(String conditionGrade) {

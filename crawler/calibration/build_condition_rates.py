@@ -91,6 +91,7 @@ def main():
     # 참조가 표준 컬러웨이인 모델만 상태별 계수에 반영한다.
     # 한정 컬러 참조를 섞으면 S등급이 UNKNOWN보다 낮게 나오는 역전이 생긴다.
     standard_by_cond = defaultdict(list)
+    standard_by_model_cond = defaultdict(list)
     excluded = defaultdict(int)
     matched = size_matched = 0
 
@@ -133,6 +134,7 @@ def main():
             ratios_by_model[model].append(ratio)
             if quality(model) == "STANDARD":
                 standard_by_cond[grade].append(ratio)
+                standard_by_model_cond[(model, grade)].append(ratio)
 
     print(f"\n매칭된 당근 매물: {matched}건 (사이즈까지 일치 {size_matched}건)")
     if excluded:
@@ -168,36 +170,56 @@ def main():
               f"중앙값 {statistics.median(trusted):.2f}")
         print("  -> '일반 중고는 정가의 몇 배인가'에 대한 현재 최선의 추정")
 
-    write_csv(standard_by_cond)
+    write_csv(standard_by_cond, standard_by_model_cond)
 
 
-# 표본이 이보다 적으면 계수로 쓰지 않는다.
+# 전 모델 공통 계수로 쓰려면 이만큼은 필요하다.
 #
 # S등급이 12건인데 그 숫자로 0.70을 0.55로 바꾸면, 근거 없는 계수를 근거 없는 계수로
 # 바꾸는 것뿐이다. 표본이 쌓일 때까지는 기존 값을 그대로 두는 편이 정직하다.
 MIN_SAMPLE = 50
 
+# 모델별 계수 기준. 공통 계수보다 낮게 잡는다.
+#
+# 감가 속도가 모델마다 다르다. 에어포스1은 상시 대량 생산이라 정가의 0.40이지만
+# 993은 0.60이다. 통합 계수 하나로 뭉개면 993이 31% 낮게 추천된다.
+#
+# 그런데 50건 기준을 그대로 적용하면 에어포스1과 가젤만 통과하고, 정작 오차가 큰
+# XT-6(21건)·993(11건)이 통합값으로 떨어져 문제가 그대로 남는다. 기준을 낮추는 대신
+# 표본 수를 응답에 밝혀 신뢰도를 사용자가 판단하게 한다.
+MIN_SAMPLE_PER_MODEL = 10
 
-def write_csv(standard_by_cond):
-    """실측 계수만 CSV로 내보낸다. 기준 미달 등급은 넣지 않고 코드 기본값을 쓰게 둔다."""
+NOTE = "당근 실거래 중앙값 / KREAM 표준 컬러웨이 참조 중앙값"
+
+
+def write_csv(standard_by_cond, standard_by_model_cond):
+    """실측 계수를 CSV로 내보낸다.
+
+    model 칸이 비어 있으면 전 모델 공통 계수, 값이 있으면 그 모델 전용이다.
+    조회는 (모델, 등급) -> (공통, 등급) -> 코드 기본값 순으로 떨어진다.
+    """
     out = ROOT / "backend" / "src" / "main" / "resources" / "data" / "condition_rates.csv"
-    lines = ["condition_grade,rate,sample_size,source_note"]
-    kept, skipped = [], []
+    lines = ["model,condition_grade,rate,sample_size,source_note"]
+
+    print(f"\n{out.relative_to(ROOT)} 작성")
+    print("  [전 모델 공통]")
     for grade, vals in sorted(standard_by_cond.items()):
         if len(vals) < MIN_SAMPLE:
-            skipped.append((grade, len(vals)))
+            print(f"    {grade:<9} 제외 (n={len(vals)} < {MIN_SAMPLE}, 코드 기본값 유지)")
             continue
         rate = round(statistics.median(vals), 3)
-        lines.append(f"{grade},{rate},{len(vals)},"
-                     f"당근 실거래 중앙값 / KREAM 표준 컬러웨이 참조 중앙값")
-        kept.append((grade, rate, len(vals)))
+        lines.append(f",{grade},{rate},{len(vals)},{NOTE}")
+        print(f"    {grade:<9} {rate:.3f}  (n={len(vals)})")
+
+    print("  [모델별]")
+    for (model, grade), vals in sorted(standard_by_model_cond.items()):
+        if len(vals) < MIN_SAMPLE_PER_MODEL:
+            continue
+        rate = round(statistics.median(vals), 3)
+        lines.append(f"{model},{grade},{rate},{len(vals)},{NOTE}")
+        print(f"    {model:<16} {grade:<9} {rate:.3f}  (n={len(vals)})")
 
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"\n{out.relative_to(ROOT)} 작성")
-    for grade, rate, n in kept:
-        print(f"  {grade:<9} {rate:.2f}  (n={n})")
-    for grade, n in skipped:
-        print(f"  {grade:<9} 제외    (n={n} < {MIN_SAMPLE}, 코드 기본값 유지)")
 
 
 if __name__ == "__main__":
