@@ -72,14 +72,23 @@ ai:
 # metrics는 호출 수·실패율·latency 분포를 담고 있어 운영 정보가 드러난다.
 # 외부에 열려면 인증을 앞에 두거나, 내부망에서만 접근 가능해야 한다.
 management:
+  server:
+    # 관리 엔드포인트를 서비스 포트와 분리한다.
+    #
+    # 앱 앞에 리버스 프록시가 없어서 경로 단위로 접근을 막을 지점이 없다. 포트를 나누면
+    # 보안그룹에서 서비스 포트(8080)만 열고 관리 포트는 닫는 식으로 네트워크 레벨에서
+    # 가를 수 있다. 애플리케이션 코드는 건드리지 않는다.
+    #
+    # 로컬에서는 분리할 이유가 없어 application-local.yml에서 되돌린다.
+    port: ${MANAGEMENT_PORT:8081}
   endpoints:
     web:
       exposure:
         include: ${MANAGEMENT_ENDPOINTS:health,info,metrics}
   endpoint:
     health:
-      # DB·Redis 연결 상태까지 보려면 상세 정보가 필요하다. 내부 구성이 드러나므로
-      # 외부에 열 때는 인증을 앞에 둬야 한다(선행 작업으로 남김).
+      # DB·Redis 연결 상태까지 보려면 상세 정보가 필요하다. 내부 구성이 드러난다.
+      # 관리 포트를 보안그룹으로 막았다면 always로 올려도 되지만, 기본값은 보수적으로 둔다.
       show-details: ${MANAGEMENT_HEALTH_DETAILS:when-authorized}
   health:
     redis:
