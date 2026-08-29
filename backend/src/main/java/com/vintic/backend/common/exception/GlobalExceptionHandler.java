@@ -176,6 +176,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleAutoBidAlreadyExistsException(AutoBidAlreadyExistsException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiResponse.fail(40908, e.getMessage()));
+    }
+
     // 존재하지 않는 경로 (404 Not Found)
     //
     // 이 핸들러가 없으면 아래 Exception 포괄 핸들러가 잡아서 500을 준다. 그러면 오타 난 URL과

@@ -8,7 +8,16 @@ import com.vintic.backend.autobid.domain.AutoBidSettingStatus;
 import com.vintic.backend.autobid.dto.AutoBidCancelResponse;
 import com.vintic.backend.autobid.dto.AutoBidRegisterResponse;
 import com.vintic.backend.autobid.dto.AutoBidUpdateResponse;
+import com.vintic.backend.autobid.proxy.CandidateResult;
+import com.vintic.backend.autobid.proxy.ProxyCandidate;
+import com.vintic.backend.autobid.proxy.ProxyPriceEngine;
+import com.vintic.backend.autobid.proxy.ProxyResolution;
+import com.vintic.backend.autobid.proxy.ProxyResolutionInput;
+import com.vintic.backend.autobid.proxy.ProxyTrigger;
 import com.vintic.backend.autobid.repository.AutoBidSettingRepository;
+import com.vintic.backend.bid.domain.Bid;
+import com.vintic.backend.bid.domain.BidType;
+import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.common.exception.AuctionClosedException;
 import com.vintic.backend.common.exception.AuctionNotFoundException;
 import com.vintic.backend.common.exception.AutoBidAlreadyExistsException;
@@ -27,15 +36,19 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
-// LIVE 경로는 ProxyPriceEngine으로 실제 가격 경쟁을 계산한다(#41 시점 임시 stub 제거).
-// SCHEDULED(RESERVED) 경로는 Auction 가격에 영향이 없어 여전히 Proxy를 호출하지 않는다.
+// LIVE 경로는 ProxyPriceEngine(순수 계산)으로 실제 가격 경쟁을 계산하고, 이 서비스는 그 결과를
+// 실제 Auction/AutoBidSetting/Bid에 반영하는 adapter 역할만 한다 - Proxy 가격 계산식 자체는
+// 여기 없다(#42). SCHEDULED(RESERVED) 경로는 Auction 가격에 영향이 없어 여전히 Proxy를 호출하지 않는다.
 @Service
 public class AutoBidCommandService {
 
     private final AuctionRepository auctionRepository;
     private final UserRepository userRepository;
     private final AutoBidSettingRepository autoBidSettingRepository;
+    private final BidRepository bidRepository;
     private final ProxyPriceEngine proxyPriceEngine;
     private final Clock clock;
 
@@ -43,12 +56,14 @@ public class AutoBidCommandService {
             AuctionRepository auctionRepository,
             UserRepository userRepository,
             AutoBidSettingRepository autoBidSettingRepository,
+            BidRepository bidRepository,
             ProxyPriceEngine proxyPriceEngine,
             Clock clock
     ) {
         this.auctionRepository = auctionRepository;
         this.userRepository = userRepository;
         this.autoBidSettingRepository = autoBidSettingRepository;
+        this.bidRepository = bidRepository;
         this.proxyPriceEngine = proxyPriceEngine;
         this.clock = clock;
     }
@@ -86,9 +101,21 @@ public class AutoBidCommandService {
         }
 
         AutoBidSetting setting = AutoBidSetting.reserve(auction, user, maxAmount);
-        AutoBidEntrantOutcome outcome = new AutoBidEntrantOutcome(false, null, false);
+
+        boolean bidOccurred = false;
+        Long resultingBidAmount = null;
+        boolean isHighestBidder = false;
         if (auction.getStatus() == AuctionStatus.LIVE) {
-            outcome = proxyPriceEngine.resolveForAutoBidEntrant(auction, setting);
+            List<AutoBidSetting> others = autoBidSettingRepository
+                    .findByAuctionIdAndStatusAndUserIdNot(auctionId, AutoBidSettingStatus.ACTIVE, userId);
+            ProxyResolutionInput input = buildAutoTriggerInput(auction, setting, others);
+            ProxyResolution resolution = proxyPriceEngine.resolve(input);
+            applyResolution(auction, setting, others, resolution);
+
+            bidOccurred = resolution.resultingAutoBid() != null
+                    && resolution.resultingAutoBid().winnerUserId().equals(userId);
+            resultingBidAmount = bidOccurred ? resolution.resultingAutoBid().amount() : null;
+            isHighestBidder = userId.equals(resolution.finalWinnerUserId());
         }
 
         // 사전 조회(위 existing-check)로 대부분의 충돌은 걸러지지만, 동시 요청 race는 여기서
@@ -112,9 +139,9 @@ public class AutoBidCommandService {
                 minCapAmount,
                 minCapAmount,
                 TimePolicy.toApiTime(auction.getStartAt()),
-                outcome.bidOccurred(),
-                outcome.resultingBidAmount(),
-                outcome.isHighestBidder()
+                bidOccurred,
+                resultingBidAmount,
+                isHighestBidder
         );
     }
 
@@ -158,9 +185,20 @@ public class AutoBidCommandService {
 
         // LIVE라면 cap 상향이 실제로 다시 경쟁 가능한 수준인지 Proxy resolution으로 재판정한다.
         // CAP_REACHED가 무조건 ACTIVE로 복귀하지 않는다 - 이겨야만 복귀한다(§13 policy).
-        AutoBidEntrantOutcome outcome = new AutoBidEntrantOutcome(false, null, false);
+        boolean bidOccurred = false;
+        Long resultingBidAmount = null;
+        boolean isHighestBidder = false;
         if (auction.getStatus() == AuctionStatus.LIVE) {
-            outcome = proxyPriceEngine.resolveForAutoBidEntrant(auction, setting);
+            List<AutoBidSetting> others = autoBidSettingRepository
+                    .findByAuctionIdAndStatusAndUserIdNot(auctionId, AutoBidSettingStatus.ACTIVE, userId);
+            ProxyResolutionInput input = buildAutoTriggerInput(auction, setting, others);
+            ProxyResolution resolution = proxyPriceEngine.resolve(input);
+            applyResolution(auction, setting, others, resolution);
+
+            bidOccurred = resolution.resultingAutoBid() != null
+                    && resolution.resultingAutoBid().winnerUserId().equals(userId);
+            resultingBidAmount = bidOccurred ? resolution.resultingAutoBid().amount() : null;
+            isHighestBidder = userId.equals(resolution.finalWinnerUserId());
         }
 
         Long minCapAmount = auction.getMinNextBidAmount();
@@ -170,9 +208,9 @@ public class AutoBidCommandService {
                 setting.getMaxAmount(),
                 auction.getCurrentPrice(),
                 minCapAmount,
-                outcome.bidOccurred(),
-                outcome.resultingBidAmount(),
-                outcome.isHighestBidder()
+                bidOccurred,
+                resultingBidAmount,
+                isHighestBidder
         );
     }
 
@@ -186,5 +224,64 @@ public class AutoBidCommandService {
         setting.cancel();
 
         return new AutoBidCancelResponse(setting.getId(), setting.getStatus(), TimePolicy.toApiTime(setting.getUpdatedAt()));
+    }
+
+    // entrant(이번 등록/수정의 당사자) + others(다른 ACTIVE 경쟁자 전체, self-heal을 위해 축소하지
+    // 않고 그대로 넘긴다) 를 후보로, trigger는 AUTO(현재 currentWinner가 candidates에 없으면
+    // Engine이 phantom으로 보정)로 ProxyResolutionInput을 구성한다.
+    private ProxyResolutionInput buildAutoTriggerInput(Auction auction, AutoBidSetting entrant, List<AutoBidSetting> others) {
+        List<ProxyCandidate> candidates = new ArrayList<>();
+        candidates.add(toCandidate(entrant));
+        for (AutoBidSetting other : others) {
+            candidates.add(toCandidate(other));
+        }
+        User currentWinner = auction.getCurrentWinner();
+        Long currentWinnerUserId = currentWinner == null ? null : currentWinner.getId();
+        return new ProxyResolutionInput(
+                auction.getCurrentPrice(),
+                auction.getBidIncrement(),
+                new ProxyTrigger.Auto(currentWinnerUserId),
+                candidates
+        );
+    }
+
+    private ProxyCandidate toCandidate(AutoBidSetting setting) {
+        return new ProxyCandidate(setting.getUser().getId(), setting.getMaxAmount(), setting.getCreatedAt(), setting.getId());
+    }
+
+    // ProxyResolution(목표 상태)을 실제 Auction/AutoBidSetting/Bid에 반영한다 - 가격 계산은
+    // 이미 끝난 상태이며, 여기서는 반영만 한다.
+    private void applyResolution(Auction auction, AutoBidSetting entrant, List<AutoBidSetting> others, ProxyResolution resolution) {
+        // 가격이 그대로여도(동률 FIRST-IN WINS) winner가 바뀔 수 있다 - priceChanged가 아니라
+        // finalWinnerUserId 존재 여부로 반영 여부를 결정한다. applyProxyResult는 newPrice >=
+        // currentPrice만 요구하므로 동일 가격 재적용도 안전하다.
+        if (resolution.finalWinnerUserId() != null) {
+            User winner = resolveUser(entrant, others, resolution.finalWinnerUserId());
+            auction.applyProxyResult(winner, resolution.finalCurrentPrice());
+        }
+        if (resolution.resultingAutoBid() != null) {
+            User bidUser = resolveUser(entrant, others, resolution.resultingAutoBid().winnerUserId());
+            bidRepository.save(Bid.place(auction, bidUser, resolution.resultingAutoBid().amount(), BidType.AUTO));
+        }
+        for (CandidateResult result : resolution.candidateResults()) {
+            AutoBidSetting target = resolveSetting(entrant, others, result.userId());
+            ProxyResolutionApplier.applyStatus(target, result.status());
+        }
+    }
+
+    private User resolveUser(AutoBidSetting entrant, List<AutoBidSetting> others, Long userId) {
+        return resolveSetting(entrant, others, userId).getUser();
+    }
+
+    private AutoBidSetting resolveSetting(AutoBidSetting entrant, List<AutoBidSetting> others, Long userId) {
+        if (entrant.getUser().getId().equals(userId)) {
+            return entrant;
+        }
+        return others.stream()
+                .filter(other -> other.getUser().getId().equals(userId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "Proxy resolution 대상을 후보 목록에서 찾을 수 없습니다. userId: " + userId
+                ));
     }
 }

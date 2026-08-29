@@ -5,6 +5,7 @@ import com.vintic.backend.auction.repository.AuctionRepository;
 import com.vintic.backend.autobid.domain.AutoBidSetting;
 import com.vintic.backend.autobid.dto.AutoBidRegisterResponse;
 import com.vintic.backend.autobid.dto.AutoBidUpdateResponse;
+import com.vintic.backend.autobid.proxy.ProxyPriceEngine;
 import com.vintic.backend.autobid.repository.AutoBidSettingRepository;
 import com.vintic.backend.bid.service.BidCommandService;
 import com.vintic.backend.bid.service.IdempotencyClaimService;

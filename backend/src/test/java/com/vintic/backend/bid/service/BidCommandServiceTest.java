@@ -5,6 +5,8 @@ import com.vintic.backend.auction.repository.AuctionRepository;
 import com.vintic.backend.autobid.domain.AutoBidSetting;
 import com.vintic.backend.autobid.domain.AutoBidSettingStatus;
 import com.vintic.backend.autobid.repository.AutoBidSettingRepository;
+import com.vintic.backend.bid.domain.Bid;
+import com.vintic.backend.bid.domain.BidType;
 import com.vintic.backend.bid.dto.PlaceBidResponse;
 import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.common.exception.AlreadyHighestBidderException;
@@ -13,7 +15,7 @@ import com.vintic.backend.common.exception.AuctionNotStartedException;
 import com.vintic.backend.common.exception.BidAmountTooLowException;
 import com.vintic.backend.common.exception.PenaltyRestrictedException;
 import com.vintic.backend.common.exception.SellerCannotBidException;
-import com.vintic.backend.autobid.service.ProxyPriceEngine;
+import com.vintic.backend.autobid.proxy.ProxyPriceEngine;
 import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.support.TestClockConfig;
 import com.vintic.backend.user.domain.User;
@@ -357,5 +359,44 @@ class BidCommandServiceTest {
 
         assertThat(response.proxyResponded()).isFalse();
         assertThat(response.isHighestBidder()).isTrue();
+    }
+
+    // 경쟁 AutoBid의 effectiveCap이 manual bid 금액(M)과 정확히 같은 동률 케이스: 가격(M)은 그대로지만
+    // FIRST-IN WINS로 기존 AutoBid가 승자 자리를 되찾는다. priceChanged=false라는 이유로 이 반격의
+    // AUTO Bid persistence를 건너뛰면 안 된다는 것을 DB 재조회까지 포함해 검증한다.
+    @Test
+    void 경쟁_AutoBid의_effectiveCap이_manual_bid와_정확히_동률이면_가격은_그대로_winner만_바뀌고_AUTO_Bid가_저장된다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        User autoBidder = persistUser("autobidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product); // currentPrice=10000, bidIncrement=5000 -> minNextBidAmount=15000
+        // 등록 시점(currentPrice=10000) 기준 minCapAmount(15000)와 같은 maxAmount로 등록해,
+        // manual bid(15000) 반영 이후 effectiveCap도 정확히 15000이 되도록 만든다.
+        AutoBidSetting competitor = AutoBidSetting.reserve(auction, autoBidder, 15000L);
+        competitor.activate();
+        autoBidSettingRepository.saveAndFlush(competitor);
+        flushAndClear();
+
+        PlaceBidResponse response = bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 15000L);
+
+        assertThat(response.currentPrice()).isEqualTo(15000L); // M 그대로, M+증분(20000)으로 밀지 않는다
+        assertThat(response.proxyResponded()).isTrue();
+        assertThat(response.isHighestBidder()).isFalse(); // winner는 manual bidder가 아니라 autoBidder다
+
+        Auction reloadedAuction = auctionRepository.findById(auction.getId()).orElseThrow();
+        assertThat(reloadedAuction.getCurrentPrice()).isEqualTo(15000L);
+        assertThat(reloadedAuction.getCurrentWinner().getId()).isEqualTo(autoBidder.getId());
+
+        // manual Bid(15000, MANUAL) + 반격 AUTO Bid(15000, AUTO) 두 건이 모두 저장돼야 한다.
+        assertThat(bidRepository.countByAuctionId(auction.getId())).isEqualTo(2);
+        List<Bid> autoBids = bidRepository.findAll().stream()
+                .filter(b -> b.getAuction().getId().equals(auction.getId()) && b.getBidType() == BidType.AUTO)
+                .toList();
+        assertThat(autoBids).hasSize(1);
+        assertThat(autoBids.get(0).getAmount()).isEqualTo(15000L);
+        assertThat(autoBids.get(0).getUser().getId()).isEqualTo(autoBidder.getId());
+        // 최종 Auction.currentWinner와 저장된 AUTO Bid의 bidder가 일치해야 한다.
+        assertThat(autoBids.get(0).getUser().getId()).isEqualTo(reloadedAuction.getCurrentWinner().getId());
     }
 }

@@ -4,9 +4,14 @@ import com.vintic.backend.auction.domain.Auction;
 import com.vintic.backend.auction.repository.AuctionRepository;
 import com.vintic.backend.autobid.domain.AutoBidSetting;
 import com.vintic.backend.autobid.domain.AutoBidSettingStatus;
+import com.vintic.backend.autobid.proxy.CandidateResult;
+import com.vintic.backend.autobid.proxy.ProxyCandidate;
+import com.vintic.backend.autobid.proxy.ProxyPriceEngine;
+import com.vintic.backend.autobid.proxy.ProxyResolution;
+import com.vintic.backend.autobid.proxy.ProxyResolutionInput;
+import com.vintic.backend.autobid.proxy.ProxyTrigger;
 import com.vintic.backend.autobid.repository.AutoBidSettingRepository;
-import com.vintic.backend.autobid.service.ManualBidCounterOutcome;
-import com.vintic.backend.autobid.service.ProxyPriceEngine;
+import com.vintic.backend.autobid.service.ProxyResolutionApplier;
 import com.vintic.backend.bid.domain.Bid;
 import com.vintic.backend.bid.domain.BidType;
 import com.vintic.backend.bid.dto.PlaceBidResponse;
@@ -23,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -73,7 +80,16 @@ public class BidCommandService {
         // Manual bid가 실제로 반영된 뒤(auction.currentPrice/currentWinner = 이 입찰), 다른
         // 사용자의 경쟁 AutoBid가 즉시 반격하는지 확인한다. 반격이 있으면 auction과 Bid가 그
         // 결과로 다시 갱신된다.
-        ManualBidCounterOutcome counter = proxyPriceEngine.resolveAfterManualBid(auction, userId);
+        List<AutoBidSetting> others = autoBidSettingRepository
+                .findByAuctionIdAndStatusAndUserIdNot(auctionId, AutoBidSettingStatus.ACTIVE, userId);
+        ProxyResolutionInput input = new ProxyResolutionInput(
+                auction.getCurrentPrice(),
+                auction.getBidIncrement(),
+                new ProxyTrigger.Manual(amount, userId),
+                toCandidates(others)
+        );
+        ProxyResolution resolution = proxyPriceEngine.resolve(input);
+        applyResolution(auction, bidder, others, resolution);
 
         User finalWinner = auction.getCurrentWinner();
         String highestBidderMasked = finalWinner == null ? null : NicknameMasker.mask(finalWinner.getNickname());
@@ -87,9 +103,54 @@ public class BidCommandService {
                 highestBidderMasked,
                 isHighestBidder,
                 autoBidCanceled,
-                counter.proxyResponded(),
+                resolution.proxyResponded(),
                 TimePolicy.toApiTime(auction.getEndAt())
         );
+    }
+
+    private List<ProxyCandidate> toCandidates(List<AutoBidSetting> settings) {
+        List<ProxyCandidate> candidates = new ArrayList<>();
+        for (AutoBidSetting setting : settings) {
+            candidates.add(new ProxyCandidate(setting.getUser().getId(), setting.getMaxAmount(), setting.getCreatedAt(), setting.getId()));
+        }
+        return candidates;
+    }
+
+    // ProxyResolution(목표 상태)을 실제 Auction/AutoBidSetting/Bid에 반영한다. manual bidder는
+    // candidates pool에 AutoBidSetting으로 들어있지 않다(방금 자신의 AutoBid는 취소됐거나 애초에
+    // 없었다) - Manual 트리거의 phantom(= 방금 반영된 manual bid 그 자체)이 그 자리를 대신한다.
+    private void applyResolution(Auction auction, User bidder, List<AutoBidSetting> others, ProxyResolution resolution) {
+        // 가격이 그대로여도(동률 FIRST-IN WINS) winner가 바뀔 수 있다 - priceChanged가 아니라
+        // finalWinnerUserId 존재 여부로 반영 여부를 결정한다. applyProxyResult는 newPrice >=
+        // currentPrice만 요구하므로 동일 가격 재적용도 안전하다.
+        if (resolution.finalWinnerUserId() != null) {
+            User winner = resolveUser(bidder, others, resolution.finalWinnerUserId());
+            auction.applyProxyResult(winner, resolution.finalCurrentPrice());
+        }
+        if (resolution.resultingAutoBid() != null) {
+            User bidUser = resolveUser(bidder, others, resolution.resultingAutoBid().winnerUserId());
+            bidRepository.save(Bid.place(auction, bidUser, resolution.resultingAutoBid().amount(), BidType.AUTO));
+        }
+        for (CandidateResult result : resolution.candidateResults()) {
+            AutoBidSetting target = resolveSetting(others, result.userId());
+            ProxyResolutionApplier.applyStatus(target, result.status());
+        }
+    }
+
+    private User resolveUser(User bidder, List<AutoBidSetting> others, Long userId) {
+        if (bidder.getId().equals(userId)) {
+            return bidder;
+        }
+        return resolveSetting(others, userId).getUser();
+    }
+
+    private AutoBidSetting resolveSetting(List<AutoBidSetting> others, Long userId) {
+        return others.stream()
+                .filter(other -> other.getUser().getId().equals(userId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "Proxy resolution 대상을 후보 목록에서 찾을 수 없습니다. userId: " + userId
+                ));
     }
 
     // ACTIVE/CAP_REACHED만 취소한다 - RESERVED는 계약에 명시된 취소 대상이 아니다(§9,

@@ -6,7 +6,7 @@ import com.vintic.backend.bid.dto.PlaceBidResponse;
 import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.bid.repository.IdempotencyRepository;
 import com.vintic.backend.common.exception.IdempotencyPayloadMismatchException;
-import com.vintic.backend.autobid.service.ProxyPriceEngine;
+import com.vintic.backend.autobid.proxy.ProxyPriceEngine;
 import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.support.TestClockConfig;
 import com.vintic.backend.support.TestObjectMapperConfig;
