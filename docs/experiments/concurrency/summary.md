@@ -190,6 +190,34 @@ correctness와 완전히 분리된 별도 실험이다. **test-only delay를 전
   latency/throughput 비용을 지불할지"는 이 문서가 결정하지 않는다 — 실험 결과를 raw 그대로
   보존하고 사실을 사실대로, 해석은 해석대로 분리해서 남기는 것이 이 문서의 목적이다.
 
+## Alternatives Considered (#40)
+
+이 문서의 실험(#34/#35/#36)은 No-lock과 Pessimistic Lock(`SELECT ... FOR UPDATE`) 둘만
+비교했다. 아래는 다른 concurrency-control 대안들을 왜 이번 범위에서 실험조차 하지
+않았는지에 대한 정책적 사유다 — 실험 데이터가 아니라 설계 판단이므로 위 §Decision과
+섞지 않는다.
+
+**Idempotency vs cross-user concurrency는 서로 대체 관계가 아니다.**
+
+```
+Idempotency        — 동일 user / 동일 logical request retry의 중복 처리 방지
+Concurrency control — 서로 다른 user/request가 동일 Auction state를 동시에 RMW하는 문제 해결
+```
+
+`IdempotencyClaimService`가 있다고 해서 pessimistic lock이 불필요해지지 않는다 — 전자는
+"같은 사람이 같은 요청을 두 번 보냈는가"를, 후자는 "다른 사람들이 동시에 같은 row를
+고쳤는가"를 다루는 별개의 문제다.
+
+| 대안 | 채택/제외 | 사유 |
+| --- | --- | --- |
+| synchronized / ReentrantLock | 제외 | JVM local lock이라 multi-instance에서 공유되지 않는다. authoritative state는 MySQL row이고, JVM 메모리 락은 DB transaction과 직접 결합되지 않는다. 현재 single-instance 배포에서 기술적으로는 가능하지만, 확장성과 transaction consistency 기준으로 채택하지 않는다 |
+| Atomic UPDATE (단일 conditional UPDATE) | 제외 | 단순 counter 증가가 아니라 `currentPrice`/`currentWinner` 갱신, validation, `Bid` 생성, Idempotency 처리, 향후 Proxy resolution까지 하나의 트랜잭션으로 일관돼야 한다. 이 전체를 단일 conditional UPDATE 하나로 표현하는 것은 부적절하다 |
+| SERIALIZABLE isolation | 제외 | 트랜잭션 전체의 isolation을 강화하는 방식이라 영향 범위와 contention 비용이 이 read-modify-write 경로(경쟁 대상이 단일 Auction row로 명확함)에 비해 과하다 |
+| Pessimistic Lock (`SELECT ... FOR UPDATE`) | **채택** | 단일 MySQL Auction row가 contention point이고 authoritative read부터 직렬화가 필요하다. #35 frozen correctness workload에서 0/20 post-state violation 관찰(§Experiment A) — 단, 이것이 절대적 무결성 확률 0을 의미하지는 않는다(§Limitations). #36에서 latency/tail-latency 비용도 함께 확인했다(§Experiment B) |
+| Optimistic Lock + retry | 후속 후보 | 충돌률이 낮은 workload라면 장점이 있으나, retry 횟수/backoff/재검증/최종 실패 semantics를 추가로 설계해야 한다. 이번 범위에서 실험하지 않았다 |
+| Redisson (분산 락) | 보류 | 단일 MySQL row 문제에 Redis라는 별도 coordination 시스템을 추가로 들일 필요가 없다. 다중 DB 또는 DB transaction 바깥 resource까지 묶는 distributed coordination 요구가 생기면 재검토한다 |
+| Queue / Kafka (event-driven serialize) | 보류 | 현재 synchronous bid response 계약과 맞지 않고 운영 복잡도가 과하다. 고부하에서 입찰을 완전히 serialize하는 event-driven architecture가 필요해질 때 별도 검토한다 |
+
 ## Limitations
 
 ### Correctness
