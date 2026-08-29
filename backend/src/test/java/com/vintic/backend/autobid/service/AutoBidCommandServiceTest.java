@@ -6,6 +6,7 @@ import com.vintic.backend.autobid.domain.AutoBidSetting;
 import com.vintic.backend.autobid.domain.AutoBidSettingStatus;
 import com.vintic.backend.autobid.dto.AutoBidRegisterResponse;
 import com.vintic.backend.autobid.dto.AutoBidUpdateResponse;
+import com.vintic.backend.autobid.proxy.ProxyPriceEngine;
 import com.vintic.backend.autobid.repository.AutoBidSettingRepository;
 import com.vintic.backend.common.exception.AuctionClosedException;
 import com.vintic.backend.common.exception.AutoBidAlreadyExistsException;

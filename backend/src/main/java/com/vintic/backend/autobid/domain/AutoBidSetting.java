@@ -157,12 +157,10 @@ public class AutoBidSetting {
         this.updatedAt = LocalDateTime.now();
     }
 
-    // §0.13 effectiveCap 공식: currentPrice + floor((maxAmount-currentPrice)/bidIncrement)*bidIncrement.
-    // maxAmount가 bidIncrement 배수로 정렬돼 있지 않아도(등록 시 정렬을 요구하지 않음) 실제 도달
-    // 가능한 마지막 grid 지점을 반환한다. currentPrice 이하로는 절대 내려가지 않는다.
+    // #42: 계산식 자체는 EffectiveCapCalculator 하나로 통일했다(ProxyPriceEngine도 같은 공식을
+    // 쓴다) - 이 메서드는 entity 필드(maxAmount)를 넘겨주는 얇은 위임일 뿐이다.
     public Long getEffectiveCap(Long currentPrice, Long bidIncrement) {
-        long steps = (maxAmount - currentPrice) / bidIncrement;
-        return currentPrice + steps * bidIncrement;
+        return EffectiveCapCalculator.calculate(maxAmount, currentPrice, bidIncrement);
     }
 
     public Long getId() {
