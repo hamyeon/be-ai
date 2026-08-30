@@ -415,6 +415,32 @@ class BidCommandServiceTest {
         assertThat(autoBids.get(0).getUser().getId()).isEqualTo(reloadedAuction.getCurrentWinner().getId());
     }
 
+    // ===== CANCELED AutoBid는 가격 계산에서 제외 =====
+
+    @Test
+    void CANCELED_AutoBid은_상한가가_높아도_경쟁에서_제외되고_manual_bid가_그대로_이긴다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        User canceledBidder = persistUser("canceled@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product); // currentPrice=10000, bidIncrement=5000
+        // cap이 500000이라 CANCELED가 아니었다면 확실히 반격했을 상황을 일부러 만든다.
+        AutoBidSetting canceled = AutoBidSetting.reserve(auction, canceledBidder, 500000L);
+        canceled.activate();
+        canceled.cancel();
+        autoBidSettingRepository.saveAndFlush(canceled);
+        flushAndClear();
+
+        PlaceBidResponse response = bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 15000L);
+
+        assertThat(response.proxyResponded()).isFalse();
+        assertThat(response.isHighestBidder()).isTrue();
+        assertThat(response.currentPrice()).isEqualTo(15000L);
+        Auction reloaded = auctionRepository.findById(auction.getId()).orElseThrow();
+        assertThat(reloaded.getCurrentWinner().getId()).isEqualTo(bidder.getId());
+        assertThat(bidRepository.countByAuctionId(auction.getId())).isEqualTo(1); // MANUAL 1건뿐, 반격 AUTO 없음
+    }
+
     // ===== Direct bid alignment (40913) =====
 
     @Test

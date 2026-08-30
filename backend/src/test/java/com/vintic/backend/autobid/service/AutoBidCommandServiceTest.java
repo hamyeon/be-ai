@@ -555,6 +555,29 @@ class AutoBidCommandServiceTest {
                 .isInstanceOf(AutoBidNotFoundException.class);
     }
 
+    // ===== CANCELED AutoBid는 가격 계산에서 제외 =====
+
+    @Test
+    void CANCELED_설정은_상한가가_높아도_경쟁에서_제외되어_새_entrant가_경쟁없이_ACTIVE가_된다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        User canceledBidder = persistUser("canceled@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product); // currentPrice=105000, bidIncrement=5000
+        // cap이 500000이라 CANCELED가 아니었다면 확실히 entrant를 이겼을 상황을 일부러 만든다.
+        AutoBidSetting canceled = AutoBidSetting.reserve(auction, canceledBidder, 500000L);
+        canceled.activate();
+        canceled.cancel();
+        autoBidSettingRepository.saveAndFlush(canceled);
+        flushAndClear();
+
+        AutoBidRegisterResponse response = autoBidCommandService.createAutoBid(auction.getId(), bidder.getId(), 200000L);
+
+        assertThat(response.status()).isEqualTo(AutoBidSettingStatus.ACTIVE);
+        assertThat(response.bidOccurred()).isFalse(); // 경쟁자가 없어 응찰 자체가 발생하지 않는다
+        assertThat(response.currentPrice()).isEqualTo(105000L); // 변동 없음
+    }
+
     // ===== 종료 연장 =====
 
     @Test
