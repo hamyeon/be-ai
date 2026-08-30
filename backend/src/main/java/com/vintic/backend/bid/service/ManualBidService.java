@@ -25,7 +25,7 @@ public class ManualBidService {
             return idempotencyClaimService.claimAndExecute(
                     userId, operationScope, idempotencyKey, requestHash,
                     PlaceBidResponse.class,
-                    () -> bidCommandService.placeManualBid(auctionId, userId, amount)
+                    idempotencyId -> bidCommandService.placeManualBid(auctionId, userId, amount, idempotencyId)
             );
         } catch (IdempotencyClaimConflictException e) {
             return idempotencyClaimService.resolveAfterConflict(

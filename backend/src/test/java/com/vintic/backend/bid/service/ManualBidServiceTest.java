@@ -1,5 +1,7 @@
 package com.vintic.backend.bid.service;
 
+import com.vintic.backend.auction.audit.AuctionPriceAuditRecorder;
+import com.vintic.backend.auction.audit.AuctionPriceAuditRepository;
 import com.vintic.backend.auction.domain.Auction;
 import com.vintic.backend.auction.repository.AuctionRepository;
 import com.vintic.backend.bid.dto.PlaceBidResponse;
@@ -30,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DataJpaTest
 @Import({
         BidCommandService.class, IdempotencyClaimService.class, ManualBidService.class,
-        ProxyPriceEngine.class, TestObjectMapperConfig.class, TestClockConfig.class
+        ProxyPriceEngine.class, AuctionPriceAuditRecorder.class, TestObjectMapperConfig.class, TestClockConfig.class
 })
 class ManualBidServiceTest {
 
@@ -45,6 +47,9 @@ class ManualBidServiceTest {
 
     @Autowired
     private IdempotencyRepository idempotencyRepository;
+
+    @Autowired
+    private AuctionPriceAuditRepository auctionPriceAuditRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -101,6 +106,29 @@ class ManualBidServiceTest {
 
         Auction reloaded = auctionRepository.findById(auction.getId()).orElseThrow();
         assertThat(reloaded.getCurrentPrice()).isEqualTo(15000L);
+    }
+
+    // ===== Price Audit Log (#45) =====
+
+    @Test
+    void 같은_key_재요청은_audit을_중복_생성하지_않고_idempotency_row를_참조한다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        flushAndClear();
+
+        manualBidService.placeBid(auction.getId(), bidder.getId(), 15000L, "abc");
+        flushAndClear();
+        manualBidService.placeBid(auction.getId(), bidder.getId(), 15000L, "abc"); // replay, 커맨드 재실행 안 됨
+        flushAndClear();
+
+        assertThat(auctionPriceAuditRepository.countByAuctionId(auction.getId())).isEqualTo(1);
+        var audit = auctionPriceAuditRepository.findByAuctionIdOrderByCreatedAtAsc(auction.getId()).get(0);
+        Long idempotencyId = idempotencyRepository.findByUserIdAndOperationScopeAndIdempotencyKey(
+                bidder.getId(), "PLACE_BID:" + auction.getId(), "abc"
+        ).orElseThrow().getId();
+        assertThat(audit.getIdempotencyId()).isEqualTo(idempotencyId);
     }
 
     @Test

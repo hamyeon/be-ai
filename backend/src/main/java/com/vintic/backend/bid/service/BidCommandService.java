@@ -1,5 +1,7 @@
 package com.vintic.backend.bid.service;
 
+import com.vintic.backend.auction.audit.AuctionPriceAuditRecorder;
+import com.vintic.backend.auction.audit.PriceAuditTrigger;
 import com.vintic.backend.auction.domain.Auction;
 import com.vintic.backend.auction.repository.AuctionRepository;
 import com.vintic.backend.autobid.domain.AutoBidSetting;
@@ -40,6 +42,7 @@ public class BidCommandService {
     private final BidRepository bidRepository;
     private final AutoBidSettingRepository autoBidSettingRepository;
     private final ProxyPriceEngine proxyPriceEngine;
+    private final AuctionPriceAuditRecorder auctionPriceAuditRecorder;
     private final Clock clock;
 
     public BidCommandService(
@@ -48,6 +51,7 @@ public class BidCommandService {
             BidRepository bidRepository,
             AutoBidSettingRepository autoBidSettingRepository,
             ProxyPriceEngine proxyPriceEngine,
+            AuctionPriceAuditRecorder auctionPriceAuditRecorder,
             Clock clock
     ) {
         this.auctionRepository = auctionRepository;
@@ -55,11 +59,21 @@ public class BidCommandService {
         this.bidRepository = bidRepository;
         this.autoBidSettingRepository = autoBidSettingRepository;
         this.proxyPriceEngine = proxyPriceEngine;
+        this.auctionPriceAuditRecorder = auctionPriceAuditRecorder;
         this.clock = clock;
     }
 
+    // 기존(#30~#44) 호출부/테스트가 그대로 쓰는 진입점이다 - idempotency 경로가 아닌 직접 호출은
+    // audit의 idempotencyId를 null로 남긴다(SYSTEM_OPEN처럼 키가 없는 경우와 동일하게 nullable).
     @Transactional
     public PlaceBidResponse placeManualBid(Long auctionId, Long userId, Long amount) {
+        return placeManualBid(auctionId, userId, amount, null);
+    }
+
+    // #45: idempotencyId는 ManualBidService가 IdempotencyClaimService의 claim row PK를 그대로
+    // 넘겨주는 참조값이다 - 여기서 그 값의 유효성을 재검증하지 않는다(호출자 책임).
+    @Transactional
+    public PlaceBidResponse placeManualBid(Long auctionId, Long userId, Long amount, Long idempotencyId) {
         Auction auction = auctionRepository.findByIdForUpdate(auctionId)
                 .orElseThrow(() -> new AuctionNotFoundException("존재하지 않는 경매입니다. auctionId: " + auctionId));
         User bidder = userRepository.findById(userId)
@@ -68,6 +82,12 @@ public class BidCommandService {
         if (bidder.isBidRestricted(LocalDateTime.now(clock))) {
             throw new PenaltyRestrictedException("입찰 제한 기간 중인 사용자입니다. userId: " + userId);
         }
+
+        // audit의 beforePrice/beforeWinner 기준점이다 - 이 command가 Auction을 건드리기 전 상태를
+        // 여기서 캡처해둬야 한다(placeManualBid() 호출 이후에는 이미 mutate된 값만 남는다).
+        Long beforePrice = auction.getCurrentPrice();
+        User beforeWinner = auction.getCurrentWinner();
+        Long beforeWinnerId = beforeWinner == null ? null : beforeWinner.getId();
 
         // 기존 검증(상태/판매자/최고입찰자/최소금액)을 통과해야만 이 아래로 진행한다 - 실패하면
         // 예외가 던져지고 트랜잭션이 통째로 롤백되므로, 검증 실패 때문에 기존 AutoBid가 취소되거나
@@ -94,6 +114,14 @@ public class BidCommandService {
         // 종료 연장(FINAL contract §0.13/§9): Manual Bid 성공은 항상 실제 MANUAL Bid를 만들어내므로,
         // 그 뒤 Proxy 반격이 있었는지와 무관하게 이 사용자 command 기준 최대 1회만 판정한다.
         auction.maybeExtend(LocalDateTime.now(clock));
+
+        // #45: audit도 이 트랜잭션 안에서 커맨드당 최대 1회만 기록한다 - Manual Bid 성공은 항상
+        // beforePrice(command 시작 전)보다 최종 가격이 높으므로 사실상 항상 기록되지만, 판단
+        // 자체는 recordIfChanged의 공통 규칙(priceChanged || winnerChanged)에 맡긴다.
+        auctionPriceAuditRecorder.recordIfChanged(
+                auction, PriceAuditTrigger.MANUAL_BID, userId, beforePrice, beforeWinnerId,
+                resolution.priceChanged(), idempotencyId
+        );
 
         User finalWinner = auction.getCurrentWinner();
         String highestBidderMasked = finalWinner == null ? null : NicknameMasker.mask(finalWinner.getNickname());
