@@ -95,6 +95,8 @@ public class AuctionQueryService {
                 TimePolicy.toApiTime(bidRestrictedUntil),
                 TimePolicy.toApiTime(auction.getEndAt()),
                 TimePolicy.toApiTime(LocalDateTime.now(clock)),
+                auction.getExtensionCount(),
+                Auction.MAX_EXTENSIONS,
                 myAutoBidStatus,
                 myCap,
                 minNextBidAmount

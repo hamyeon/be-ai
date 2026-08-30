@@ -116,6 +116,13 @@ public class AutoBidCommandService {
                     && resolution.resultingAutoBid().winnerUserId().equals(userId);
             resultingBidAmount = bidOccurred ? resolution.resultingAutoBid().amount() : null;
             isHighestBidder = userId.equals(resolution.finalWinnerUserId());
+
+            // 종료 연장(FINAL contract §0.13/§9): "실제 Bid가 발생했는가"를 기준으로 하며, 이 등록의
+            // 결과로 entrant 자신의 AUTO Bid가 실제 저장된 경우(bidOccurred=true)에만 판정한다.
+            // 설정만 생성되고 경쟁이 없어 bidOccurred=false면 연장하지 않는다.
+            if (bidOccurred) {
+                auction.maybeExtend(LocalDateTime.now(clock));
+            }
         }
 
         // 사전 조회(위 existing-check)로 대부분의 충돌은 걸러지지만, 동시 요청 race는 여기서
@@ -199,6 +206,12 @@ public class AutoBidCommandService {
                     && resolution.resultingAutoBid().winnerUserId().equals(userId);
             resultingBidAmount = bidOccurred ? resolution.resultingAutoBid().amount() : null;
             isHighestBidder = userId.equals(resolution.finalWinnerUserId());
+
+            // 종료 연장(FINAL contract §0.13/§9): createAutoBid와 동일하게 entrant 자신의 AUTO Bid가
+            // 실제 저장된 경우(bidOccurred=true)에만 판정한다.
+            if (bidOccurred) {
+                auction.maybeExtend(LocalDateTime.now(clock));
+            }
         }
 
         Long minCapAmount = auction.getMinNextBidAmount();

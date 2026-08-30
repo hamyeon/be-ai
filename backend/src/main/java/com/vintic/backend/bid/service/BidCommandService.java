@@ -91,6 +91,10 @@ public class BidCommandService {
         ProxyResolution resolution = proxyPriceEngine.resolve(input);
         applyResolution(auction, bidder, others, resolution);
 
+        // 종료 연장(FINAL contract §0.13/§9): Manual Bid 성공은 항상 실제 MANUAL Bid를 만들어내므로,
+        // 그 뒤 Proxy 반격이 있었는지와 무관하게 이 사용자 command 기준 최대 1회만 판정한다.
+        auction.maybeExtend(LocalDateTime.now(clock));
+
         User finalWinner = auction.getCurrentWinner();
         String highestBidderMasked = finalWinner == null ? null : NicknameMasker.mask(finalWinner.getNickname());
         boolean isHighestBidder = finalWinner != null && finalWinner.isSameUser(bidder);
@@ -104,7 +108,8 @@ public class BidCommandService {
                 isHighestBidder,
                 autoBidCanceled,
                 resolution.proxyResponded(),
-                TimePolicy.toApiTime(auction.getEndAt())
+                TimePolicy.toApiTime(auction.getEndAt()),
+                auction.getExtensionCount()
         );
     }
 
