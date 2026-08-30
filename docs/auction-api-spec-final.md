@@ -278,19 +278,37 @@ CANCELED     — terminal. 동일 row를 ACTIVE로 되살리지 않는다. 재�
 예약 AutoBid들의 recursive bid chain을 실제 반복 호출로 구현해야 한다는 의미는 아니다 —
 deterministic price resolver 한 번으로 계산 가능해야 한다.
 
-### 종료 연장과 Proxy 연쇄
+### 종료 연장과 Proxy 연쇄 — RESOLVED (#43)
 
 ```
+트리거 시점: 종료 1분 이내(inclusive)
+연장 폭:     +3분
+최대 횟수:   3회 (Auction.extensionCount, MAX_EXTENSIONS=3)
+```
+
+연장 판단 기준은 "가격/승자 변동 여부"가 아니라 **"해당 사용자 command로 실제 Bid가
+발생했는가"**다.
+
+```
+Manual Bid 성공        → 항상 실제 MANUAL Bid가 생성되므로 연장 판단 대상
+LIVE AutoBid POST/PATCH → bidOccurred=true(entrant 자신의 AUTO Bid가 실제 저장)일 때만
+                          연장 판단 대상. 설정만 생성/수정되고 경쟁이 없어
+                          bidOccurred=false면 연장하지 않는다
+```
+
 한 사용자 요청으로 발생한 Proxy 연쇄는 종료 연장을 추가로 여러 번 발생시키지 않는다.
 
+```
 manual/auto 사용자 action → price resolution → proxy-generated bid(s)
 
 위 흐름 전체에서 extension 판단은 원 사용자 action 기준 최대 1회다.
-Proxy 내부 자동응찰 각각은 별도의 extension trigger가 아니다.
+Proxy 내부 자동응찰 각각은 별도의 extension trigger가 아니다. priceChanged=false라도
+FIRST-IN WINS 등으로 resultingAutoBid가 실제 저장되는 경우(bidOccurred=true)에는
+연장 판단 대상이다.
 ```
 
-연장 트리거 시점(종료 몇 분 전), 연장 폭(몇 분), 최대 연장 횟수는 이 절에서 정하지
-않는다 — 종료 연장 구현 이슈에서 확정한다.
+대상: Manual Bid, LIVE AutoBid POST, LIVE AutoBid PATCH.
+제외: Proxy 내부 AUTO Bid, GET/DELETE, scheduler/lifecycle.
 
 ### 정책 검증용 테스트 케이스 (구현 시 그대로 사용)
 
@@ -1538,7 +1556,9 @@ minNextBidAmount = 110000
 > **프론트 요구사항** `myState.autoBidStatus`가 `ACTIVE` 또는 `CAP_REACHED`인 사용자가 직접 입찰 바텀시트를 열면 “직접 입찰하면 현재 자동입찰이 중단됩니다.” 안내를 반드시 노출한다.
 >
 
-종료 연장은 사용자 요청 1회 기준으로 적용하며, Proxy 연쇄 자체는 추가 연장을 발생시키지 않는다.
+종료 연장(§0.13 참고)은 사용자 요청 1회 기준으로 적용하며, Proxy 연쇄 자체는 추가 연장을
+발생시키지 않는다. Manual Bid 성공은 항상 실제 Bid를 만들어내므로 종료 1분 이내면 +3분
+연장(최대 3회)된다.
 
 ## Request ✔️
 

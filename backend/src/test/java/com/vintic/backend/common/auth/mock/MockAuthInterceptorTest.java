@@ -99,7 +99,7 @@ class MockAuthInterceptorTest {
         when(userRepository.existsById(1L)).thenReturn(true);
         when(manualBidService.placeBid(anyLong(), anyLong(), anyLong(), any()))
                 .thenReturn(new PlaceBidResponse(
-                        1L, 15000L, 15000L, 20000L, "bid****", true, false, false, OffsetDateTime.now().plusHours(1)
+                        1L, 15000L, 15000L, 20000L, "bid****", true, false, false, OffsetDateTime.now().plusHours(1), 0
                 ));
 
         mockMvc.perform(placeBid().header("X-User-Id", "1"))

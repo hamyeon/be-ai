@@ -143,6 +143,13 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail(40904, e.getMessage()));
     }
 
+    // 최소금액 이상이지만 bidIncrement 배수로 정렬되지 않음 (409 Conflict)
+    @ExceptionHandler(BidNotAlignedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBidNotAlignedException(BidNotAlignedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40913, e.getMessage()));
+    }
+
     // 동일 Idempotency-Key에 이전과 다른 요청 내용이 감지됨 (409 Conflict)
     @ExceptionHandler(IdempotencyPayloadMismatchException.class)
     public ResponseEntity<ApiResponse<Void>> handleIdempotencyPayloadMismatchException(IdempotencyPayloadMismatchException e) {

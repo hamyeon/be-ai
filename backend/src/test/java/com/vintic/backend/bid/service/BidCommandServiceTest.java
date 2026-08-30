@@ -13,9 +13,11 @@ import com.vintic.backend.common.exception.AlreadyHighestBidderException;
 import com.vintic.backend.common.exception.AuctionClosedException;
 import com.vintic.backend.common.exception.AuctionNotStartedException;
 import com.vintic.backend.common.exception.BidAmountTooLowException;
+import com.vintic.backend.common.exception.BidNotAlignedException;
 import com.vintic.backend.common.exception.PenaltyRestrictedException;
 import com.vintic.backend.common.exception.SellerCannotBidException;
 import com.vintic.backend.autobid.proxy.ProxyPriceEngine;
+import com.vintic.backend.config.ClockConfig;
 import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.support.TestClockConfig;
 import com.vintic.backend.user.domain.User;
@@ -74,6 +76,19 @@ class BidCommandServiceTest {
         Auction auction = Auction.schedule(
                 product, 10000L, 5000L, LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2)
         );
+        auction.start();
+        entityManager.persist(auction);
+        return auction;
+    }
+
+    // 서비스가 주입받는 Clock은 TestClockConfig.FIXED_INSTANT로 고정돼 있다 - 종료 연장 경계값
+    // 테스트는 endAt을 이 고정 시각 기준 상대값으로 만들어야 결정적으로 검증할 수 있다.
+    private LocalDateTime fixedNow() {
+        return LocalDateTime.ofInstant(TestClockConfig.FIXED_INSTANT, ClockConfig.APP_ZONE);
+    }
+
+    private Auction persistLiveAuctionEndingAt(Product product, LocalDateTime endAt) {
+        Auction auction = Auction.schedule(product, 10000L, 5000L, endAt.minusHours(1), endAt);
         auction.start();
         entityManager.persist(auction);
         return auction;
@@ -398,5 +413,116 @@ class BidCommandServiceTest {
         assertThat(autoBids.get(0).getUser().getId()).isEqualTo(autoBidder.getId());
         // 최종 Auction.currentWinner와 저장된 AUTO Bid의 bidder가 일치해야 한다.
         assertThat(autoBids.get(0).getUser().getId()).isEqualTo(reloadedAuction.getCurrentWinner().getId());
+    }
+
+    // ===== Direct bid alignment (40913) =====
+
+    @Test
+    void 최소금액_이상이지만_배수가_아니면_BidNotAlignedException이_발생하고_상태가_바뀌지_않는다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product); // currentPrice=10000, bidIncrement=5000
+        flushAndClear();
+
+        assertThatThrownBy(() -> bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 17000L))
+                .isInstanceOf(BidNotAlignedException.class);
+
+        Auction reloaded = auctionRepository.findById(auction.getId()).orElseThrow();
+        assertThat(reloaded.getCurrentPrice()).isEqualTo(10000L);
+        assertThat(reloaded.getCurrentWinner()).isNull();
+        assertThat(bidRepository.countByAuctionId(auction.getId())).isZero();
+    }
+
+    // ===== 종료 연장 =====
+
+    @Test
+    void 종료_1분_이내에_성공한_입찰은_endsAt이_3분_연장되고_extensionCount가_증가한다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        LocalDateTime endAt = fixedNow().plusSeconds(30); // 종료 30초 전 = 1분 이내
+        Auction auction = persistLiveAuctionEndingAt(product, endAt);
+        flushAndClear();
+
+        PlaceBidResponse response = bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 15000L);
+
+        assertThat(response.extensionCount()).isEqualTo(1);
+        assertThat(response.endsAt().toLocalDateTime()).isEqualTo(endAt.plusMinutes(3));
+        Auction reloaded = auctionRepository.findById(auction.getId()).orElseThrow();
+        assertThat(reloaded.getExtensionCount()).isEqualTo(1);
+    }
+
+    @Test
+    void 종료_1분보다_많이_남았으면_성공한_입찰이어도_연장되지_않는다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        LocalDateTime endAt = fixedNow().plusMinutes(5); // 종료까지 5분 남음
+        Auction auction = persistLiveAuctionEndingAt(product, endAt);
+        flushAndClear();
+
+        PlaceBidResponse response = bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 15000L);
+
+        assertThat(response.extensionCount()).isEqualTo(0);
+        assertThat(response.endsAt().toLocalDateTime()).isEqualTo(endAt);
+    }
+
+    @Test
+    void 검증에_실패한_입찰은_종료_1분_이내여도_연장되지_않는다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        LocalDateTime endAt = fixedNow().plusSeconds(30);
+        Auction auction = persistLiveAuctionEndingAt(product, endAt);
+        flushAndClear();
+
+        assertThatThrownBy(() -> bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 14999L))
+                .isInstanceOf(BidAmountTooLowException.class);
+
+        Auction reloaded = auctionRepository.findById(auction.getId()).orElseThrow();
+        assertThat(reloaded.getExtensionCount()).isZero();
+        assertThat(reloaded.getEndAt()).isEqualTo(endAt);
+    }
+
+    @Test
+    void Proxy_반격이_있어도_사용자_command_1회당_연장은_한_번만_발생한다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        User autoBidder = persistUser("autobidder@vintic.local");
+        Product product = persistProduct(seller);
+        LocalDateTime endAt = fixedNow().plusSeconds(30);
+        Auction auction = persistLiveAuctionEndingAt(product, endAt);
+        AutoBidSetting competitor = AutoBidSetting.reserve(auction, autoBidder, 100000L);
+        competitor.activate();
+        autoBidSettingRepository.saveAndFlush(competitor);
+        flushAndClear();
+
+        // manual bid(15000) 성공 + Proxy 반격(AUTO Bid) 발생 - 하나의 사용자 command이므로
+        // extension은 1회만 일어나야 한다(Proxy 내부 파생 응찰은 추가 트리거가 아님).
+        PlaceBidResponse response = bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 15000L);
+
+        assertThat(response.proxyResponded()).isTrue();
+        assertThat(response.extensionCount()).isEqualTo(1);
+        assertThat(bidRepository.countByAuctionId(auction.getId())).isEqualTo(2); // MANUAL + AUTO
+    }
+
+    @Test
+    void submittedAmount와_Proxy_반영_이후_currentPrice는_다를_수_있다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        User autoBidder = persistUser("autobidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        AutoBidSetting competitor = AutoBidSetting.reserve(auction, autoBidder, 100000L);
+        competitor.activate();
+        autoBidSettingRepository.saveAndFlush(competitor);
+        flushAndClear();
+
+        PlaceBidResponse response = bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 15000L);
+
+        assertThat(response.submittedAmount()).isEqualTo(15000L);
+        assertThat(response.currentPrice()).isEqualTo(20000L); // Proxy 반격 이후 값 - submittedAmount와 다르다
+        assertThat(response.submittedAmount()).isNotEqualTo(response.currentPrice());
     }
 }

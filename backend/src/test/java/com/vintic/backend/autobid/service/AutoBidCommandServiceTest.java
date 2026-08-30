@@ -15,6 +15,7 @@ import com.vintic.backend.common.exception.CapNotIncreasedException;
 import com.vintic.backend.common.exception.CapTooLowException;
 import com.vintic.backend.common.exception.PenaltyRestrictedException;
 import com.vintic.backend.common.exception.SellerCannotBidException;
+import com.vintic.backend.config.ClockConfig;
 import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.support.TestClockConfig;
 import com.vintic.backend.user.domain.User;
@@ -78,6 +79,17 @@ class AutoBidCommandServiceTest {
         Auction auction = Auction.schedule(
                 product, 105000L, 5000L, LocalDateTime.now().minusHours(1), LocalDateTime.now().plusHours(1)
         );
+        auction.start();
+        entityManager.persist(auction);
+        return auction;
+    }
+
+    private LocalDateTime fixedNow() {
+        return LocalDateTime.ofInstant(TestClockConfig.FIXED_INSTANT, ClockConfig.APP_ZONE);
+    }
+
+    private Auction persistLiveAuctionEndingAt(Product product, Long startPrice, LocalDateTime endAt) {
+        Auction auction = Auction.schedule(product, startPrice, 5000L, endAt.minusHours(1), endAt);
         auction.start();
         entityManager.persist(auction);
         return auction;
@@ -541,6 +553,99 @@ class AutoBidCommandServiceTest {
     void 현재_설정이_없으면_취소시_40404에_해당하는_예외가_발생한다() {
         assertThatThrownBy(() -> autoBidCommandService.cancelAutoBid(999L, 1L))
                 .isInstanceOf(AutoBidNotFoundException.class);
+    }
+
+    // ===== 종료 연장 =====
+
+    @Test
+    void POST_등록으로_bidOccurred가_true이면_종료_1분_이내에서_연장된다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        User competitorUser = persistUser("competitor@vintic.local");
+        Product product = persistProduct(seller);
+        LocalDateTime endAt = fixedNow().plusSeconds(30);
+        Auction auction = persistLiveAuctionEndingAt(product, 105000L, endAt);
+        AutoBidSetting existingCompetitor = AutoBidSetting.reserve(auction, competitorUser, 110000L);
+        existingCompetitor.activate();
+        autoBidSettingRepository.saveAndFlush(existingCompetitor);
+        flushAndClear();
+
+        // entrant(200000)가 기존 경쟁자(110000)를 실제로 이겨 자신의 AUTO Bid가 저장된다(bidOccurred=true).
+        AutoBidRegisterResponse response = autoBidCommandService.createAutoBid(auction.getId(), bidder.getId(), 200000L);
+
+        assertThat(response.bidOccurred()).isTrue();
+        Auction reloaded = auctionRepository.findById(auction.getId()).orElseThrow();
+        assertThat(reloaded.getExtensionCount()).isEqualTo(1);
+        assertThat(reloaded.getEndAt()).isEqualTo(endAt.plusMinutes(3));
+    }
+
+    @Test
+    void POST_등록으로_bidOccurred가_false이면_종료_1분_이내여도_연장되지_않는다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        LocalDateTime endAt = fixedNow().plusSeconds(30);
+        Auction auction = persistLiveAuctionEndingAt(product, 105000L, endAt);
+        flushAndClear();
+
+        // 경쟁자가 없어 실제 응찰이 발생하지 않는다(bidOccurred=false).
+        AutoBidRegisterResponse response = autoBidCommandService.createAutoBid(auction.getId(), bidder.getId(), 200000L);
+
+        assertThat(response.bidOccurred()).isFalse();
+        Auction reloaded = auctionRepository.findById(auction.getId()).orElseThrow();
+        assertThat(reloaded.getExtensionCount()).isZero();
+        assertThat(reloaded.getEndAt()).isEqualTo(endAt);
+    }
+
+    @Test
+    void PATCH_상향으로_bidOccurred가_true이면_종료_1분_이내에서_연장된다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        User weakerBidder = persistUser("weaker@vintic.local");
+        Product product = persistProduct(seller);
+        LocalDateTime endAt = fixedNow().plusSeconds(30);
+        Auction auction = persistLiveAuctionEndingAt(product, 105000L, endAt);
+        AutoBidSetting competitor = AutoBidSetting.reserve(auction, weakerBidder, 120000L);
+        competitor.activate();
+        autoBidSettingRepository.saveAndFlush(competitor);
+        AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 110000L);
+        setting.activate();
+        setting.markCapReached();
+        autoBidSettingRepository.saveAndFlush(setting);
+        flushAndClear();
+
+        AutoBidUpdateResponse response = autoBidCommandService.updateAutoBid(auction.getId(), bidder.getId(), 200000L);
+
+        assertThat(response.bidOccurred()).isTrue();
+        Auction reloaded = auctionRepository.findById(auction.getId()).orElseThrow();
+        assertThat(reloaded.getExtensionCount()).isEqualTo(1);
+        assertThat(reloaded.getEndAt()).isEqualTo(endAt.plusMinutes(3));
+    }
+
+    @Test
+    void PATCH_상향해도_bidOccurred가_false이면_종료_1분_이내여도_연장되지_않는다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        User strongerBidder = persistUser("stronger@vintic.local");
+        Product product = persistProduct(seller);
+        LocalDateTime endAt = fixedNow().plusSeconds(30);
+        Auction auction = persistLiveAuctionEndingAt(product, 105000L, endAt);
+        AutoBidSetting competitor = AutoBidSetting.reserve(auction, strongerBidder, 500000L);
+        competitor.activate();
+        autoBidSettingRepository.saveAndFlush(competitor);
+        AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 150000L);
+        setting.activate();
+        setting.markCapReached();
+        autoBidSettingRepository.saveAndFlush(setting);
+        flushAndClear();
+
+        // 상향해도(200000) 경쟁자(500000)에는 여전히 못 미쳐 bidOccurred=false다.
+        AutoBidUpdateResponse response = autoBidCommandService.updateAutoBid(auction.getId(), bidder.getId(), 200000L);
+
+        assertThat(response.bidOccurred()).isFalse();
+        Auction reloaded = auctionRepository.findById(auction.getId()).orElseThrow();
+        assertThat(reloaded.getExtensionCount()).isZero();
+        assertThat(reloaded.getEndAt()).isEqualTo(endAt);
     }
 
     @Test

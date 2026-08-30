@@ -4,6 +4,7 @@ import com.vintic.backend.common.exception.AlreadyHighestBidderException;
 import com.vintic.backend.common.exception.AuctionClosedException;
 import com.vintic.backend.common.exception.AuctionNotStartedException;
 import com.vintic.backend.common.exception.BidAmountTooLowException;
+import com.vintic.backend.common.exception.BidNotAlignedException;
 import com.vintic.backend.common.exception.InvalidAuctionStatusException;
 import com.vintic.backend.common.exception.SellerCannotBidException;
 import com.vintic.backend.product.domain.Product;
@@ -206,6 +207,37 @@ class AuctionTest {
     }
 
     @Test
+    void 현재가로부터_bidIncrement의_배수이면_최소금액_이상_입찰에_성공한다() {
+        Auction auction = schedule();
+        auction.start();
+
+        auction.placeManualBid(bidder, 20000L); // currentPrice(10000) + 2*bidIncrement(5000)
+
+        assertThat(auction.getCurrentPrice()).isEqualTo(20000L);
+    }
+
+    @Test
+    void 최소금액_이상이지만_bidIncrement_배수가_아니면_BidNotAlignedException이_발생하고_상태가_바뀌지_않는다() {
+        Auction auction = schedule();
+        auction.start();
+
+        assertThatThrownBy(() -> auction.placeManualBid(bidder, 17000L)) // 15000 이상이지만 5000의 배수가 아님
+                .isInstanceOf(BidNotAlignedException.class);
+        assertThat(auction.getCurrentPrice()).isEqualTo(10000L);
+        assertThat(auction.getCurrentWinner()).isNull();
+    }
+
+    @Test
+    void 최소금액_미만이면_배수가_맞아도_BidAmountTooLowException이_우선한다() {
+        Auction auction = schedule();
+        auction.start();
+
+        // 5000의 배수이지만(10000+5000=15000 미만) 최소금액(15000) 미만인 값 -> 40904가 우선
+        assertThatThrownBy(() -> auction.placeManualBid(bidder, 10000L))
+                .isInstanceOf(BidAmountTooLowException.class);
+    }
+
+    @Test
     void getMinNextBidAmount는_currentPrice와_bidIncrement의_합이다() {
         Auction auction = schedule();
 
@@ -291,5 +323,59 @@ class AuctionTest {
 
     private void restrict(User user, LocalDateTime until) {
         ReflectionTestUtils.setField(user, "bidRestrictedUntil", until);
+    }
+
+    // ===== 종료 연장(maybeExtend) =====
+
+    private Auction liveAuctionEndingAt(LocalDateTime endAt) {
+        Auction auction = Auction.schedule(product, 10000L, 5000L, endAt.minusHours(1), endAt);
+        auction.start();
+        return auction;
+    }
+
+    @Test
+    void 종료_정확히_1분_전이면_연장된다() {
+        LocalDateTime endAt = LocalDateTime.of(2026, 1, 1, 12, 0, 0);
+        Auction auction = liveAuctionEndingAt(endAt);
+        LocalDateTime now = endAt.minusMinutes(1); // 경계값: 정확히 1분 전(inclusive)
+
+        boolean extended = auction.maybeExtend(now);
+
+        assertThat(extended).isTrue();
+        assertThat(auction.getEndAt()).isEqualTo(endAt.plusMinutes(3));
+        assertThat(auction.getExtensionCount()).isEqualTo(1);
+    }
+
+    @Test
+    void 종료_1분_초과_전이면_연장되지_않는다() {
+        LocalDateTime endAt = LocalDateTime.of(2026, 1, 1, 12, 0, 0);
+        Auction auction = liveAuctionEndingAt(endAt);
+        LocalDateTime now = endAt.minusMinutes(1).minusSeconds(1); // 1분보다 1초 더 이전
+
+        boolean extended = auction.maybeExtend(now);
+
+        assertThat(extended).isFalse();
+        assertThat(auction.getEndAt()).isEqualTo(endAt);
+        assertThat(auction.getExtensionCount()).isZero();
+    }
+
+    @Test
+    void 최대_3회까지만_연장되고_4번째_시도는_무시된다() {
+        LocalDateTime endAt = LocalDateTime.of(2026, 1, 1, 12, 0, 0);
+        Auction auction = liveAuctionEndingAt(endAt);
+
+        // 매번 endAt 1분 전에 재도전한다고 가정 - 매 호출 시점의 (갱신된) endAt 기준 1분 전을 사용한다.
+        for (int i = 0; i < Auction.MAX_EXTENSIONS; i++) {
+            LocalDateTime now = auction.getEndAt().minusMinutes(1);
+            assertThat(auction.maybeExtend(now)).isTrue();
+        }
+        assertThat(auction.getExtensionCount()).isEqualTo(Auction.MAX_EXTENSIONS);
+        LocalDateTime endAtAfterMax = auction.getEndAt();
+
+        boolean fourthAttempt = auction.maybeExtend(endAtAfterMax.minusMinutes(1));
+
+        assertThat(fourthAttempt).isFalse();
+        assertThat(auction.getExtensionCount()).isEqualTo(Auction.MAX_EXTENSIONS);
+        assertThat(auction.getEndAt()).isEqualTo(endAtAfterMax);
     }
 }

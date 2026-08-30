@@ -51,15 +51,16 @@ unchanged.
 
 | Gap | Contract | Current Implementation | Action |
 | --- | --- | --- | --- |
-| Direct bid alignment 검증 | Frozen (§9, `40913 BID_NOT_ALIGNED`) | 없음 — `Auction.placeManualBid()`는 `amount < currentPrice + bidIncrement` 최소금액만 체크, 배수 정렬은 미검증 | 후속 직접 입찰 보완 issue |
+| Direct bid alignment 검증 | **RESOLVED (#43)** | `Auction.placeManualBid()`가 최소금액(`40904`) 통과 이후 `(amount - currentPrice) % bidIncrement != 0`을 확인해 `BidNotAlignedException`(`40913`)을 던진다. AutoBid `maxAmount`에는 적용하지 않는다(§5, 실효 상한) | — |
 | Nickname masking (`/bids`) | Frozen (§0.9, 항상 4개 별표) | `NicknameMasker`(#40)는 구현됐으나 `GET /bids`에는 아직 적용 안 함 — 여전히 마스킹 없이 raw `bidderId` 노출, `isMine`/`isHighest`도 미구현 | 후속 issue(`/bids` final DTO 정리 시 `NicknameMasker` 재사용) |
 | Numeric error mapping | Frozen (§0-A) | 불일치: `AuctionNotFoundException`이 40401이 아닌 **40402** 사용, 스펙의 40402/40403(ORDER_NOT_FOUND/BACKUP_OFFER_NOT_FOUND) 자리를 각각 `AuctionNotFoundException`/`UserNotFoundException`이 점유 중. `/live`, `/auto-bid/recommendation`(#40 신규)도 동일하게 40402를 그대로 사용해 기존 gap과 번호를 맞춤 | 후속 issue — Order/BackupOffer 구현 전에 정리 필요(그때 가서 번호 충돌 발생) |
 | `40909 CONCURRENT_CONFLICT` mapping | Frozen (§0-A, HTTP 409 / code 40909 / 재시도 최대 1회) | 없음 — DB lock 예외(`CannotAcquireLockException`, #34 raw에서 135/160 관찰)가 catch-all `Exception` 핸들러로 떨어져 **500 / 50001**로 응답됨 | 후속 issue |
 | Auth: Bearer token | Frozen (§0.1) | Mock 인증(`X-User-Id` 헤더 + `MockAuthInterceptor`) | 후속 issue(인증 시스템 도입 시) |
 | Time 직렬화: ISO-8601 절대시각 (저장된 timestamp) | **RESOLVED** | 아래 `Time Policy (#41 후속)` 참고 — Asia/Seoul 고정 정책으로 `+09:00` 절대시각을 전 응답에 일관 적용 | — |
 | Endpoint #1 응답 shape (`myState`, `product`, `seller`, AI 필드, `isLiked`/`likeCount`, `finalPrice`, `serverTime`, `minNextBidAmount`/`minCapAmount`) | Frozen (§1) | `AuctionDetailResponse`가 flat한 내부 표현(`id, productId, sellerId, currentWinnerId, ...`)만 제공 | 후속 issue |
-| Endpoint #9 응답 shape (`minNextBidAmount`, `highestBidderMasked`, `isHighestBidder`, `autoBidCanceled`, `proxyResponded`, `endsAt`) | **RESOLVED (#41 후속)** | `PlaceBidResponse`를 FINAL contract shape로 전면 재작성. `extensionCount`만 별도 gap으로 남음(바로 아래 행) | — |
-| `/live.extensionCount` / `/live.maxExtensions` / `POST bids.extensionCount` | Frozen (필수 required) | **필드 자체를 응답에서 생략**(#40, #41 후속에서도 유지) — 종료 연장 정책(트리거 시점/연장 분/최대 횟수)이 도메인 어디에도 없고, 이 수치를 새로 결정하지 말라는 지시가 반복 확인됨 — 구조적으로 값을 만들 수 없음. 임의 값으로 계약을 가짜로 통과시키지 않았다 | 종료 연장 정책/구현 이슈에서 필드 추가, 그 시점에 `POST /bids`/`/live` 계약을 마저 닫음 |
+| Endpoint #9 응답 shape (`minNextBidAmount`, `highestBidderMasked`, `isHighestBidder`, `autoBidCanceled`, `proxyResponded`, `endsAt`) | **RESOLVED (#41 후속)** | `PlaceBidResponse`를 FINAL contract shape로 전면 재작성. `extensionCount`도 #43에서 마저 추가됨(바로 아래 행) | — |
+| `/live.extensionCount` / `/live.maxExtensions` / `POST bids.extensionCount` | **RESOLVED (#43)** | 종료 연장 정책(트리거 1분 이내/+3분/최대 3회, §0.13)을 확정하고 `Auction.extensionCount`/`MAX_EXTENSIONS`를 실제 도메인 값으로 연결했다. 아래 `#43 Implementation Notes` 참고 | — |
+| AutoBid POST/PATCH의 `bidOccurred`/`resultingBidAmount`/`isHighestBidder` | **RESOLVED (#42)**, 문서만 미갱신 상태였음 | 코드는 #42에서 이미 `ProxyPriceEngine` 실제 resolution 결과를 반환하도록 구현되어 있었으나(`AutoBidCommandService.createAutoBid`/`updateAutoBid`), 이 문서의 `Proxy integration boundary` 절과 Springdoc/DTO 주석에 "#41 시점, 항상 false/null/false" 문구가 #43 시점까지 남아있었다 — #43에서 문서/Springdoc만 정정했다(코드 변경 없음) | — |
 | `AutoBidSetting` 재등록 스키마 제약 | **RESOLVED (#41)**, 단 migration limitation 있음 | 아래 `#41 Implementation Notes` 참고 | — |
 
 ## Not Implemented Yet
@@ -87,6 +88,9 @@ endpoint implemented (엔드포인트 존재 여부 기준, contract 완전 일�
 not implemented yet: 11/20
 implementation gaps (contract resolved, code lagging): #1, #2, #3, #9 — 위 §Deferred Implementation Gaps 참고
   (#4, #5, #6, #7, #8은 각각 #40/#41에서 확정한 정책을 그대로 구현해 gap 없음 — §40/§41 Implementation Notes 참고)
+  (#2/#9의 extensionCount·maxExtensions와 #9의 BID_NOT_ALIGNED는 #43에서 해소 — #2는 numeric error
+   mapping(40402) 등 다른 cross-cutting gap이 남아있어 endpoint 전체 상태는 여전히
+   IMPLEMENTED WITH DEFERRED GAPS다. #43 Implementation Notes 참고)
 contract conflicts: 0/20
 ```
 
@@ -106,7 +110,8 @@ contract conflicts: 0/20
 #40에서 구현했다.
 
 ```text
-#2 /live       — IMPLEMENTED WITH DEFERRED GAPS (endsAt, extensionCount, maxExtensions 미충족)
+#2 /live       — IMPLEMENTED WITH DEFERRED GAPS (당시: endsAt, extensionCount, maxExtensions 미충족.
+                 #41 후속에서 endsAt, #43에서 extensionCount/maxExtensions 해소 — 아래 필드별 상태 참고)
 #4 /recommendation — IMPLEMENTED, no gap (fallback-only 정책 자체가 계약)
 ```
 
@@ -120,8 +125,8 @@ contract conflicts: 0/20
   myAutoBidStatus/myCap/minCapAmount                                MATCH
   serverTime (Instant, 응답 생성 시점에 새로 생성 — 저장된 timestamp의
               timezone 미확정 문제와 무관)                            MATCH
-  endsAt (Auction.endAt을 LocalDateTime 그대로, offset 없음)          IMPLEMENTATION_GAP — DEFERRED
-  extensionCount / maxExtensions                                    IMPLEMENTATION_GAP — DEFERRED (필드 자체 생략)
+  endsAt (TimePolicy로 +09:00 절대시각 변환, Time Policy(#41 후속) 참고)  MATCH
+  extensionCount / maxExtensions (#43, Auction.extensionCount/MAX_EXTENSIONS) MATCH
 ```
 
 `/auto-bid/recommendation`(#4)은 gap 없이 계약과 일치한다 — `aiRecommendedCap`이 항상
@@ -165,13 +170,19 @@ nullable `response_snapshot`(TEXT) 컬럼을 추가하고, `IdempotencyClaimServ
 그사이 `Auction.currentPrice`가 바뀌어도 replay 응답은 최초 성공 시점 값을 그대로 유지한다
 (`AutoBidServiceTest`로 검증).
 
-### Proxy integration boundary — 그대로 유지(#40과 동일 전제)
+### Proxy integration boundary — #41 시점 기록, #42에서 해소됨
 
-LIVE 등록/수정 응답의 `bidOccurred`/`resultingBidAmount`/`isHighestBidder`는 항상
-`false`/`null`/`false`다 — Proxy engine이 없어 실제 가격 경쟁 결과를 계산하지 않는다.
-`CAP_REACHED`에서 cap을 올려도 이번 응답에서 `ACTIVE`로 되돌리지 않는다(Proxy resolution
-없이는 확정할 수 없음, 명세 §부록/canonical Proxy policy와 일치). Springdoc에
-"temporary until Proxy Bidding integration"으로 명시했다.
+(#41 당시 기록, 역사적 참고용) LIVE 등록/수정 응답의 `bidOccurred`/`resultingBidAmount`/
+`isHighestBidder`는 이 시점엔 항상 `false`/`null`/`false`였다 — Proxy engine이 아직 없어
+실제 가격 경쟁 결과를 계산하지 않았기 때문이다.
+
+**#42에서 `ProxyPriceEngine`이 실제로 구현되며 이 경계는 사라졌다** —
+`AutoBidCommandService.createAutoBid`/`updateAutoBid`는 이제 실제 resolution 결과로
+`bidOccurred`/`resultingBidAmount`/`isHighestBidder`를 채운다. `CAP_REACHED`에서 cap을
+올려도 실제로 경쟁에서 이겨야만(`bidOccurred=true`) `ACTIVE`로 복귀한다 - 단순 cap 상향만으로는
+복귀하지 않는다. 다만 이 문서와 Springdoc/DTO 주석에는 #43 시점까지 "#41 당시, 항상
+false/null/false" 문구가 정리되지 않고 남아있었다 - #43에서 문서/Springdoc만 정정했다(코드는
+#42에서 이미 완료된 상태였음).
 
 ### startsAt — endsAt과 동일 gap 공유
 
@@ -318,6 +329,61 @@ Testcontainers/CI로 매번 새로 뜨는 스키마는 애초에 구 제약이 �
 이 문서 작성 시점 기준 이 프로젝트에 실제로 연결 가능한 공유 dev/local MySQL이 없어(로컬
 Docker에 떠 있는 MySQL 컨테이너는 이 프로젝트와 무관한 별도 프로젝트의 것이었다) 위 SQL을
 실제 운영 DB에 적용하지는 않았다 — 적용이 필요해지면 이 SQL을 그대로 실행하면 된다.
+
+## #43 Implementation Notes
+
+이번 #43에서는 `ProxyPriceEngine`/idempotency 구조를 재구현하지 않고, #41~#42 이후 남아있던
+gap만 최소 수정했다.
+
+### Direct bid alignment — RESOLVED
+
+`Auction.placeManualBid()`가 기존 최소금액 검증(`amount < minNextBidAmount` → `40904`)을
+통과한 값에 한해 `(amount - currentPrice) % bidIncrement != 0`을 확인해 `BidNotAlignedException`
+(`40913 BID_NOT_ALIGNED`)을 던진다. validation precedence는 기존 seller/penalty/status/
+highest-bidder 순서를 그대로 유지하고, 그 뒤 min-check → alignment-check 순으로 배치했다 —
+min 미만이면 배수가 맞아도 `40904`가 우선한다. AutoBid `maxAmount`에는 이 검증을 적용하지
+않는다(§5, 실효 상한으로 동작하는 기존 정책 그대로 유지).
+
+### Auction 종료 연장 — RESOLVED
+
+`Auction`에 `extensionCount`(int, 컬럼 기본값 0) 필드와 `MAX_EXTENSIONS=3` 상수를 추가했다.
+`Auction.maybeExtend(LocalDateTime now)`가 유일한 진입점이다 — `extensionCount < MAX_EXTENSIONS`
+이고 `now`가 `endAt`으로부터 1분 이내(경계값 포함)면 `endAt`을 3분 연장하고 `extensionCount`를
+1 증가시킨다. 멱등하지 않다 - 호출자가 "성공한 사용자 command당 최대 1회"를 보장해야 한다.
+
+트리거 조건은 "가격/승자 변동 여부"가 아니라 **"해당 사용자 command로 실제 Bid가
+발생했는가"**로 확정했다(§0.13 참고, 사용자 확정 사항):
+
+```text
+BidCommandService.placeManualBid()      — 검증/Proxy resolution이 모두 끝난 뒤 무조건 1회 호출
+                                           (Manual Bid 성공은 항상 실제 MANUAL Bid를 만들어낸다)
+AutoBidCommandService.createAutoBid()   — LIVE이고 bidOccurred=true일 때만 호출
+AutoBidCommandService.updateAutoBid()   — LIVE이고 bidOccurred=true일 때만 호출
+```
+
+RESERVED(SCHEDULED) 등록/수정, Proxy 내부에서 파생되는 AUTO Bid, GET/DELETE, scheduler/
+lifecycle은 대상이 아니다 — 애초에 위 세 호출 지점 바깥이라 자연스럽게 제외된다.
+
+`/live`의 `extensionCount`/`maxExtensions`(`AuctionQueryService`), `POST /bids`의
+`extensionCount`(`BidCommandService`)를 실제 도메인 값으로 연결했다. `AutoBid POST/PATCH`
+응답에는 계약상 `extensionCount` 필드가 없어(§5/§7) 추가하지 않았다 — 연장 여부는 다음
+`GET /live` 호출에서 확인된다.
+
+### Response gap 정리 — RESOLVED
+
+`AutoBidCommandService.createAutoBid`/`updateAutoBid`의 `bidOccurred`/`resultingBidAmount`/
+`isHighestBidder`는 #42에서 이미 `ProxyPriceEngine` 실제 결과를 반환하도록 구현되어 있었다
+(코드 변경 없음, 회귀 테스트로 재확인만 했다). `AutoBidUpdateResponse`의 DTO 주석과
+`AuctionController`의 Springdoc 설명에 남아있던 "#41 시점, 항상 false/null/false" 문구를
+정정했다(위 `Proxy integration boundary` 절 참고). `POST /bids`의 Springdoc `@ApiResponses`에
+누락돼 있던 `40913`도 추가했다.
+
+### Idempotency exact replay — 구조 변경 없음, 회귀만 추가
+
+`ManualBidServiceTest`에 "최초 성공 이후 currentPrice/extensionCount/endAt이 모두 바뀌어도
+same key + same payload retry는 최초 response_snapshot을 그대로 반환한다" 회귀 테스트를
+추가했다(`AutoBidServiceTest`에는 #41 후속에서 이미 currentPrice 기준 동일 패턴이 있었다).
+같은 key + 다른 payload는 기존 `40905` 그대로다 — 변경 없음.
 
 ## Freeze Blockers
 

@@ -155,7 +155,7 @@ class AuctionControllerTest {
     void 입찰_성공시_201과_PlaceBidResponse를_반환한다() throws Exception {
         PlaceBidResponse response = new PlaceBidResponse(
                 1L, 15000L, 15000L, 20000L, "bid****", true, false, false,
-                OffsetDateTime.now().plusHours(1)
+                OffsetDateTime.now().plusHours(1), 0
         );
         when(manualBidService.placeBid(1L, 2L, 15000L, "abc")).thenReturn(response);
 
@@ -288,6 +288,7 @@ class AuctionControllerTest {
                 1L, AuctionStatus.LIVE, 105000L, 110000L, 5000L,
                 "mma****", true, false, CannotBidReason.ALREADY_HIGHEST_BIDDER, null,
                 OffsetDateTime.now().plusHours(1), OffsetDateTime.now(),
+                0, 3,
                 AutoBidSettingStatus.ACTIVE, 120000L, 110000L
         );
         when(auctionQueryService.getLiveView(1L, 2L)).thenReturn(response);

@@ -110,7 +110,7 @@ public class AuctionController {
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "입찰 성공 또는 동일 요청 replay"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "판매자 본인 입찰(40301) 또는 입찰 제한 기간(40302)"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "최고입찰자 재입찰(40901) / 미시작(40902) / 종료(40903) / 최소금액 미만(40904) / Idempotency payload mismatch(40905)")
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "최고입찰자 재입찰(40901) / 미시작(40902) / 종료(40903) / 최소금액 미만(40904) / 배수 정렬 실패(40913) / Idempotency payload mismatch(40905)")
     })
     @PostMapping("/{auctionId}/bids")
     public ResponseEntity<ApiResponse<PlaceBidResponse>> placeBid(
@@ -129,9 +129,10 @@ public class AuctionController {
 
     @Operation(
             summary = "자동입찰 등록",
-            description = "Proxy Bidding 통합 전까지는 LIVE 등록이어도 실제 가격 경쟁을 계산하지 않는다 - "
-                    + "temporary until Proxy Bidding integration: bidOccurred=false, resultingBidAmount=null, "
-                    + "isHighestBidder=false를 항상 반환한다. 동일 Idempotency-Key로 재시도해도 새로 생성되지 않고 "
+            description = "LIVE 중 등록이면 ProxyPriceEngine의 실제 가격 경쟁 결과에 따라 bidOccurred/"
+                    + "resultingBidAmount/isHighestBidder가 채워진다(SCHEDULED 등록은 가격에 영향이 없어 "
+                    + "항상 false/null/false). 종료 1분 이내에 entrant 자신의 AUTO Bid가 실제 발생하면(bidOccurred=true) "
+                    + "종료 시각이 3분 연장된다(최대 3회). 동일 Idempotency-Key로 재시도해도 새로 생성되지 않고 "
                     + "최초 성공 결과가 반환된다."
     )
     @ApiResponses({
@@ -161,10 +162,11 @@ public class AuctionController {
 
     @Operation(
             summary = "자동입찰 상한가 수정",
-            description = "Proxy Bidding 통합 전까지는 cap을 올려도 실제 가격 경쟁을 계산하지 않는다 - "
-                    + "temporary until Proxy Bidding integration: bidOccurred=false, resultingBidAmount=null, "
-                    + "isHighestBidder=false를 항상 반환하고, CAP_REACHED는 cap을 올려도 이 응답에서 ACTIVE로 "
-                    + "복귀시키지 않는다. 동일 Idempotency-Key로 재시도해도 다시 처리되지 않고 최초 성공 결과가 반환된다."
+            description = "LIVE 중 수정이면 ProxyPriceEngine의 실제 가격 경쟁 결과에 따라 bidOccurred/"
+                    + "resultingBidAmount/isHighestBidder가 채워진다. CAP_REACHED는 cap을 올려서 실제로 경쟁에서 "
+                    + "이겨야만(bidOccurred=true) 이 응답에서 ACTIVE로 복귀한다 - 단순히 cap만 올린다고 복귀하지 않는다. "
+                    + "종료 1분 이내에 bidOccurred=true이면 종료 시각이 3분 연장된다(최대 3회). 동일 Idempotency-Key로 "
+                    + "재시도해도 다시 처리되지 않고 최초 성공 결과가 반환된다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "수정 성공 또는 동일 요청 replay"),

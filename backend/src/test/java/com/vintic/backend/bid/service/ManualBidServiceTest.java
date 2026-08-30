@@ -159,6 +159,34 @@ class ManualBidServiceTest {
         assertThat(bidRepository.countByAuctionId(auctionTwo.getId())).isEqualTo(1);
     }
 
+    @Test
+    void 같은_key_같은_payload_재요청은_그사이_바뀐_currentPrice_endsAt_extensionCount와_무관하게_최초_응답을_반환한다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        User otherBidder = persistUser("other@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        flushAndClear();
+
+        PlaceBidResponse first = manualBidService.placeBid(auction.getId(), bidder.getId(), 15000L, "abc");
+        flushAndClear();
+
+        // 최초 응답 이후 currentPrice/endAt/extensionCount가 모두 바뀐다 - replay(같은 key+payload)는
+        // 이 변경과 무관하게 최초 성공 시점의 response_snapshot을 그대로 반환해야 한다.
+        manualBidService.placeBid(auction.getId(), otherBidder.getId(), 20000L, "other-key");
+        flushAndClear();
+        Auction beforeExtend = auctionRepository.findById(auction.getId()).orElseThrow();
+        beforeExtend.maybeExtend(beforeExtend.getEndAt().minusSeconds(30));
+        flushAndClear();
+        Auction changed = auctionRepository.findById(auction.getId()).orElseThrow();
+        assertThat(changed.getCurrentPrice()).isNotEqualTo(first.currentPrice());
+        assertThat(changed.getExtensionCount()).isNotEqualTo(first.extensionCount());
+
+        PlaceBidResponse replay = manualBidService.placeBid(auction.getId(), bidder.getId(), 15000L, "abc");
+
+        assertThat(replay).isEqualTo(first);
+    }
+
     // "claim insert 이후 입찰 validation이 실패하면 Idempotency row도 함께 롤백된다"는
     // ManualBidIdempotencyMySqlIT에서 검증한다. @DataJpaTest는 테스트 메서드 전체를 하나의
     // 물리 트랜잭션으로 감싸 마지막에만 롤백하므로, 이 메서드 안에서 flush된 claim row는
