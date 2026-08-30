@@ -4,6 +4,7 @@ import com.vintic.backend.common.exception.AlreadyHighestBidderException;
 import com.vintic.backend.common.exception.AuctionClosedException;
 import com.vintic.backend.common.exception.AuctionNotStartedException;
 import com.vintic.backend.common.exception.BidAmountTooLowException;
+import com.vintic.backend.common.exception.BidNotAlignedException;
 import com.vintic.backend.common.exception.InvalidAuctionStatusException;
 import com.vintic.backend.common.exception.SellerCannotBidException;
 import com.vintic.backend.product.domain.Product;
@@ -21,6 +22,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 
 // current_winner_id는 LIVE 중 입찰 갱신 트랜잭션에서만 채워지며, 종료 시점 값을 그대로 고정(freeze)한다.
@@ -36,6 +38,13 @@ import java.time.LocalDateTime;
         }
 )
 public class Auction {
+
+    // 종료 연장 정책(FINAL contract §0.13/§9): 종료 1분 이내에 성공한 사용자 command로 실제 Bid가
+    // 발생하면 +3분, 최대 3회. Proxy 내부 파생 응찰은 별도 트리거가 아니다 - 호출자(BidCommandService/
+    // AutoBidCommandService)가 사용자 command당 maybeExtend()를 최대 1번만 호출해서 보장한다.
+    public static final int MAX_EXTENSIONS = 3;
+    private static final Duration EXTENSION_TRIGGER_WINDOW = Duration.ofMinutes(1);
+    private static final Duration EXTENSION_DURATION = Duration.ofMinutes(3);
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -70,6 +79,9 @@ public class Auction {
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 0")
+    private int extensionCount;
 
     protected Auction() {
     }
@@ -163,9 +175,31 @@ public class Auction {
                     "입찰 금액은 " + minAmount + "원 이상이어야 합니다. 입력값: " + amount
             );
         }
+        // min 미만(40904)과 별개 실패 코드(40913)다 - min 이상인 값 중에서만 배수 정렬을 확인한다.
+        // AutoBid의 maxAmount에는 이 검증을 적용하지 않는다(실효 상한으로 동작, §5).
+        if ((amount - currentPrice) % bidIncrement != 0) {
+            throw new BidNotAlignedException(
+                    "입찰 금액은 현재가로부터 " + bidIncrement + "원의 배수여야 합니다. 입력값: " + amount
+            );
+        }
 
         this.currentPrice = amount;
         this.currentWinner = bidder;
+    }
+
+    // 종료 연장 정책(FINAL contract §0.13/§9)의 유일한 진입점이다. 호출자가 "성공한 사용자 command당
+    // 최대 1회"를 보장해야 한다 - 이 메서드 자체는 몇 번을 호출해도 방어하지 않는다(멱등하지 않음).
+    // 경계값은 "종료 1분 이내"를 포함(inclusive)한다 - now가 endAt보다 1분 이상 이전이면 연장하지 않는다.
+    public boolean maybeExtend(LocalDateTime now) {
+        if (extensionCount >= MAX_EXTENSIONS) {
+            return false;
+        }
+        if (now.isBefore(endAt.minus(EXTENSION_TRIGGER_WINDOW))) {
+            return false;
+        }
+        this.endAt = this.endAt.plus(EXTENSION_DURATION);
+        this.extensionCount++;
+        return true;
     }
 
     // 직접입찰 금액 하한이자, 신규 AutoBid가 유효한 상한가로 받아들여지기 위한 최소값(minCapAmount)이기도 하다 -
@@ -257,5 +291,9 @@ public class Auction {
 
     public LocalDateTime getCreatedAt() {
         return createdAt;
+    }
+
+    public int getExtensionCount() {
+        return extensionCount;
     }
 }
