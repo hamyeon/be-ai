@@ -10,7 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
-import java.util.function.Supplier;
+import java.util.function.Function;
 
 // claim + 커맨드 실행 + 결과 기록을 하나의 트랜잭션으로 묶는 계층이다.
 // 이 빈의 메서드는 반드시 ManualBidService/AutoBidService처럼 이 빈을 주입받아 호출하는
@@ -24,6 +24,11 @@ import java.util.function.Supplier;
 // (PLACE_BID/CREATE_AUTO_BID/UPDATE_AUTO_BID)가 최초 성공 응답을 JSON snapshot으로 저장했다가
 // 그대로 replay한다. 기존 메서드들이 보장하던 트랜잭션 경계/충돌 후 별도 트랜잭션 조회 동작은
 // 동일하게 유지된다 - ManualBidIdempotencyMySqlIT로 회귀 검증했다.
+//
+// #45: command가 Supplier<T>에서 Function<Long, T>로 바뀌었다 - claim insert 직후 확보한
+// claim.getId()를 커맨드에 넘겨, AuctionPriceAudit이 raw Idempotency-Key를 복제하지 않고
+// 이 PK만 참조로 남길 수 있게 한다. claim/replay/충돌 판정 로직 자체는 전혀 바뀌지 않았다 -
+// 순수 배관(plumbing) 변경이다.
 @Service
 public class IdempotencyClaimService {
 
@@ -44,7 +49,7 @@ public class IdempotencyClaimService {
     @Transactional
     public <T> T claimAndExecute(
             Long userId, String operationScope, String idempotencyKey, String requestHash,
-            Class<T> responseType, Supplier<T> command
+            Class<T> responseType, Function<Long, T> command
     ) {
         Optional<Idempotency> existing = idempotencyRepository
                 .findByUserIdAndOperationScopeAndIdempotencyKey(userId, operationScope, idempotencyKey);
@@ -63,7 +68,7 @@ public class IdempotencyClaimService {
             throw new IdempotencyClaimConflictException(e);
         }
 
-        T response = command.get();
+        T response = command.apply(claim.getId());
         claim.attachResponseSnapshot(writeSnapshot(response));
         return response;
     }

@@ -2,6 +2,7 @@ package com.vintic.backend.common.exception;
 
 import com.vintic.backend.common.auth.mock.MockAuthException;
 import com.vintic.backend.common.dto.ApiResponse;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -183,6 +184,16 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleAutoBidAlreadyExistsException(AutoBidAlreadyExistsException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiResponse.fail(40908, e.getMessage()));
+    }
+
+    // Auction row PESSIMISTIC_WRITE 획득 실패(락 대기 타임아웃/데드락) (409 Conflict)
+    // - Spring 예외 계층: CannotAcquireLockException(락 대기 타임아웃)과
+    //   DeadlockLoserDataAccessException(데드락 희생자)이 모두 이 클래스의 하위 타입이다.
+    //   #45에서 이 두 경로만 좁게 매핑한다 - 일반 DataAccessException까지 넓히지 않는다.
+    @ExceptionHandler(PessimisticLockingFailureException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePessimisticLockingFailureException(PessimisticLockingFailureException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40909, "다른 요청과 충돌이 발생했습니다. 잠시 후 다시 시도해주세요."));
     }
 
     // 존재하지 않는 경로 (404 Not Found)

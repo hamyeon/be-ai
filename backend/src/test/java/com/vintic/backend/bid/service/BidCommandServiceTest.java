@@ -16,6 +16,10 @@ import com.vintic.backend.common.exception.BidAmountTooLowException;
 import com.vintic.backend.common.exception.BidNotAlignedException;
 import com.vintic.backend.common.exception.PenaltyRestrictedException;
 import com.vintic.backend.common.exception.SellerCannotBidException;
+import com.vintic.backend.auction.audit.AuctionPriceAudit;
+import com.vintic.backend.auction.audit.AuctionPriceAuditRecorder;
+import com.vintic.backend.auction.audit.AuctionPriceAuditRepository;
+import com.vintic.backend.auction.audit.PriceAuditRule;
 import com.vintic.backend.autobid.proxy.ProxyPriceEngine;
 import com.vintic.backend.config.ClockConfig;
 import com.vintic.backend.product.domain.Product;
@@ -37,7 +41,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 // @DataJpaTest 슬라이스에 서비스를 직접 Import해, 실제 저장/갱신 결과를 DB 재조회로 검증한다.
 // ProxyPriceEngine/Clock(#41+): BidCommandService의 신규 의존성 - 이 슬라이스엔 자동으로 없어 명시 Import.
 @DataJpaTest
-@Import({BidCommandService.class, ProxyPriceEngine.class, TestClockConfig.class})
+@Import({BidCommandService.class, ProxyPriceEngine.class, AuctionPriceAuditRecorder.class, TestClockConfig.class})
 class BidCommandServiceTest {
 
     @Autowired
@@ -51,6 +55,9 @@ class BidCommandServiceTest {
 
     @Autowired
     private AutoBidSettingRepository autoBidSettingRepository;
+
+    @Autowired
+    private AuctionPriceAuditRepository auctionPriceAuditRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -550,5 +557,110 @@ class BidCommandServiceTest {
         assertThat(response.submittedAmount()).isEqualTo(15000L);
         assertThat(response.currentPrice()).isEqualTo(20000L); // Proxy 반격 이후 값 - submittedAmount와 다르다
         assertThat(response.submittedAmount()).isNotEqualTo(response.currentPrice());
+    }
+
+    // ===== Price Audit Log (#45) =====
+
+    @Test
+    void 경쟁없이_이기는_manual_bid는_MANUAL_UNCONTESTED_audit_1건을_남긴다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product); // currentPrice=10000
+        flushAndClear();
+
+        bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 15000L);
+
+        List<AuctionPriceAudit> audits = auctionPriceAuditRepository.findByAuctionIdOrderByCreatedAtAsc(auction.getId());
+        assertThat(audits).hasSize(1);
+        AuctionPriceAudit audit = audits.get(0);
+        assertThat(audit.getBeforePrice()).isEqualTo(10000L);
+        assertThat(audit.getAfterPrice()).isEqualTo(15000L);
+        assertThat(audit.getResultingWinner().getId()).isEqualTo(bidder.getId());
+        assertThat(audit.getAppliedRule()).isEqualTo(PriceAuditRule.MANUAL_UNCONTESTED);
+        assertThat(audit.getBidType()).isEqualTo(BidType.MANUAL);
+        assertThat(audit.getIdempotencyId()).isNull(); // 이 테스트는 idempotency 경로를 안 거친다
+    }
+
+    @Test
+    void proxy가_manual_bid를_추월하면_MANUAL_OVERTAKEN_BY_AUTO_audit이_남는다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        User autoBidder = persistUser("autobidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product); // currentPrice=10000, bidIncrement=5000
+        AutoBidSetting competitor = AutoBidSetting.reserve(auction, autoBidder, 100000L);
+        competitor.activate();
+        autoBidSettingRepository.saveAndFlush(competitor);
+        flushAndClear();
+
+        bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 15000L);
+
+        List<AuctionPriceAudit> audits = auctionPriceAuditRepository.findByAuctionIdOrderByCreatedAtAsc(auction.getId());
+        assertThat(audits).hasSize(1); // 사용자 command 1회 = audit 1건, Proxy 반격이 있어도 중복 없음
+        AuctionPriceAudit audit = audits.get(0);
+        assertThat(audit.getBeforePrice()).isEqualTo(10000L);
+        assertThat(audit.getAfterPrice()).isEqualTo(20000L); // min(15000+5000, 100000)
+        assertThat(audit.getResultingWinner().getId()).isEqualTo(autoBidder.getId());
+        assertThat(audit.getAppliedRule()).isEqualTo(PriceAuditRule.MANUAL_OVERTAKEN_BY_AUTO);
+        assertThat(audit.getBidType()).isEqualTo(BidType.AUTO);
+    }
+
+    @Test
+    void 가격은_그대로지만_FIRST_IN_WINS로_승자만_바뀌면_TIE_FIRST_IN_WINS_audit이_남는다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        User autoBidder = persistUser("autobidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product); // currentPrice=10000, bidIncrement=5000 -> minNextBidAmount=15000
+        AutoBidSetting competitor = AutoBidSetting.reserve(auction, autoBidder, 15000L); // effectiveCap도 15000
+        competitor.activate();
+        autoBidSettingRepository.saveAndFlush(competitor);
+        flushAndClear();
+
+        bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 15000L);
+
+        List<AuctionPriceAudit> audits = auctionPriceAuditRepository.findByAuctionIdOrderByCreatedAtAsc(auction.getId());
+        assertThat(audits).hasSize(1);
+        AuctionPriceAudit audit = audits.get(0);
+        assertThat(audit.getBeforePrice()).isEqualTo(10000L);
+        assertThat(audit.getAfterPrice()).isEqualTo(15000L); // 가격 자체는 안 올랐다(M 그대로)
+        assertThat(audit.getResultingWinner().getId()).isEqualTo(autoBidder.getId()); // 승자만 바뀜
+        assertThat(audit.getAppliedRule()).isEqualTo(PriceAuditRule.TIE_FIRST_IN_WINS);
+        assertThat(audit.getBidType()).isEqualTo(BidType.AUTO);
+    }
+
+    @Test
+    void CANCELED_AutoBid이_있어도_manual_bid_audit은_MANUAL_UNCONTESTED로_1건만_남는다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        User canceledBidder = persistUser("canceled@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        AutoBidSetting canceled = AutoBidSetting.reserve(auction, canceledBidder, 500000L);
+        canceled.activate();
+        canceled.cancel();
+        autoBidSettingRepository.saveAndFlush(canceled);
+        flushAndClear();
+
+        bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 15000L);
+
+        assertThat(auctionPriceAuditRepository.countByAuctionId(auction.getId())).isEqualTo(1);
+        AuctionPriceAudit audit = auctionPriceAuditRepository.findByAuctionIdOrderByCreatedAtAsc(auction.getId()).get(0);
+        assertThat(audit.getAppliedRule()).isEqualTo(PriceAuditRule.MANUAL_UNCONTESTED);
+    }
+
+    @Test
+    void 검증에_실패한_입찰은_audit을_남기지_않는다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        flushAndClear();
+
+        assertThatThrownBy(() -> bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 14999L))
+                .isInstanceOf(BidAmountTooLowException.class);
+
+        assertThat(auctionPriceAuditRepository.countByAuctionId(auction.getId())).isZero();
     }
 }

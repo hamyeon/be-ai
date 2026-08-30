@@ -31,7 +31,7 @@ public class AutoBidService {
             return idempotencyClaimService.claimAndExecute(
                     userId, operationScope, idempotencyKey, requestHash,
                     AutoBidRegisterResponse.class,
-                    () -> autoBidCommandService.createAutoBid(auctionId, userId, maxAmount)
+                    idempotencyId -> autoBidCommandService.createAutoBid(auctionId, userId, maxAmount, idempotencyId)
             );
         } catch (IdempotencyClaimConflictException e) {
             return idempotencyClaimService.resolveAfterConflict(
@@ -48,7 +48,7 @@ public class AutoBidService {
             return idempotencyClaimService.claimAndExecute(
                     userId, operationScope, idempotencyKey, requestHash,
                     AutoBidUpdateResponse.class,
-                    () -> autoBidCommandService.updateAutoBid(auctionId, userId, newMaxAmount)
+                    idempotencyId -> autoBidCommandService.updateAutoBid(auctionId, userId, newMaxAmount, idempotencyId)
             );
         } catch (IdempotencyClaimConflictException e) {
             return idempotencyClaimService.resolveAfterConflict(

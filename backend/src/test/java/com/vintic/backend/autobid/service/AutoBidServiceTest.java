@@ -1,5 +1,7 @@
 package com.vintic.backend.autobid.service;
 
+import com.vintic.backend.auction.audit.AuctionPriceAuditRecorder;
+import com.vintic.backend.auction.audit.AuctionPriceAuditRepository;
 import com.vintic.backend.auction.domain.Auction;
 import com.vintic.backend.auction.repository.AuctionRepository;
 import com.vintic.backend.autobid.domain.AutoBidSetting;
@@ -31,7 +33,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DataJpaTest
 @Import({
         BidCommandService.class, IdempotencyClaimService.class, AutoBidCommandService.class,
-        AutoBidService.class, ProxyPriceEngine.class, TestObjectMapperConfig.class, TestClockConfig.class
+        AutoBidService.class, ProxyPriceEngine.class, AuctionPriceAuditRecorder.class,
+        TestObjectMapperConfig.class, TestClockConfig.class
 })
 class AutoBidServiceTest {
 
@@ -46,6 +49,9 @@ class AutoBidServiceTest {
 
     @Autowired
     private AutoBidSettingRepository autoBidSettingRepository;
+
+    @Autowired
+    private AuctionPriceAuditRepository auctionPriceAuditRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -91,6 +97,30 @@ class AutoBidServiceTest {
 
         assertThat(replay).isEqualTo(first);
         assertThat(autoBidSettingRepository.findAll()).hasSize(1);
+    }
+
+    // ===== Price Audit Log (#45) =====
+
+    @Test
+    void 같은_key로_등록을_재요청해도_audit을_중복_생성하지_않고_idempotency_row를_참조한다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        User weakerBidder = persistUser("weaker@vintic.local");
+        Auction auction = persistLiveAuction(seller); // currentPrice=105000, bidIncrement=5000
+        AutoBidSetting competitor = AutoBidSetting.reserve(auction, weakerBidder, 120000L);
+        competitor.activate();
+        autoBidSettingRepository.saveAndFlush(competitor);
+        flushAndClear();
+
+        // entrant(200000)가 competitor(120000)를 실제로 이겨 bidOccurred=true, audit 1건이 생긴다.
+        autoBidService.createAutoBid(auction.getId(), bidder.getId(), 200000L, "key-1");
+        flushAndClear();
+        autoBidService.createAutoBid(auction.getId(), bidder.getId(), 200000L, "key-1"); // replay
+        flushAndClear();
+
+        assertThat(auctionPriceAuditRepository.countByAuctionId(auction.getId())).isEqualTo(1);
+        var audit = auctionPriceAuditRepository.findByAuctionIdOrderByCreatedAtAsc(auction.getId()).get(0);
+        assertThat(audit.getIdempotencyId()).isNotNull();
     }
 
     @Test

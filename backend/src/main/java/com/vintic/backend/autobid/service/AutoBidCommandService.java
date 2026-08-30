@@ -1,5 +1,7 @@
 package com.vintic.backend.autobid.service;
 
+import com.vintic.backend.auction.audit.AuctionPriceAuditRecorder;
+import com.vintic.backend.auction.audit.PriceAuditTrigger;
 import com.vintic.backend.auction.domain.Auction;
 import com.vintic.backend.auction.domain.AuctionStatus;
 import com.vintic.backend.auction.repository.AuctionRepository;
@@ -50,6 +52,7 @@ public class AutoBidCommandService {
     private final AutoBidSettingRepository autoBidSettingRepository;
     private final BidRepository bidRepository;
     private final ProxyPriceEngine proxyPriceEngine;
+    private final AuctionPriceAuditRecorder auctionPriceAuditRecorder;
     private final Clock clock;
 
     public AutoBidCommandService(
@@ -58,6 +61,7 @@ public class AutoBidCommandService {
             AutoBidSettingRepository autoBidSettingRepository,
             BidRepository bidRepository,
             ProxyPriceEngine proxyPriceEngine,
+            AuctionPriceAuditRecorder auctionPriceAuditRecorder,
             Clock clock
     ) {
         this.auctionRepository = auctionRepository;
@@ -65,6 +69,7 @@ public class AutoBidCommandService {
         this.autoBidSettingRepository = autoBidSettingRepository;
         this.bidRepository = bidRepository;
         this.proxyPriceEngine = proxyPriceEngine;
+        this.auctionPriceAuditRecorder = auctionPriceAuditRecorder;
         this.clock = clock;
     }
 
@@ -76,6 +81,13 @@ public class AutoBidCommandService {
     // currentWinner를 직접 바꾸므로 RMW를 Manual Bid와 동일하게 보호해야 한다.
     @Transactional
     public AutoBidRegisterResponse createAutoBid(Long auctionId, Long userId, Long maxAmount) {
+        return createAutoBid(auctionId, userId, maxAmount, null);
+    }
+
+    // #45: idempotencyId는 AutoBidService가 IdempotencyClaimService의 claim row PK를 그대로
+    // 넘겨주는 참조값이다.
+    @Transactional
+    public AutoBidRegisterResponse createAutoBid(Long auctionId, Long userId, Long maxAmount, Long idempotencyId) {
         Auction auction = auctionRepository.findByIdForUpdate(auctionId)
                 .orElseThrow(() -> new AuctionNotFoundException("존재하지 않는 경매입니다. auctionId: " + auctionId));
         User user = userRepository.findById(userId)
@@ -106,6 +118,10 @@ public class AutoBidCommandService {
         Long resultingBidAmount = null;
         boolean isHighestBidder = false;
         if (auction.getStatus() == AuctionStatus.LIVE) {
+            Long beforePrice = auction.getCurrentPrice();
+            User beforeWinner = auction.getCurrentWinner();
+            Long beforeWinnerId = beforeWinner == null ? null : beforeWinner.getId();
+
             List<AutoBidSetting> others = autoBidSettingRepository
                     .findByAuctionIdAndStatusAndUserIdNot(auctionId, AutoBidSettingStatus.ACTIVE, userId);
             ProxyResolutionInput input = buildAutoTriggerInput(auction, setting, others);
@@ -123,6 +139,13 @@ public class AutoBidCommandService {
             if (bidOccurred) {
                 auction.maybeExtend(LocalDateTime.now(clock));
             }
+
+            // #45: audit도 커맨드당 최대 1회만 기록한다. RESERVED(SCHEDULED) 등록은 이 if 블록
+            // 바깥이라 애초에 대상이 아니다.
+            auctionPriceAuditRecorder.recordIfChanged(
+                    auction, PriceAuditTrigger.AUTO_BID_CREATE, userId, beforePrice, beforeWinnerId,
+                    resolution.priceChanged(), idempotencyId
+            );
         }
 
         // 사전 조회(위 existing-check)로 대부분의 충돌은 걸러지지만, 동시 요청 race는 여기서
@@ -158,6 +181,13 @@ public class AutoBidCommandService {
     // 먼저 실행되고 즉시 던지므로 코드 순서 자체가 그 우선순위를 보장한다.
     @Transactional
     public AutoBidUpdateResponse updateAutoBid(Long auctionId, Long userId, Long newMaxAmount) {
+        return updateAutoBid(auctionId, userId, newMaxAmount, null);
+    }
+
+    // #45: idempotencyId는 AutoBidService가 IdempotencyClaimService의 claim row PK를 그대로
+    // 넘겨주는 참조값이다.
+    @Transactional
+    public AutoBidUpdateResponse updateAutoBid(Long auctionId, Long userId, Long newMaxAmount, Long idempotencyId) {
         AutoBidSetting setting = autoBidSettingRepository.findByAuctionIdAndUserIdAndActiveSlotTrue(auctionId, userId)
                 .orElseThrow(() -> new AutoBidNotFoundException("등록된 자동입찰이 없습니다. auctionId: " + auctionId));
 
@@ -196,6 +226,10 @@ public class AutoBidCommandService {
         Long resultingBidAmount = null;
         boolean isHighestBidder = false;
         if (auction.getStatus() == AuctionStatus.LIVE) {
+            Long beforePrice = auction.getCurrentPrice();
+            User beforeWinner = auction.getCurrentWinner();
+            Long beforeWinnerId = beforeWinner == null ? null : beforeWinner.getId();
+
             List<AutoBidSetting> others = autoBidSettingRepository
                     .findByAuctionIdAndStatusAndUserIdNot(auctionId, AutoBidSettingStatus.ACTIVE, userId);
             ProxyResolutionInput input = buildAutoTriggerInput(auction, setting, others);
@@ -212,6 +246,12 @@ public class AutoBidCommandService {
             if (bidOccurred) {
                 auction.maybeExtend(LocalDateTime.now(clock));
             }
+
+            // #45: audit도 커맨드당 최대 1회만 기록한다.
+            auctionPriceAuditRecorder.recordIfChanged(
+                    auction, PriceAuditTrigger.AUTO_BID_UPDATE, userId, beforePrice, beforeWinnerId,
+                    resolution.priceChanged(), idempotencyId
+            );
         }
 
         Long minCapAmount = auction.getMinNextBidAmount();
