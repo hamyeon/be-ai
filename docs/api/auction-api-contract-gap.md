@@ -434,6 +434,148 @@ cap 변경 규칙, `CANCELED` terminal, 재등록, active-slot UNIQUE), 종료 �
 이미 추가), Idempotency exact replay/40905/PLACE_BID 동시성. 상세 커버리지 매핑은 이
 브랜치의 테스트 리뷰 기록 참고.
 
+## #45 Implementation Notes
+
+Proxy/Manual/AutoBid 가격 쓰기 경로의 Pessimistic Lock 커버리지를 감사하고, Manual/AutoBid
+혼합 동시 요청을 실제 MySQL로 검증하고, 가격/승자 resolution의 최소 audit log를 추가했다.
+`ProxyPriceEngine` 재설계, Event Sourcing, 새 lock 전략/transaction 구조 재설계는 하지 않았다.
+
+### Lock coverage audit — 결과: 최상위 Auction row는 문제 없음, 2차 쿼리에서 실제 gap 발견
+
+세 가격 쓰기 경로(Manual Bid, LIVE AutoBid CREATE, LIVE AutoBid UPDATE) 모두 최초
+authoritative read가 이미 `AuctionRepository.findByIdForUpdate()`(`PESSIMISTIC_WRITE`)였다 -
+이 부분은 gap이 없었다.
+
+**하지만 실제 MySQL 혼합 동시성 테스트로 별도의 실제 gap을 발견했다**:
+`AutoBidSettingRepository.findByAuctionIdAndStatusAndUserIdNot()`(Proxy가 "경쟁자 후보"를
+찾는 쿼리)가 일반(락 없는) SELECT였다. 원인은 다음과 같다.
+
+```text
+1. IdempotencyClaimService.claimAndExecute()의 claim 조회, 커맨드 안의 User 조회 등 -
+   command 실행 이전의 일반(non-locking) 조회가 이미 이 트랜잭션의 REPEATABLE READ
+   snapshot을 만들어 버릴 수 있다.
+2. Auction의 findByIdForUpdate()는 locking read라 snapshot과 무관하게 항상 최신 커밋을
+   본다 - 여기까지는 문제가 없다.
+3. 그 뒤에 나가는 competitor AutoBidSetting 조회는 잠금이 없는 일반 SELECT라, 1번에서 이미
+   만들어진 snapshot을 그대로 쓴다 - 그사이 동시에 commit된 다른 사용자의 AutoBidSetting을
+   놓칠 수 있다(stale candidate set).
+4. 즉 Auction row lock을 확보했다는 사실만으로는 "Proxy가 보는 경쟁자 후보 목록이 최신인지"
+   까지 보장하지 못했다.
+```
+
+**실제 재현**: 서로 다른 3명이 같은 LIVE 경매에 동시에 AutoBid를 CREATE하면, 최강 cap 1명만
+ACTIVE·나머지 CAP_REACHED가 되어야 하는데 **3명 전원이 ACTIVE로 남는** 것으로 재현됐다
+(`ProxyMixedConcurrencyMySqlIT`). Manual Bid와 AutoBid CREATE의 2자 혼합 시나리오는 우연히
+같은 문제를 피해갔다 - Manual 쪽은 `auction.getCurrentWinner()`를 이미 락이 걸린 Auction
+read에서 가져오기 때문이다. 이 우연한 회피는 실행 순서에 따라 달라질 수 있어 신뢰할 수 없다.
+
+**적용한 수정**: `findByAuctionIdAndStatusAndUserIdNot()`에 `@Lock(PESSIMISTIC_READ)`가
+아니라 **`@Lock(PESSIMISTIC_WRITE)`**를 적용했다 - competitor AutoBidSetting은 Proxy
+resolution 이후 실제로 상태가 바뀌는(ACTIVE↔CAP_REACHED) 대상이므로 단순 최신 조회 목적의
+READ 락보다 WRITE 락이 적절하다는 판단이다. 데드락 위험은 없다 - 이 row를 쓸 수 있는 유일한
+경로가 같은 Auction row의 write lock을 먼저 획득한 트랜잭션뿐이라, 이 시점에 경쟁할 수 있는
+다른 살아있는 트랜잭션이 없다.
+
+**Lock ordering 확인**: 세 경로 모두 `Auction FOR UPDATE → (필요시 User/existing-check 등
+비잠금 조회) → competitor AutoBidSetting FOR UPDATE → Proxy resolution → Auction/Bid/
+AutoBidSetting 변경 → audit → commit` 순서를 지킨다 - 어떤 경로도 AutoBidSetting 락을
+Auction 락보다 먼저 획득하지 않는다(교차 lock ordering으로 인한 deadlock 위험 없음).
+`AutoBidCommandService.updateAutoBid()`는 entrant 자신의 기존 설정을 찾는
+`findByAuctionIdAndUserIdAndActiveSlotTrue()`를 Auction 락 획득보다 먼저 호출하지만, 이
+호출 자체는 락을 전혀 잡지 않는 조회라 lock ordering 문제가 아니다(추가 분석 결과 이 조회가
+stale해도 뒤이은 `changeMaxAmount()`가 절대값을 그대로 덮어써 실제 데이터 corruption으로
+이어지지 않는다는 것도 확인했다 - 이번 범위에서 추가로 잠그지 않았다).
+
+**재검증 결과(수정 후, 실제 MySQL)**: 3명 동시 LIVE AutoBid CREATE(최강 1명 ACTIVE·나머지
+CAP_REACHED로 정상화), Manual+AutoBid CREATE, Manual+AutoBid UPDATE, `AutoBidConcurrencyMySqlIT`/
+`ManualBidIdempotencyMySqlIT`(기존 테스트) 전부 재실행해 통과 확인.
+
+### SYSTEM_OPEN(시작 정산) lock 대상 — DEFERRED UNTIL LIFECYCLE INTEGRATION 유지
+
+`ProxyTrigger.None`(경매 시작 시 RESERVED 일괄 정산)은 여전히 production 호출부가 없다
+(#44에서 이미 DEFERRED로 기록). lifecycle이 병합되면 그 호출부도 **동일한 lock audit
+대상**에 포함해야 한다 - 특히 이번에 발견한 "Auction 락만으로는 관련 AutoBidSetting 후보
+visibility가 보장되지 않는다"는 교훈이 그대로 적용된다(RESERVED 일괄 정산도 여러
+AutoBidSetting을 동시에 읽고 판정하므로 같은 stale-snapshot 위험이 있다).
+
+### 실제 MySQL 혼합 동시성 검증 — RESOLVED
+
+`ProxyMixedConcurrencyMySqlIT`(신규, `concurrency` 패키지)에 Manual+AutoBid CREATE,
+Manual+AutoBid cap UPDATE, 복수 사용자 AutoBid 경쟁 3개 시나리오를 추가했다. 기존
+`AutoBidConcurrencyMySqlIT`/`ManualBidIdempotencyMySqlIT`의 harness(TestRestTemplate +
+CountDownLatch + ExecutorService)를 그대로 재사용했다. 응답 개수가 아니라 트랜잭션 종료 후
+DB post-state(currentPrice monotonic, winner↔영속 Bid 일치, winner AutoBid effectiveCap
+초과 금지)를 재조회해서 검증한다 - 실행 순서가 nondeterministic하므로 단일 고정값을
+assert하지 않는다. 순수 Proxy invariant(`ProxyPriceEngineTest`)는 여기서 중복 재작성하지
+않았다.
+
+### Lock timeout → 40909 — RESOLVED
+
+`org.springframework.dao.PessimisticLockingFailureException`(`CannotAcquireLockException`/
+`DeadlockLoserDataAccessException`의 공통 부모)을 `GlobalExceptionHandler`에 매핑했다 -
+일반 `DataAccessException`까지 넓히지 않았다. `AuctionLockTimeoutMySqlIT`(신규)가
+`--innodb-lock-wait-timeout=2`로 짧게 설정한 실제 MySQL 컨테이너에서, 한 트랜잭션이
+`TransactionTemplate`으로 Auction row lock을 보유한 채 다른 사용자의 Manual Bid를 실행해
+lock 대기 타임아웃을 재현하고, 그 경로가 500이 아니라 `409/40909`로 응답하는지 확인한다.
+
+### 최소 Auction price audit log — RESOLVED
+
+Event Sourcing이 아니라, 가격/승자 resolution의 원인만 추적하는 최소 엔티티
+`AuctionPriceAudit`(`auction_price_audits` 테이블, `auction.audit` 패키지)를 추가했다.
+
+```text
+auction_id, before_price, after_price, resulting_winner_id,
+trigger_type (enum: MANUAL_BID/AUTO_BID_CREATE/AUTO_BID_UPDATE/SYSTEM_OPEN),
+bid_type (enum: MANUAL/AUTO, 기존 BidType 재사용),
+applied_rule (enum: MANUAL_UNCONTESTED/MANUAL_OVERTAKEN_BY_AUTO/TIE_FIRST_IN_WINS/
+              AUTO_ENTRANT_WINS/AUTO_INCUMBENT_DEFENDS),
+idempotency_id (nullable, FK 참조값만 - Idempotency 엔티티와 연관관계는 맺지 않는다),
+created_at
+```
+
+컬럼명은 `trigger`가 아니라 **`trigger_type`**이다 - `trigger`는 MySQL 8 예약어라 DDL/INSERT가
+구문 오류로 실패하는 것을 실제로 재현한 뒤 이름을 바꿨다(이번에 새로 만든 엔티티 자체의 버그,
+사전 존재 문제 아님).
+
+기록 조건은 "커맨드 시작 전 대비 최종 상태가 실제로 바뀌었는가"(`priceChanged || winnerChanged`)
+하나다 - Manual Bid는 성공하면 항상 가격이 오르므로 사실상 항상 기록되고, AutoBid CREATE/UPDATE는
+LIVE 분기 안에서만 이 조건으로 판단한다. `priceChanged=false && winnerChanged=true`(동률
+FIRST-IN WINS) 케이스도 이 조건으로 정확히 기록 대상이 된다 - `TIE_FIRST_IN_WINS`
+전용 `appliedRule` 값으로 구분했다. 순수 no-op(경쟁자 없는 LIVE 등록, 자기 자신이 이미
+winner인 채 cap만 상향 등)에는 기록하지 않는다.
+
+Writer는 `ProxyPriceEngine`이 아니라 persistence/application boundary(`AuctionPriceAuditRecorder`,
+`BidCommandService`/`AutoBidCommandService`가 호출)에 있다 - engine은 이 엔티티의 존재를
+전혀 모른다. 한 사용자 command당 최대 1건만 기록되도록(Proxy 내부 파생 응찰이 몇 개든) 호출
+지점을 트랜잭션당 1회로 제한했다.
+
+### Idempotency-Key 추적 방식 — raw key 대신 claim row PK 참조로 결정
+
+기존 Idempotency claim/replay/충돌 판정 로직은 전혀 바꾸지 않았다. `IdempotencyClaimService.
+claimAndExecute()`의 커맨드 파라미터를 `Supplier<T>`에서 **`Function<Long, T>`**로 바꿔,
+claim insert 직후 확보한 `claim.getId()`를 커맨드에 그대로 전달한다 - `ManualBidService`/
+`AutoBidService`가 이 값을 `BidCommandService.placeManualBid()`/`AutoBidCommandService.
+createAutoBid()`/`updateAutoBid()`의 새 `idempotencyId` 파라미터로 넘기고, 그 값이 그대로
+audit row의 `idempotency_id`가 된다. 기존 3개 서비스 메서드는 이 파라미터를 생략하는 오버로드로
+남겨 기존 호출부(테스트 포함)를 전혀 바꾸지 않았다(오버로드가 `null`로 위임).
+
+raw `Idempotency-Key` 문자열을 audit에 복제하는 대안도 검토했으나 채택하지 않았다 - PK
+참조가 데이터 중복이 없고, `Idempotency` row 자체가 이미 (user, operationScope, key)를
+들고 있어 필요하면 그 row에서 역참조할 수 있다. `AuctionPriceAudit`은 `Idempotency`와
+JPA 연관관계를 맺지 않고 평범한 `Long` 컬럼으로만 참조한다 - 이 값을 조회에 활용할 필요가
+없어서다.
+
+### Transaction atomicity(audit 포함) — RESOLVED
+
+`AuctionPriceAuditAtomicityMySqlIT`(신규)가 #31 스모크 테스트와 같은 방식(임시 `CHECK`
+제약으로 강제 실패, production fail hook 없음)을 자동화된 IT로 재사용한다.
+`auction_price_audits` 테이블에 항상 위반되는 CHECK 제약을 걸고, Manual Bid/AutoBid
+CREATE/AutoBid UPDATE 세 경로 각각을 **실제 경쟁자가 있어 Proxy가 그 경쟁자의 AutoBidSetting
+상태까지 바꾸는 시나리오**로 구성해 강제 실패시킨 뒤, 다음이 전부 롤백되는지 확인한다: Auction
+가격/승자, 신규 Bid, 경쟁자의 AutoBidSetting 상태, `AuctionPriceAudit` row, Idempotency
+claim row(성공 snapshot 포함). 세 경로 모두 audit이 같은 트랜잭션 안에 있음을 이 방식으로
+확인했다.
+
 ## Freeze Blockers
 
 ```text
