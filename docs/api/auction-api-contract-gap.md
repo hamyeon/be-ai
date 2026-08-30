@@ -385,6 +385,55 @@ same key + same payload retry는 최초 response_snapshot을 그대로 반환한
 추가했다(`AutoBidServiceTest`에는 #41 후속에서 이미 currentPrice 기준 동일 패턴이 있었다).
 같은 key + 다른 payload는 기존 `40905` 그대로다 — 변경 없음.
 
+## #44 Implementation Notes
+
+새 기능/production 코드 변경 없이, #40~#43에서 이미 확정·구현된 핵심 정책을 회귀 불변식
+테스트로 고정했다. 기존 테스트 커버리지를 먼저 전수 조사해 이미 충분히 검증되는 항목은
+중복 테스트를 만들지 않았고, 실제 빠져있던 3건만 추가했다:
+
+```text
+1. CANCELED AutoBid가 가격 계산에서 실제로 제외되는지(서비스 레벨) — Manual/AutoBid 양쪽
+2. EffectiveCapCalculator 전용 단위 테스트(비정렬/경계값 - 이전엔 간접 커버만 있었음)
+3. CREATE_AUTO_BID의 같은 key 동시 요청 시 row 1건만 생성되는지(실제 MySQL) —
+   PLACE_BID는 이미 있었으나 AutoBid 쪽엔 없었다(기존 AutoBidConcurrencyMySqlIT는
+   "서로 다른 key" 동시 요청만 검증 - 그건 idempotency가 아니라 active-slot UNIQUE 레이어)
+```
+
+### DEFERRED UNTIL LIFECYCLE INTEGRATION
+
+`ProxyPriceEngine`의 trigger=None(경매 시작 시 RESERVED 일괄 정산) 순수 계산 자체는
+`ProxyPriceEngineTest.트리거없는_정산`에 이미 충분히 커버되어 있다(0/1/2명 예약자,
+FIRST-IN WINS, cap 차등 케이스). 여기서 검증하지 않은 것은 **"실제 `SCHEDULED → LIVE`
+lifecycle을 통해 이 trigger=None 경로가 실제로 호출되는 production 진입점"**이다 —
+이 프로젝트에 경매 시작을 자동으로 트리거하는 scheduler/lifecycle 코드가 아직 없기 때문에
+(§Not Implemented Yet 참고), 이 통합 테스트를 지금 추가하면 존재하지 않는 production
+호출부를 테스트만을 위해 억지로 만들게 된다 — 하지 않았다.
+
+**lifecycle 병합 후 활성화할 테스트 조건**:
+
+```text
+- lifecycle/scheduler가 SCHEDULED → LIVE 전환 시점에 ProxyPriceEngine.resolve(trigger=None)을
+  실제로 호출하는 production 코드(가칭 AuctionLifecycleService 등)가 병합되면,
+- 그 호출부를 대상으로 "RESERVED 1명/2명 이상 시나리오에서 lifecycle 호출 결과가
+  ProxyPriceEngineTest의 순수 계산 결과와 일치하는지"를 서비스/DB 레벨 테스트로 추가한다.
+- 최소 케이스: 예약자 0명(가격 불변), 1명(최소 한 단계 응찰), 2명 이상(최강/차강 기준
+  가격 결정 + FIRST-IN WINS)을 실제 Auction.start() 이후 상태(currentPrice/currentWinner/
+  AutoBidSetting.status/영속 Bid)로 검증한다.
+- 이 항목이 이번 #44 범위에서 빠진 이유가 "trigger=None 계산이 미검증"이 아니라
+  "production 호출부 자체가 아직 없음"이라는 점을 테스트 추가 시 주석으로 남긴다.
+```
+
+### 확인했으나 변경하지 않은 것
+
+기존 테스트에 이미 충분히 커버되어 추가하지 않은 항목(중복 방지) — Proxy 가격 monotonic,
+winner effectiveCap/maxAmount 초과 금지, FIRST-IN WINS(동률), manual이 모든 cap보다 크면
+manual 승리, AutoBid의 즉시 반격(proxyResponded), 비정렬 direct bid(`40913`),
+`priceChanged=false + winnerChanged=true` 동률 케이스의 AUTO Bid persistence/currentWinner
+일치, AutoBid 상태 전이 전체(`CAP_REACHED` 진입/복귀, `RESERVED`/`ACTIVE`/`CAP_REACHED`
+cap 변경 규칙, `CANCELED` terminal, 재등록, active-slot UNIQUE), 종료 연장 전체(#43에서
+이미 추가), Idempotency exact replay/40905/PLACE_BID 동시성. 상세 커버리지 매핑은 이
+브랜치의 테스트 리뷰 기록 참고.
+
 ## Freeze Blockers
 
 ```text
