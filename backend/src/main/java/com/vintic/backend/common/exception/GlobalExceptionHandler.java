@@ -98,11 +98,63 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail(40401, e.getMessage()));
     }
 
-    // 존재하지 않는 사용자 참조 (404 Not Found)
+    // 존재하지 않는 사용자 참조 (401 Unauthorized)
+    // #56-2: FINAL contract §0-A는 40403=BACKUP_OFFER_NOT_FOUND로 확정한다. UserNotFoundException이
+    // 그 자리를 점유하고 있었는데, BackupOffer 도메인이 이번에 실제로 40403을 쓰기 시작해 번호가
+    // 충돌한다(#56-0/#56-1에서 이미 예견하고 남겨둔 gap). 기존 6개 호출부(AuctionQueryService x2/
+    // BidCommandService/AutoBidCommandService/AuctionLikeCommandService/ProductRegistrationService)를
+    // 전수 확인한 결과 전부 "MockAuthInterceptor가 인증 시점(401/40101)에 이미 존재를 검증한
+    // currentUserId"를 서비스 내부에서 재조회하는 방어적 중복 체크였다 - 별도의 public
+    // "USER_NOT_FOUND" semantics가 필요한 신규 요구가 아니므로, #56-0 §9가 정한 대로
+    // "인증/current user resolution 실패는 기존 40101 흐름 사용"에 맞춰 40403/404에서 40101/401로
+    // 옮긴다. 이 코드가 실제로 응답에 노출될 일은 production에서 거의 없다(인터셉터가 먼저 막는다).
     @ExceptionHandler(UserNotFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleUserNotFoundException(UserNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.fail(40101, e.getMessage()));
+    }
+
+    // 존재하지 않는 차순위 제안 (404 Not Found)
+    @ExceptionHandler(BackupOfferNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBackupOfferNotFoundException(BackupOfferNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ApiResponse.fail(40403, e.getMessage()));
+    }
+
+    // 차순위 구매 기한 만료 후 accept 시도 (409 Conflict)
+    @ExceptionHandler(BackupOfferExpiredException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBackupOfferExpiredException(BackupOfferExpiredException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40911, e.getMessage()));
+    }
+
+    // 이미 처리된(ACCEPTED/DECLINED) 제안에 accept/decline 재시도 (409 Conflict)
+    @ExceptionHandler(BackupOfferAlreadyResolvedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBackupOfferAlreadyResolvedException(BackupOfferAlreadyResolvedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40912, e.getMessage()));
+    }
+
+    // 낙찰자가 아닌 사용자의 forfeit 시도 (403 Forbidden)
+    @ExceptionHandler(NotAwardeeException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotAwardeeException(NotAwardeeException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.fail(40303, e.getMessage()));
+    }
+
+    // 결제 완료 후 낙찰 포기 시도 (409 Conflict)
+    @ExceptionHandler(AlreadyPaidException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAlreadyPaidException(AlreadyPaidException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40914, e.getMessage()));
+    }
+
+    // 결제 기한 만료 (409 Conflict) - Order를 PAYMENT_EXPIRED로 전이시키는 scheduler(#57)가
+    // 아직 없어 이 핸들러는 현재 production 경로로는 도달하지 않는다(PaymentExpiredException 참고).
+    @ExceptionHandler(PaymentExpiredException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePaymentExpiredException(PaymentExpiredException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40910, e.getMessage()));
     }
 
     // 판매자 본인 입찰 시도 (403 Forbidden)

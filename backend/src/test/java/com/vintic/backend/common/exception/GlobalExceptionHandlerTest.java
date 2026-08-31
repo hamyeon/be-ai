@@ -2,11 +2,13 @@ package com.vintic.backend.common.exception;
 
 import com.vintic.backend.auction.AuctionController;
 import com.vintic.backend.auction.service.AuctionQueryService;
+import com.vintic.backend.auction.service.AuctionResultQueryService;
 import com.vintic.backend.autobid.service.AutoBidQueryService;
 import com.vintic.backend.autobid.service.AutoBidService;
 import com.vintic.backend.bid.service.BidQueryService;
 import com.vintic.backend.bid.service.ManualBidService;
 import com.vintic.backend.like.service.AuctionLikeService;
+import com.vintic.backend.order.service.AuctionForfeitService;
 import com.vintic.backend.recommendation.service.ActivityLogService;
 import com.vintic.backend.user.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -32,6 +34,9 @@ class GlobalExceptionHandlerTest {
     private AuctionQueryService auctionQueryService;
 
     @MockitoBean
+    private AuctionResultQueryService auctionResultQueryService;
+
+    @MockitoBean
     private BidQueryService bidQueryService;
 
     @MockitoBean
@@ -51,6 +56,9 @@ class GlobalExceptionHandlerTest {
 
     @MockitoBean
     private AuctionLikeService auctionLikeService;
+
+    @MockitoBean
+    private AuctionForfeitService auctionForfeitService;
 
     @Test
     void 존재하지_않는_경로는_404를_반환한다() {

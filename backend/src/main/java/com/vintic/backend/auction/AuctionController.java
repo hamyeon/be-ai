@@ -1,9 +1,12 @@
 package com.vintic.backend.auction;
 
 import com.vintic.backend.auction.dto.AuctionDetailResponse;
+import com.vintic.backend.auction.dto.AuctionForfeitResponse;
 import com.vintic.backend.auction.dto.AuctionLiveResponse;
+import com.vintic.backend.auction.dto.AuctionResultResponse;
 import com.vintic.backend.auction.dto.SimilarAuctionsResponse;
 import com.vintic.backend.auction.service.AuctionQueryService;
+import com.vintic.backend.auction.service.AuctionResultQueryService;
 import com.vintic.backend.autobid.dto.AutoBidCancelResponse;
 import com.vintic.backend.autobid.dto.AutoBidMaxAmountRequest;
 import com.vintic.backend.autobid.dto.AutoBidMeResponse;
@@ -20,6 +23,7 @@ import com.vintic.backend.bid.service.ManualBidService;
 import com.vintic.backend.common.dto.ApiResponse;
 import com.vintic.backend.like.dto.LikeResponse;
 import com.vintic.backend.like.service.AuctionLikeService;
+import com.vintic.backend.order.service.AuctionForfeitService;
 import com.vintic.backend.recommendation.service.ActivityLogService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -44,29 +48,35 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuctionController {
 
     private final AuctionQueryService auctionQueryService;
+    private final AuctionResultQueryService auctionResultQueryService;
     private final BidQueryService bidQueryService;
     private final ManualBidService manualBidService;
     private final ActivityLogService activityLogService;
     private final AutoBidService autoBidService;
     private final AutoBidQueryService autoBidQueryService;
     private final AuctionLikeService auctionLikeService;
+    private final AuctionForfeitService auctionForfeitService;
 
     public AuctionController(
             AuctionQueryService auctionQueryService,
+            AuctionResultQueryService auctionResultQueryService,
             BidQueryService bidQueryService,
             ManualBidService manualBidService,
             ActivityLogService activityLogService,
             AutoBidService autoBidService,
             AutoBidQueryService autoBidQueryService,
-            AuctionLikeService auctionLikeService
+            AuctionLikeService auctionLikeService,
+            AuctionForfeitService auctionForfeitService
     ) {
         this.auctionQueryService = auctionQueryService;
+        this.auctionResultQueryService = auctionResultQueryService;
         this.bidQueryService = bidQueryService;
         this.manualBidService = manualBidService;
         this.activityLogService = activityLogService;
         this.autoBidService = autoBidService;
         this.autoBidQueryService = autoBidQueryService;
         this.auctionLikeService = auctionLikeService;
+        this.auctionForfeitService = auctionForfeitService;
     }
 
     // #55: 상세조회는 기존부터 비로그인 접근을 허용해왔다(가입 전 상품을 볼 수 있어야 한다는
@@ -81,6 +91,53 @@ public class AuctionController {
     ) {
         AuctionDetailResponse response = auctionQueryService.getAuctionDetail(auctionId, userId);
         activityLogService.recordView(userId, auctionId, response.product().productId());
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    // Result는 별도 persisted entity가 아니라 Auction/Order/BackupOffer/Penalty 상태로부터 매
+    // 조회마다 계산한다(side-effect free) - 낙찰자 Order는 이 endpoint가 만들지 않고
+    // AuctionSettlementService가, BackupOffer/Penalty는 AuctionForfeitService가 별도 시점에
+    // 만든다(AuctionResultQueryService 클래스 주석 참고).
+    @Operation(
+            summary = "경매 결과 조회",
+            description = "낙찰/패찰/차순위 결과를 계산해 반환한다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 경매(40401)")
+    })
+    @GetMapping("/{auctionId}/result")
+    public ResponseEntity<ApiResponse<AuctionResultResponse>> getResult(
+            @PathVariable Long auctionId,
+            @RequestAttribute("currentUserId") Long userId
+    ) {
+        AuctionResultResponse response = auctionResultQueryService.getResult(auctionId, userId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    // #56-2: NOT_AWARDEE/ALREADY_PAID/PAYMENT_EXPIRED 판정, Order CANCELED 전이, FORFEITED
+    // penalty 기록, 차순위 BackupOffer 생성이 전부 AuctionForfeitService 안에서 한 트랜잭션으로
+    // 처리된다(Auction FOR UPDATE -> Order FOR UPDATE 순서). 이미 forfeit 처리된 주문에 대한
+    // 재호출은 새 에러 없이 동일한 200을 그대로 반환한다(state-idempotent, 사용자 확정 - Idempotency-Key
+    // 기반이 아니다. §0.11 필수 목록에 이 endpoint가 없다).
+    @Operation(
+            summary = "낙찰 포기",
+            description = "낙찰자가 구매를 포기한다. PAYMENT_PENDING Order를 CANCELED로 전이시키고 FORFEITED penalty를 "
+                    + "1건 기록한 뒤, 차순위(rank 2) 후보가 있으면 BackupOffer를 1건 생성한다. 이미 포기 처리된 주문에 "
+                    + "다시 호출해도 동일한 성공 응답을 그대로 반환한다(부작용 재실행 없음)."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "포기 성공(또는 이미 처리된 상태의 재확인)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "낙찰자가 아님(40303)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 경매(40401)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "결제 기한 만료(40910) / 이미 결제 완료(40914)")
+    })
+    @PostMapping("/{auctionId}/award/forfeit")
+    public ResponseEntity<ApiResponse<AuctionForfeitResponse>> forfeit(
+            @PathVariable Long auctionId,
+            @RequestAttribute("currentUserId") Long userId
+    ) {
+        AuctionForfeitResponse response = auctionForfeitService.forfeit(auctionId, userId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
