@@ -110,7 +110,7 @@ public class AuctionController {
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "입찰 성공 또는 동일 요청 replay"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "판매자 본인 입찰(40301) 또는 입찰 제한 기간(40302)"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "최고입찰자 재입찰(40901) / 미시작(40902) / 종료(40903) / 최소금액 미만(40904) / 배수 정렬 실패(40913) / Idempotency payload mismatch(40905)")
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "최고입찰자 재입찰(40901) / 미시작(40902) / 종료(40903) / 최소금액 미만(40904) / 배수 정렬 실패(40913) / Idempotency payload mismatch(40905) / 동시성 충돌(40909, 재시도 가능)")
     })
     @PostMapping("/{auctionId}/bids")
     public ResponseEntity<ApiResponse<PlaceBidResponse>> placeBid(
@@ -138,7 +138,7 @@ public class AuctionController {
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "등록 성공 또는 동일 요청 replay"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "판매자 본인(40301) 또는 입찰 제한 기간(40302)"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "상한가 미달(40906) / 기존 설정 존재(40908) / 종료된 경매(40903) / Idempotency payload mismatch(40905)")
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "상한가 미달(40906) / 기존 설정 존재(40908) / 종료된 경매(40903) / Idempotency payload mismatch(40905) / 동시성 충돌(40909, 재시도 가능)")
     })
     @PostMapping("/{auctionId}/auto-bids")
     public ResponseEntity<ApiResponse<AutoBidRegisterResponse>> createAutoBid(
@@ -171,7 +171,7 @@ public class AuctionController {
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "수정 성공 또는 동일 요청 replay"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "등록된 자동입찰 없음(40404)"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "상한가 미달(40906) / 상향하지 않음(40907, ACTIVE/CAP_REACHED만) / 종료된 경매(40903) / Idempotency payload mismatch(40905)")
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "상한가 미달(40906) / 상향하지 않음(40907, ACTIVE/CAP_REACHED만) / 종료된 경매(40903) / Idempotency payload mismatch(40905) / 동시성 충돌(40909, 재시도 가능)")
     })
     @PatchMapping("/{auctionId}/auto-bids/me")
     public ResponseEntity<ApiResponse<AutoBidUpdateResponse>> updateAutoBid(
@@ -186,6 +186,11 @@ public class AuctionController {
 
     // row를 삭제하지 않고 CANCELED로 전이한다. Idempotency-Key를 요구하지 않는다(§0.11) - 재요청 시
     // 이미 현재 설정이 없으므로(CANCELED는 activeSlot=null) 40404로 응답한다.
+    @Operation(summary = "자동입찰 중단 / 예약 취소", description = "row를 삭제하지 않고 상태를 CANCELED로 변경한다. 기존에 발생한 Bid는 삭제하지 않는다. Idempotency-Key를 요구하지 않는다.")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "취소 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "등록된 자동입찰 없음(40404)")
+    })
     @DeleteMapping("/{auctionId}/auto-bids/me")
     public ResponseEntity<ApiResponse<AutoBidCancelResponse>> cancelAutoBid(
             @PathVariable Long auctionId,

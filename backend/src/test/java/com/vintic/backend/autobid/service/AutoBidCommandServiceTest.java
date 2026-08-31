@@ -15,6 +15,7 @@ import com.vintic.backend.autobid.proxy.ProxyPriceEngine;
 import com.vintic.backend.autobid.repository.AutoBidSettingRepository;
 import com.vintic.backend.bid.domain.BidType;
 import com.vintic.backend.common.exception.AuctionClosedException;
+import com.vintic.backend.common.exception.AuctionNotFoundException;
 import com.vintic.backend.common.exception.AutoBidAlreadyExistsException;
 import com.vintic.backend.common.exception.AutoBidNotFoundException;
 import com.vintic.backend.common.exception.CapNotIncreasedException;
@@ -503,8 +504,23 @@ class AutoBidCommandServiceTest {
     }
 
     @Test
-    void 현재_설정이_없으면_수정시_40404에_해당하는_예외가_발생한다() {
+    void 존재하지_않는_경매를_수정하면_40401에_해당하는_예외가_발생한다() {
+        // #46 follow-up: Auction FOR UPDATE를 own-setting 조회보다 먼저 획득하도록 순서를
+        // 바꾼 뒤로, 존재하지 않는 auctionId는 (설정 유무와 무관하게) AuctionNotFoundException이
+        // 먼저 던져진다 - CREATE/DELETE가 이미 하던 것과 일관된 순서다.
         assertThatThrownBy(() -> autoBidCommandService.updateAutoBid(999L, 1L, 100000L))
+                .isInstanceOf(AuctionNotFoundException.class);
+    }
+
+    @Test
+    void 경매는_존재하지만_현재_설정이_없으면_수정시_40404에_해당하는_예외가_발생한다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistScheduledAuction(product);
+        flushAndClear();
+
+        assertThatThrownBy(() -> autoBidCommandService.updateAutoBid(auction.getId(), bidder.getId(), 100000L))
                 .isInstanceOf(AutoBidNotFoundException.class);
     }
 
