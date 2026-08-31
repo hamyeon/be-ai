@@ -1,6 +1,7 @@
 package com.vintic.backend.order.domain;
 
 import com.vintic.backend.auction.domain.Auction;
+import com.vintic.backend.common.exception.InvalidOrderStatusException;
 import com.vintic.backend.user.domain.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -105,6 +106,19 @@ public class Order {
         order.paymentDeadline = paymentDeadline;
         order.createdAt = LocalDateTime.now();
         return order;
+    }
+
+    // FINAL contract §12: PAYMENT_PENDING -> CANCELED(낙찰 포기)만 허용된다. 이 프로젝트에서
+    // Order를 CANCELED로 만드는 경로는 forfeit뿐이다(§11) - 다른 상태에서의 취소 시도는 호출자가
+    // 이미 걸러야 하는 프로그래밍 오류이므로 여기서 명시적으로 막는다(상태 전이를 domain
+    // boundary에서 방어).
+    public void cancel() {
+        if (status != OrderStatus.PAYMENT_PENDING) {
+            throw new InvalidOrderStatusException(
+                    "PAYMENT_PENDING 상태에서만 취소할 수 있습니다. orderId: " + id + ", 현재 상태: " + status
+            );
+        }
+        this.status = OrderStatus.CANCELED;
     }
 
     public Long getId() {
