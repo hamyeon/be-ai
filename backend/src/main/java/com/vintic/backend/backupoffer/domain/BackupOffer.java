@@ -1,6 +1,7 @@
 package com.vintic.backend.backupoffer.domain;
 
 import com.vintic.backend.auction.domain.Auction;
+import com.vintic.backend.common.exception.InvalidBackupOfferStatusException;
 import com.vintic.backend.user.domain.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -18,10 +19,11 @@ import jakarta.persistence.UniqueConstraint;
 
 import java.time.LocalDateTime;
 
-// FINAL contract §15-17. #56-2엔 생성(forfeit이 호출)과 단건 조회(§15)만 있다 - accept/decline은
-// #56-3이다. purchasePrice는 "totalAmount/shippingFee를 미리 계산해 얼리는" Order와 달리 저장하지
-// 않는다 - shippingFee가 전역 고정 상수(ShippingPolicy)라 조회 시점에 그냥 더하면 되고, 아직 이
-// 값에 대한 write(accept)가 없어 얼려둘 이유가 없다(BackupOfferQueryService에서 계산).
+// FINAL contract §15-17. purchasePrice는 "totalAmount/shippingFee를 미리 계산해 얼리는" Order와
+// 달리 이 엔티티에 저장하지 않는다 - shippingFee가 전역 고정 상수(ShippingPolicy)라 조회 시점에
+// 그냥 더하면 된다(BackupOfferQueryService에서 계산). accept()가 실제로 Order를 만드는 시점에는
+// Order 쪽에 그 값이 얼려 저장된다(BackupOfferCommandService.accept() 참고) - BackupOffer
+// 자신은 purchasePrice 원본 값만 갖고 있으면 충분하다.
 //
 // uk_backup_offer_auction_candidate: 같은 (auction, candidate) 조합은 최대 1건만 존재해야
 // 한다는 DB invariant다. AuctionForfeitService가 Auction row lock으로 동시 forfeit 호출을
@@ -88,6 +90,38 @@ public class BackupOffer {
         offer.createdAt = LocalDateTime.now();
         offer.deadline = offer.createdAt.plusHours(24);
         return offer;
+    }
+
+    // FINAL contract §16: WAITING만 accept 가능. 시간 만료(§0.10) 판정은 이 메서드의 책임이
+    // 아니다 - BackupOfferCommandService가 accept() 호출 전에 isExpired()로 먼저 걸러
+    // BackupOfferExpiredException(40911)을 던진다. 이미 처리된(ACCEPTED/DECLINED/EXPIRED) 상태에서
+    // 호출되면 도메인 boundary에서 막는다 - 서비스가 먼저 걸렀어야 하는 상황이라 일반 상태 가드
+    // 예외를 던진다(계약이 요구하는 40912 매핑은 서비스가 한다, Order.cancel()과 동일 패턴).
+    public void accept() {
+        if (status != BackupOfferStatus.WAITING) {
+            throw new InvalidBackupOfferStatusException(
+                    "WAITING 상태에서만 수락할 수 있습니다. backupOfferId: " + id + ", 현재 상태: " + status
+            );
+        }
+        this.status = BackupOfferStatus.ACCEPTED;
+    }
+
+    // FINAL contract §17: WAITING만 decline 가능. accept()와 동일하게 상태 가드만 domain
+    // boundary에서 책임진다.
+    public void decline() {
+        if (status != BackupOfferStatus.WAITING) {
+            throw new InvalidBackupOfferStatusException(
+                    "WAITING 상태에서만 거절할 수 있습니다. backupOfferId: " + id + ", 현재 상태: " + status
+            );
+        }
+        this.status = BackupOfferStatus.DECLINED;
+    }
+
+    // §0.10 "차순위 제안 응답 기한" 판정. scheduler 없이도(#57 이전) accept가 lazy하게 만료를
+    // 감지할 수 있어야 하므로 status가 아니라 deadline을 직접 비교한다 - status는 이 판정만으로
+    // EXPIRED로 바뀌지 않는다(실제 상태 전이는 #57 scheduler의 책임, 여기선 판정만 한다).
+    public boolean isExpired(LocalDateTime now) {
+        return now.isAfter(deadline);
     }
 
     public Long getId() {
