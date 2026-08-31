@@ -121,6 +121,20 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail(40403, e.getMessage()));
     }
 
+    // 차순위 구매 기한 만료 후 accept 시도 (409 Conflict)
+    @ExceptionHandler(BackupOfferExpiredException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBackupOfferExpiredException(BackupOfferExpiredException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40911, e.getMessage()));
+    }
+
+    // 이미 처리된(ACCEPTED/DECLINED) 제안에 accept/decline 재시도 (409 Conflict)
+    @ExceptionHandler(BackupOfferAlreadyResolvedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBackupOfferAlreadyResolvedException(BackupOfferAlreadyResolvedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40912, e.getMessage()));
+    }
+
     // 낙찰자가 아닌 사용자의 forfeit 시도 (403 Forbidden)
     @ExceptionHandler(NotAwardeeException.class)
     public ResponseEntity<ApiResponse<Void>> handleNotAwardeeException(NotAwardeeException e) {

@@ -6,6 +6,7 @@ import com.vintic.backend.auction.dto.AuctionForfeitResponse;
 import com.vintic.backend.auction.repository.AuctionRepository;
 import com.vintic.backend.backupoffer.domain.BackupOffer;
 import com.vintic.backend.backupoffer.repository.BackupOfferRepository;
+import com.vintic.backend.backupoffer.service.BackupCandidateSelector;
 import com.vintic.backend.bid.domain.Bid;
 import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.common.exception.AlreadyPaidException;
@@ -98,25 +99,19 @@ public class AuctionForfeitService {
         return new AuctionForfeitResponse(auctionId, AuctionResult.FORFEITED);
     }
 
-    // #56-0 확정: 차순위 후보는 rank 2뿐이다(rank 3 이하로의 체이닝은 decline/expire 시점에
-    // #56-3이 처리). rank 산정은 #56-1의 findLatestBidPerUserOrderedByRank()를 그대로
-    // 재사용한다 - 새 ranking 규칙을 만들지 않는다.
+    // forfeit은 항상 rank 1(낙찰자) 다음, 즉 rank 2를 제안한다 - BackupCandidateSelector.next()에
+    // afterRank=1을 넘긴다. rank 3으로의 체이닝(decline 시)은 BackupOfferCommandService.decline()이
+    // 같은 selector로 처리한다(#56-3).
     private void createBackupOfferIfCandidateExists(Auction auction) {
         List<Bid> ranked = bidRepository.findLatestBidPerUserOrderedByRank(auction.getId());
-        if (ranked.size() < 2) {
-            // 낙찰자 외에 입찰자가 없다 - 제안할 차순위 후보가 없으므로 만들지 않는다.
-            return;
-        }
-
-        Bid candidateBid = ranked.get(1); // index 0 = rank 1(낙찰자), index 1 = rank 2.
-        User candidate = candidateBid.getUser();
-
-        if (backupOfferRepository.findByAuctionIdAndCandidateId(auction.getId(), candidate.getId()).isPresent()) {
-            // 방어적 중복 방지 - 정상 경로(위 CANCELED 분기의 idempotent short-circuit)에서는
-            // 도달하지 않는다. uk_backup_offer_auction_candidate가 최종 방어선이다.
-            return;
-        }
-
-        backupOfferRepository.save(BackupOffer.create(auction, candidate, candidateBid.getAmount()));
+        BackupCandidateSelector.next(ranked, 1).ifPresent(candidateBid -> {
+            User candidate = candidateBid.getUser();
+            if (backupOfferRepository.findByAuctionIdAndCandidateId(auction.getId(), candidate.getId()).isPresent()) {
+                // 방어적 중복 방지 - 정상 경로(위 CANCELED 분기의 idempotent short-circuit)에서는
+                // 도달하지 않는다. uk_backup_offer_auction_candidate가 최종 방어선이다.
+                return;
+            }
+            backupOfferRepository.save(BackupOffer.create(auction, candidate, candidateBid.getAmount()));
+        });
     }
 }

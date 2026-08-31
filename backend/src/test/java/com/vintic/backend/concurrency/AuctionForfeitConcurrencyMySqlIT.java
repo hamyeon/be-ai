@@ -102,12 +102,12 @@ class AuctionForfeitConcurrencyMySqlIT {
                 product, 10000L, 5000L, LocalDateTime.now().minusHours(2), LocalDateTime.now().minusHours(1)
         );
         auction.start();
-        bidRepository.save(Bid.place(auction, candidate, 20000L, BidType.MANUAL));
-        auction.placeManualBid(candidate, 20000L);
-        bidRepository.save(Bid.place(auction, winner, 30000L, BidType.MANUAL));
-        auction.placeManualBid(winner, 30000L);
-        auction.end();
         Auction saved = auctionRepository.save(auction);
+        bidRepository.save(Bid.place(saved, candidate, 20000L, BidType.MANUAL));
+        saved.placeManualBid(candidate, 20000L);
+        bidRepository.save(Bid.place(saved, winner, 30000L, BidType.MANUAL));
+        saved.placeManualBid(winner, 30000L);
+        saved.end();
         orderRepository.save(Order.createForWinner(saved, winner, 30000L, 3000L, saved.getEndAt().plusHours(24)));
         return saved;
     }

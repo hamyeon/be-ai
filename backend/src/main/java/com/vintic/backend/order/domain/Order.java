@@ -19,9 +19,12 @@ import jakarta.persistence.UniqueConstraint;
 
 import java.time.LocalDateTime;
 
-// #56-1: 낙찰자용 Order 생성만 다룬다(AuctionSettlementService.settle() 전용 진입점).
-// 차순위 수락자 Order(#56-2, purchasePrice가 finalPrice가 아니라 그 후보의 myLastBidAmount)는
-// 이 팩토리로 만들지 않고 별도 팩토리를 추가할 예정이다 - 지금 미리 그 파라미터를 얹지 않는다.
+// #56-1에서 낙찰자용 Order(createForWinner), #56-3에서 차순위 수락자용 Order
+// (createForBackupAccept)가 추가됐다. 두 팩토리는 필드 구성이 동일해(auction/buyer/purchasePrice/
+// shippingFee/paymentDeadline) 실제 생성/검증 로직은 private create()에 있다 - 이름을 분리한
+// 이유는 오직 호출부 가독성이다(어느 흐름에서 만들어진 Order인지). paymentDeadline 계산 정책
+// (endsAt+24h 대 acceptedAt+24h, §0.10)은 이 팩토리의 책임이 아니다 - 호출자(AuctionSettlementService/
+// BackupOfferCommandService)가 이미 계산된 값을 넘긴다.
 //
 // uk_order_auction_buyer: 같은 (auction, buyer) 조합은 최대 1건만 존재해야 한다는 DB invariant다.
 // AuctionSettlementService가 Auction row lock으로 같은 auction에 대한 동시 settle() 호출을
@@ -74,10 +77,24 @@ public class Order {
     protected Order() {
     }
 
-    // 낙찰자용 Order의 유일한 생성 진입점이다. purchasePrice = auction.finalPrice(FINAL contract
-    // §12), totalAmount는 이 팩토리 안에서 purchasePrice+shippingFee로 계산해 호출자가 직접
-    // 더하는 곳이 여러 군데로 흩어지지 않게 한다.
+    // 낙찰자용 Order. purchasePrice = auction.finalPrice(FINAL contract §12).
     public static Order createForWinner(
+            Auction auction, User buyer, Long purchasePrice, Long shippingFee, LocalDateTime paymentDeadline
+    ) {
+        return create(auction, buyer, purchasePrice, shippingFee, paymentDeadline);
+    }
+
+    // 차순위 수락자용 Order(#56-3, §16). purchasePrice = BackupOffer.purchasePrice(그 후보의
+    // myLastBidAmount) - auction.finalPrice가 아니다.
+    public static Order createForBackupAccept(
+            Auction auction, User buyer, Long purchasePrice, Long shippingFee, LocalDateTime paymentDeadline
+    ) {
+        return create(auction, buyer, purchasePrice, shippingFee, paymentDeadline);
+    }
+
+    // totalAmount는 여기서 purchasePrice+shippingFee로 계산해 호출자가 직접 더하는 곳이 여러
+    // 군데로 흩어지지 않게 한다.
+    private static Order create(
             Auction auction, User buyer, Long purchasePrice, Long shippingFee, LocalDateTime paymentDeadline
     ) {
         if (auction == null) {
