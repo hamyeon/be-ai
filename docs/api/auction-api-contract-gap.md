@@ -1066,28 +1066,121 @@ Order만 구현했다. Forfeit/BackupOffer accept/decline/pay/scheduler는 이�
   계약이 이 경우를 명시하지 않고 프론트는 종료 후에만 이 화면을 쓰므로 별도 방어를 추가하지
   않았다.
 
-- FORFEITED/CANCELED Order 분기: determineResult()에 OrderStatus.CANCELED(forfeit로 인한
-  취소)를 위한 전용 분기가 없다 - #56-1엔 forfeit 자체가 없어 도달 불가능하고, #56-2에서
-  UserPenalty 존재 여부로 FORFEITED를 판별하는 로직과 함께 추가한다(주석으로 명시해뒀다).
+- FORFEITED/CANCELED Order 분기: **RESOLVED (#56-2)**. determineResult()가 Penalty(FORFEITED)
+  존재 여부를 authoritative signal로 판정한다(Order.status==CANCELED만으로 판정하지 않는다) -
+  아래 `#56-2 구현` 참고.
 
-- 40403 번호 충돌: 위 정책 9번 참고 - 기존 UserNotFoundException 4개 호출부는 이번에 고치지
-  않았고, BackupOfferNotFoundException이 도입되는 #56-2 전에 정리가 필요하다.
+- 40403 번호 충돌: **RESOLVED (#56-2)**. 아래 `#56-2 구현` 참고.
 ```
 
-### #56-2 남은 범위
+### #56-2 구현
+
+Forfeit + BackupOffer 생성/조회. accept/decline은 여전히 다음 범위(#56-3)다.
 
 ```text
-- POST /auctions/{id}/award/forfeit (Order CANCELED 전이, FORFEITED penalty 1건, BackupOffer
-  최초 생성)
-- BackupOffer 도메인(entity/repository), GET /backup-offers/{id}, accept/decline
-- next-backup-candidate 선정 로직(#56-0 결정: rank 2 -> 3까지만, 소진 여부 판정) - #56-1엔
-  이 로직 자체가 없다(재사용 가능한 형태로 분리해 두라는 지시가 있었으나, Forfeit/BackupOffer
-  구현이 이번 범위에서 빠지며 실제 선정 로직을 아직 만들지 않았다 - #56-2 착수 시 처음부터
-  설계한다)
-- UserPenalty 도메인(entity/repository), FORFEITED 1건 기록, Result의 FORFEITED 분기
-- GET /orders/{id}, POST /orders/{id}/pay (Order 조회/결제 endpoint 자체는 #56-1에 없다 -
-  Order는 settlement 내부에서만 생성/조회된다)
-- BackupOffer UNIQUE(auction_id, candidate_id) DB invariant
+신규
+  penalty/domain/Penalty.java             - forfeited() 팩토리만 제공(PAYMENT_EXPIRED 팩토리는 #57)
+  penalty/domain/PenaltyType.java         - FORFEITED/PAYMENT_EXPIRED 전부 선언
+  penalty/repository/PenaltyRepository.java
+  backupoffer/domain/BackupOffer.java     - create() 팩토리 하나(WAITING만 생성) - purchasePrice만
+                                             저장하고 totalAmount는 저장하지 않는다(조회 시점에
+                                             ShippingPolicy로 계산 - accept가 아직 없어 얼려둘
+                                             이유가 없음)
+  backupoffer/domain/BackupOfferStatus.java - WAITING/ACCEPTED/DECLINED/EXPIRED 전부 선언
+  backupoffer/repository/BackupOfferRepository.java
+  backupoffer/service/BackupOfferQueryService.java - GET, side-effect free
+  backupoffer/dto/BackupOfferResponse.java
+  backupoffer/BackupOfferController.java  - GET /api/backup-offers/{id}만(accept/decline은 #56-3)
+  order/service/AuctionForfeitService.java - forfeit() 명시적 command, lock 순서:
+                                             Auction FOR UPDATE -> Order FOR UPDATE(신규 locking
+                                             finder) -> validation -> Order.cancel() -> penalty ->
+                                             BackupOffer -> commit(#56-0 확정)
+  auction/dto/AuctionForfeitResponse.java
+  common/exception/{NotAwardeeException,AlreadyPaidException,PaymentExpiredException,
+    BackupOfferNotFoundException,InvalidOrderStatusException}.java
+  common/util/ShippingPolicy.java         - Order/BackupOffer가 공유하는 shippingFee 상수(3000L)
+                                             추출(#56-1의 AuctionSettlementService 전용 상수를
+                                             승격) - AuctionSettlementService도 이걸 쓰도록 변경
+
+수정
+  order/domain/Order.java                 - cancel() 추가(PAYMENT_PENDING에서만 허용, 상태 전이
+                                             가드를 domain boundary에 둠)
+  order/repository/OrderRepository.java   - findByAuctionIdAndBuyerIdForUpdate(PESSIMISTIC_WRITE)
+                                             추가 - forfeit 전용 locking current read
+  auction/service/AuctionResultQueryService.java - BackupOffer/Penalty 의존성 추가, 판정 우선순위를
+                                             #56-0이 정한 순서(NO_BIDS -> BACKUP_WAITING -> WON ->
+                                             FORFEITED -> PAYMENT_EXPIRED -> LOST)로 전면 구현
+  auction/AuctionController.java          - POST /auctions/{id}/award/forfeit 매핑 추가
+  common/exception/GlobalExceptionHandler.java - 4개 신규 매핑(40303/40910/40914/40403) +
+                                             UserNotFoundException을 40403/404에서 40101/401로
+                                             재매핑(아래 "40403 번호 충돌 해소" 참고)
+
+테스트(신규)
+  order/domain/OrderTest.java                          - cancel() 상태 가드
+  order/service/AuctionForfeitServiceTest.java          - @DataJpaTest, NOT_AWARDEE/ALREADY_PAID/
+                                                          PAYMENT_EXPIRED/정상흐름/후보없음/재-forfeit
+                                                          멱등 6케이스
+  backupoffer/service/BackupOfferQueryServiceTest.java  - @DataJpaTest, purchasePrice/shippingFee/
+                                                          totalAmount/deadline/404
+  backupoffer/BackupOfferControllerTest.java            - 신규 WebMvcTest 슬라이스
+  auction/AuctionControllerTest.java (확장)              - forfeit 3케이스(성공/40303/40914)
+  auction/service/AuctionResultQueryServiceTest.java (확장) - FORFEITED, BACKUP_WAITING 2케이스
+  concurrency/AuctionForfeitConcurrencyMySqlIT.java     - 실제 MySQL, 동시 재-forfeit 시 penalty/
+                                                          BackupOffer가 각각 1건만 남는지
+  concurrency/AuctionForfeitAtomicityMySqlIT.java       - 실제 MySQL, penalty INSERT 강제 실패 시
+                                                          Order/BackupOffer까지 전부 롤백되는지
+                                                          (#45 AuctionPriceAuditAtomicityMySqlIT와
+                                                          동일한 CHECK 제약 강제 실패 기법 재사용)
+
+수정(WebMvcTest 슬라이스 회귀 - AuctionController 생성자에 AuctionForfeitService가 추가되며
+@WebMvcTest(AuctionController.class) 슬라이스 2곳이 컨텍스트 로딩에 실패해 함께 고쳤다)
+  common/exception/GlobalExceptionHandlerTest.java     - @MockitoBean AuctionForfeitService 추가
+  common/auth/mock/MockAuthInterceptorTest.java        - @MockitoBean AuctionForfeitService 추가
+```
+
+### 40403 번호 충돌 해소 (#56-2)
+
+`UserNotFoundException`의 `GlobalExceptionHandler` 매핑을 `40403/404`에서 `40101/401`로 옮겼다
+(단 한 곳, `handleUserNotFoundException()`). 재확인한 근거:
+
+```text
+- 기존 6개 호출부(AuctionQueryService x2/BidCommandService/AutoBidCommandService/
+  AuctionLikeCommandService/ProductRegistrationService)를 전수 검색해 확인했다 - 전부
+  "MockAuthInterceptor가 인증 시점(401/40101)에 이미 존재를 검증한 currentUserId"를 서비스
+  내부에서 재조회하는 방어적 중복 체크였다. 별도의 public "USER_NOT_FOUND" semantics가 필요한
+  신규 요구는 없었다 - #56-0 §9가 정한 대로 "인증/current user resolution 실패는 기존 40101
+  흐름 사용"에 맞춘 재매핑이다.
+- 기존 호출부 6곳 자체(예외를 던지는 지점)는 손대지 않았다 - 전부 이 한 handler로 수렴하므로
+  production 코드는 그 외에 바꿀 곳이 없다(#46의 AuctionNotFoundException 40402->40401
+  renumbering과 동일한 패턴).
+- 테스트 blast radius: `UserNotFoundException`/`40403`을 참조하는 테스트를 전수 검색한 결과
+  `ProductRegistrationServiceTest`(예외 타입만 검증, 숫자 코드 assertion 없음) 1건뿐이었다 -
+  이 재매핑으로 깨지는 기존 테스트는 없었다(재확인만 했고 수정하지 않았다).
+- `BackupOfferNotFoundException`이 이제 40403을 실제로 쓰기 시작해(`BackupOfferQueryService`),
+  이 재매핑 없이는 두 예외가 같은 client-facing 번호를 공유해 프론트 분기 처리가 모호해졌을
+  것이다 - #56-1에서 이미 예견하고 남겨뒀던 gap이 실제로 해소됐다.
+```
+
+### #56-3 남은 범위
+
+```text
+- POST /backup-offers/{id}/accept, POST /backup-offers/{id}/decline
+  - accept: BackupOffer.status WAITING -> ACCEPTED, Order 생성(purchasePrice = 그 candidate의
+    myLastBidAmount, paymentDeadline = 수락 시각 + 24h), Idempotency-Key 필수(§0.11,
+    ACCEPT_BACKUP_OFFER:{backupOfferId})
+  - decline: WAITING -> DECLINED, 다음 순위(rank 3)에게 새 BackupOffer 생성 가능 - #56-0 결정대로
+    rank 3까지만(rank 4는 후보 아님)
+  - next-backup-candidate 선정 로직: AuctionForfeitService.createBackupOfferIfCandidateExists()가
+    rank 2 전용으로 하드코딩돼 있다 - rank 3 체이닝이 필요해지는 시점에 "다음 미소진 순위를 찾는"
+    형태로 일반화해야 한다(지금은 재사용 가능한 형태로 분리돼 있지 않다 - #56-2 범위에서 Forfeit
+    가 실제로 구현되며 처음 만들어진 로직이라, 재사용 지시가 있었지만 rank 2 하나만 다루는 이번
+    형태로는 그대로 재사용할 수 없다는 점을 명시해 둔다)
+- GET /orders/{id}, POST /orders/{id}/pay
+- Backup accepted Order의 PAYMENT_EXPIRED -> rank 3 이양(#56-0 §5) - 실제 만료 처리 자체는 #57
+- UserPenalty의 noShowCount/bidRestrictedUntil 반영 정책(§14, 서버 설정) - #57
+- BackupOffer expiry / payment expiry scheduler - #57
+- 실제 LIVE->ENDED settlement 호출부(scheduler) - DEFERRED UNTIL LIFECYCLE INTEGRATION(#44/#45와
+  동일 성격, 여전히 미정)
 
 ## Freeze Blockers
 
