@@ -102,7 +102,11 @@ public class AutoBidCommandService {
         if (auction.getProduct().getSeller().isSameUser(user)) {
             throw new SellerCannotBidException("판매자는 자신의 경매에 자동입찰을 등록할 수 없습니다. auctionId: " + auctionId);
         }
-        if (autoBidSettingRepository.findByAuctionIdAndUserIdAndActiveSlotTrue(auctionId, userId).isPresent()) {
+        // #46 follow-up: locking current read - Auction 락은 이미 잡았으니 lock ordering
+        // 위반 없이 이 시점에 own-setting을 잠글 수 있다. DB UNIQUE(uk_auto_bid_setting_active_slot)가
+        // 최종 방어선으로 여전히 남아있지만(아래 saveAndFlush), 이 사전 검사 자체도 stale하게
+        // "없음"을 반환하지 않도록 고정한다.
+        if (autoBidSettingRepository.findCurrentByAuctionIdAndUserIdForUpdate(auctionId, userId).isPresent()) {
             throw new AutoBidAlreadyExistsException("이미 자동입찰이 등록되어 있습니다. auctionId: " + auctionId);
         }
         Long validationMinCapAmount = auction.getMinNextBidAmount();
@@ -175,7 +179,7 @@ public class AutoBidCommandService {
         );
     }
 
-    // 검증 순서: 현재 설정 존재(40404) → Penalty → Auction 상태(40903) →
+    // 검증 순서: Auction 존재 → 현재 설정 존재(40404) → Penalty → Auction 상태(40903) →
     // minCapAmount(40906, 공통) → ACTIVE/CAP_REACHED면 상향 여부(40907).
     // 두 조건을 동시에 위반하면 40906이 우선한다(사용자 확정 사항) - minCapAmount 체크가
     // 먼저 실행되고 즉시 던지므로 코드 순서 자체가 그 우선순위를 보장한다.
@@ -186,20 +190,33 @@ public class AutoBidCommandService {
 
     // #45: idempotencyId는 AutoBidService가 IdempotencyClaimService의 claim row PK를 그대로
     // 넘겨주는 참조값이다.
+    //
+    // #46 follow-up: Auction FOR UPDATE를 entrant의 own-setting 조회보다 먼저 획득하도록
+    // 순서를 뒤집었다. 이전에는 own-setting을 먼저(non-locking) 조회해 그 결과의 auction id로
+    // Auction 락을 잡았는데, 이 순서 자체는 데드락과 무관했지만(잠금을 잡지 않는 조회였으므로)
+    // own-setting 조회가 REPEATABLE READ read view 확립 이후의 non-locking read라 다른
+    // 트랜잭션의 동시 커밋(cap 변경)을 놓칠 수 있었다 - 실제로 재현됨(AutoBidCapUpdateStaleReadMySqlIT,
+    // 아래 참고). own-setting을 locking current read로 바꾸려면 Auction 락을 먼저 잡아야
+    // "Auction FOR UPDATE → AutoBidSetting FOR UPDATE" lock ordering(#45에서 확정, 다른 두
+    // write 경로도 동일)을 어기지 않는다 - 반대 순서로 두면 이 경로와 CREATE/PLACE_BID가
+    // 서로 다른 순서로 두 락을 잡게 되어 새 데드락 경로가 생긴다. auctionId는 controller/path
+    // variable에서 이미 넘어오므로 setting을 거치지 않고도 바로 Auction을 조회할 수 있었다.
     @Transactional
     public AutoBidUpdateResponse updateAutoBid(Long auctionId, Long userId, Long newMaxAmount, Long idempotencyId) {
-        AutoBidSetting setting = autoBidSettingRepository.findByAuctionIdAndUserIdAndActiveSlotTrue(auctionId, userId)
+        Auction auction = auctionRepository.findByIdForUpdate(auctionId)
+                .orElseThrow(() -> new AuctionNotFoundException("존재하지 않는 경매입니다. auctionId: " + auctionId));
+
+        // locking current read - Auction 락을 이미 잡았으므로 lock ordering을 어기지 않고 여기서
+        // own-setting을 잠글 수 있다. 이 값(maxAmount/status)이 그대로 아래 검증과
+        // changeMaxAmount()의 덮어쓰기에 쓰이는 mutable/business-decision 필드라 non-locking
+        // read면 다른 트랜잭션이 방금 커밋한 cap 변경을 놓치고 stale write로 덮어쓸 수 있다.
+        AutoBidSetting setting = autoBidSettingRepository
+                .findCurrentByAuctionIdAndUserIdForUpdate(auctionId, userId)
                 .orElseThrow(() -> new AutoBidNotFoundException("등록된 자동입찰이 없습니다. auctionId: " + auctionId));
 
         if (setting.getUser().isBidRestricted(LocalDateTime.now(clock))) {
             throw new PenaltyRestrictedException("입찰 제한 기간 중인 사용자입니다. userId: " + userId);
         }
-
-        // setting.getAuction()은 이 트랜잭션에서 아직 락 없이 로드됐을 수 있다 - Proxy resolution이
-        // currentPrice/currentWinner를 바꾸므로 findByIdForUpdate로 다시 읽어 락을 확보한다
-        // (같은 영속성 컨텍스트라 동일 관리 엔티티를 반환하며, 추가로 락만 얹힌다).
-        Auction auction = auctionRepository.findByIdForUpdate(setting.getAuction().getId())
-                .orElseThrow(() -> new AuctionNotFoundException("존재하지 않는 경매입니다. auctionId: " + auctionId));
         if (auction.isClosed()) {
             throw new AuctionClosedException("이미 종료되었거나 취소된 경매입니다. auctionId: " + auctionId);
         }

@@ -53,7 +53,8 @@ unchanged.
 | --- | --- | --- | --- |
 | Direct bid alignment 검증 | **RESOLVED (#43)** | `Auction.placeManualBid()`가 최소금액(`40904`) 통과 이후 `(amount - currentPrice) % bidIncrement != 0`을 확인해 `BidNotAlignedException`(`40913`)을 던진다. AutoBid `maxAmount`에는 적용하지 않는다(§5, 실효 상한) | — |
 | Nickname masking (`/bids`) | Frozen (§0.9, 항상 4개 별표) | `NicknameMasker`(#40)는 구현됐으나 `GET /bids`에는 아직 적용 안 함 — 여전히 마스킹 없이 raw `bidderId` 노출, `isMine`/`isHighest`도 미구현 | 후속 issue(`/bids` final DTO 정리 시 `NicknameMasker` 재사용) |
-| Numeric error mapping | Frozen (§0-A) | 불일치: `AuctionNotFoundException`이 40401이 아닌 **40402** 사용, 스펙의 40402/40403(ORDER_NOT_FOUND/BACKUP_OFFER_NOT_FOUND) 자리를 각각 `AuctionNotFoundException`/`UserNotFoundException`이 점유 중. `/live`, `/auto-bid/recommendation`(#40 신규)도 동일하게 40402를 그대로 사용해 기존 gap과 번호를 맞춤 | 후속 issue — Order/BackupOffer 구현 전에 정리 필요(그때 가서 번호 충돌 발생) |
+| Numeric error mapping — `AuctionNotFoundException` | **RESOLVED (#46)** | `AuctionNotFoundException`을 40402→40401로 옮겼다. Order 도메인이 아직 없어 40402가 다른 예외에 점유되지 않은 상태를 확인한 뒤 단독으로 renumbering — 아래 `#46 Implementation Notes` 참고 | — |
+| Numeric error mapping — `UserNotFoundException` | Frozen (§0-A) | 스펙의 40403(BACKUP_OFFER_NOT_FOUND) 자리를 `UserNotFoundException`이 여전히 점유 중 — BackupOffer 도메인이 아직 없어 현재는 실제 충돌이 없다 | 후속 issue — BackupOffer 구현 전에 정리 필요(그때 가서 번호 충돌 발생) |
 | `40909 CONCURRENT_CONFLICT` mapping | Frozen (§0-A, HTTP 409 / code 40909 / 재시도 최대 1회) | 없음 — DB lock 예외(`CannotAcquireLockException`, #34 raw에서 135/160 관찰)가 catch-all `Exception` 핸들러로 떨어져 **500 / 50001**로 응답됨 | 후속 issue |
 | Auth: Bearer token | Frozen (§0.1) | Mock 인증(`X-User-Id` 헤더 + `MockAuthInterceptor`) | 후속 issue(인증 시스템 도입 시) |
 | Time 직렬화: ISO-8601 절대시각 (저장된 timestamp) | **RESOLVED** | 아래 `Time Policy (#41 후속)` 참고 — Asia/Seoul 고정 정책으로 `+09:00` 절대시각을 전 응답에 일관 적용 | — |
@@ -86,11 +87,11 @@ unchanged.
 ```text
 endpoint implemented (엔드포인트 존재 여부 기준, contract 완전 일치를 의미하지 않음): 9/20 (#1, #2, #3, #4, #5, #6, #7, #8, #9)
 not implemented yet: 11/20
-implementation gaps (contract resolved, code lagging): #1, #2, #3, #9 — 위 §Deferred Implementation Gaps 참고
+implementation gaps (contract resolved, code lagging): #1, #3, #9 — 위 §Deferred Implementation Gaps 참고
   (#4, #5, #6, #7, #8은 각각 #40/#41에서 확정한 정책을 그대로 구현해 gap 없음 — §40/§41 Implementation Notes 참고)
-  (#2/#9의 extensionCount·maxExtensions와 #9의 BID_NOT_ALIGNED는 #43에서 해소 — #2는 numeric error
-   mapping(40402) 등 다른 cross-cutting gap이 남아있어 endpoint 전체 상태는 여전히
-   IMPLEMENTED WITH DEFERRED GAPS다. #43 Implementation Notes 참고)
+  (#2/#9의 extensionCount·maxExtensions와 #9의 BID_NOT_ALIGNED는 #43에서 해소. #2의 마지막
+   남은 gap이던 numeric error mapping(40402)도 #46에서 AuctionNotFoundException을 40401로
+   옮기며 해소되어, #2는 이번에 IMPLEMENTED, no gap으로 재분류한다 — #46 Implementation Notes 참고)
 contract conflicts: 0/20
 ```
 
@@ -575,6 +576,207 @@ CREATE/AutoBid UPDATE 세 경로 각각을 **실제 경쟁자가 있어 Proxy가
 가격/승자, 신규 Bid, 경쟁자의 AutoBidSetting 상태, `AuctionPriceAudit` row, Idempotency
 claim row(성공 snapshot 포함). 세 경로 모두 audit이 같은 트랜잭션 안에 있음을 이 방식으로
 확인했다.
+
+## #46 Implementation Notes
+
+`refactor/#46-write-api-final-contract`에서 4개 write API(POST /bids, POST /auto-bids,
+PATCH /auto-bids/me, DELETE /auto-bids/me)의 Controller/DTO/공통 envelope/exception
+mapping/Springdoc을 FINAL contract와 최종 대조했다. Envelope·DTO·상태 코드·Idempotency
+계약은 이미 #41~#45에서 충족돼 있었고, 이번에 실제로 고친 것은 두 가지뿐이다.
+
+### Numeric error mapping — `AuctionNotFoundException` 40402→40401 RESOLVED
+
+§Deferred Implementation Gaps에 기록돼 있던 `AuctionNotFoundException`의 번호 불일치를
+`AuctionNotFoundException`만 단독으로 수정했다. 재확인한 근거:
+
+```text
+- 40402(ORDER_NOT_FOUND)는 Order 도메인이 아직 없어 어떤 예외도 점유하고 있지 않았다
+  (renumbering 시점 기준 handler/production 코드 전수 검색으로 확인).
+- 40401은 이전까지 어떤 handler도 쓰고 있지 않았다.
+- 40403(BACKUP_OFFER_NOT_FOUND) 자리를 점유 중인 UserNotFoundException은 이번에 건드리지
+  않았다 - BackupOffer 도메인이 아직 없어 지금 당장 충돌이 없고, 이번 이슈가 요청한 범위
+  (AuctionNotFoundException 단독)를 벗어나는 별도 renumbering이기 때문이다. 여전히 후속
+  issue로 남는다(§Deferred Implementation Gaps 표 참고).
+- 40404(AUTO_BID_NOT_FOUND)는 AutoBidNotFoundException이 이미 올바르게 쓰고 있어 영향 없다.
+```
+
+변경 파일: `GlobalExceptionHandler.handleAuctionNotFoundException()`(40402→40401)뿐이다 -
+`AuctionNotFoundException`을 던지는 지점(`AuctionQueryService`, `BidQueryService`,
+`BidCommandService`, `AutoBidCommandService`)은 전부 이 한 handler로 수렴하므로 production
+코드는 그 외에 바꿀 곳이 없다. `AuctionControllerTest`의 관련 5개 회귀(경매 상세조회/입찰이력
+조회/입찰/`live`조회/자동입찰 추천조회의 "존재하지 않는 경매" 케이스)를 40402→40401로 갱신했다.
+이 renumbering으로 §Endpoint Status Summary의 `#2 /live`도 마지막 남은 gap이 해소되어
+`IMPLEMENTED, no gap`으로 재분류한다(`#1`은 응답 shape 자체가 여전히 다른 gap이라 재분류하지
+않는다).
+
+### Lock 사이 non-locking 조회 — CORRECTION 및 RESOLUTION: "본인 row라서 안전하다"는 틀린 근거였고, 실제 stale-read 버그를 발견해 A안(locking current read)으로 고쳤다
+
+최초 작성 시 아래처럼 결론 냈으나 틀렸다 — 그대로 남겨두면 오해를 재생산하므로 무엇이 틀렸는지와
+함께 기록한다.
+
+```text
+[틀린 결론, 삭제하지 않고 반례로 남김]
+"idempotency claim 조회 / 본인 소유 User·AutoBidSetting 조회는 호출자 본인 행만 보므로
+non-locking이어도 안전하다."
+```
+
+**왜 틀렸는가**: MySQL/InnoDB REPEATABLE READ의 read view는 트랜잭션의 **"첫 SELECT"** 가 아니라
+**"첫 non-locking consistent read"** 에서 확립될 수 있다 — locking read(`FOR UPDATE`)는 read
+view 확립에 관여하지 않고 항상 최신 커밋을 읽는다. 이 구조(claim → command)에서는 command
+실행 전 `IdempotencyClaimService`의 claim 조회(일반 SELECT)가 사실상 그 트랜잭션의 첫
+non-locking consistent read라, 그 지점에서 read view가 고정될 수 있다. 이후 같은 트랜잭션의
+모든 non-locking SELECT는 "누구의 row인가"와 무관하게 그 read view를 그대로 쓴다.
+`AutoBidSetting`처럼 **읽은 값을 그대로 새 값 계산에 쓰고 절대값으로 덮어쓰는(read-then-overwrite)
+mutable 필드**를 이런 non-locking 조회로 읽으면 lost update가 발생할 수 있다 — `User` 조회가
+이 문제와 무관한 이유는 "본인 소유라서"가 아니라, 이 커맨드들이 User를 아예 mutate하지 않는
+순수 참조 조회이기 때문이다(아래 "참조 조회 vs mutable 조회 구분" 참고).
+
+### 실제 재현 (UPDATE_AUTO_BID) — 발견 당시 CONFIRMED BUG, 이번에 RESOLVED
+
+시나리오: 같은 사용자가 서로 다른 Idempotency-Key로 `cap=100`인 자기 AutoBid에 동시에
+`PATCH cap=200`과 `PATCH cap=150`을 보낸다. 정책(§7, `40907 CAP_NOT_INCREASED`)상 cap은
+감소해선 안 되므로 최종 cap은 200 밑으로 내려가면 안 된다.
+
+**수정 전** `AutoBidCommandService.updateAutoBid()`의 실제 호출 순서:
+
+```text
+1. [Auction 락 이전, non-locking] IdempotencyRepository.findByUserIdAndOperationScope...()
+   — 이 SELECT가 트랜잭션의 read view를 확립할 수 있다.
+2. [Auction 락 이전, non-locking] AutoBidSettingRepository
+   .findByAuctionIdAndUserIdAndActiveSlotTrue(auctionId, userId)
+   — entrant 본인 설정을 "Auction 락을 잡기 전에" 읽는다. 1번에서 확립된 read view를 그대로 쓴다.
+3. AuctionRepository.findByIdForUpdate(setting.getAuction().getId()) — PESSIMISTIC_WRITE
+   (locking read라 read view와 무관하게 최신 Auction을 본다 - 여긴 원래도 문제 없었다)
+4. requiresIncrease && newMaxAmount <= setting.getMaxAmount() 검사
+   — 여기서 쓰는 setting.getMaxAmount()가 2번에서 읽은, read view 확립 시점의 stale 값이다.
+5. setting.changeMaxAmount(newMaxAmount) — 절대값으로 덮어쓰기. @Version 없음(낙관적 락 없음).
+```
+
+두 트랜잭션(cap=200, cap=150) 모두 2번을 Auction 락 대기 이전에 실행하므로, 둘 다 서로의 커밋
+이전에 이미 자신의 read view(`maxAmount=100`)를 확립한다. Auction 락이 둘을 3번에서
+직렬화시켜 어느 한쪽(예: cap=200)이 먼저 커밋해도, 나중에 실행되는 쪽(cap=150)의 4번 검사는
+**여전히 자신의 read view(100)** 를 기준으로 `150 <= 100`을 확인하므로 통과해버리고, 5번에서
+이미 커밋된 200을 150으로 그대로 덮어쓴다.
+
+**`AutoBidCapUpdateStaleReadMySqlIT`**(당시 신규, `@Tag("experiment")`)로 실제
+MySQL(Testcontainers, InnoDB)에서 확인했다:
+
+```text
+- 최초 delay 없이 실행 → 우연히 통과(두 HTTP 요청이 자연 지연으로 사실상 순차 실행되어
+  레이스 윈도우 자체가 열리지 않음 - 재현 실패를 의미하지 않는다, 강제 실행에서 확인됨).
+- ManualBidConcurrencyRaceIT(#35)와 동일한 RaceWindowDelay 패턴(production
+  AutoBidSettingRepository를 감싸는 test-only @Primary proxy)으로
+  findByAuctionIdAndUserIdAndActiveSlotTrue() 반환 직후 1000ms를 강제 삽입해 두 트랜잭션이
+  모두 own-setting read view를 확립한 뒤에야 Auction 락 경쟁을 시작하도록 강제.
+- 결과: 두 PATCH 모두 200 OK(어느 쪽도 40907로 거부되지 않음). 최종 커밋된 maxAmount = 150000.
+  기대값(>= 200000) 위반 — AssertionError로 확인.
+```
+
+#### 적용한 수정 — A안(locking current read), RESOLVED
+
+`AutoBidSettingRepository`에 write 경로 전용 locking finder를 추가했다:
+
+```java
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+@Query("select s from AutoBidSetting s where s.auction.id = :auctionId and s.user.id = :userId and s.activeSlot = true")
+Optional<AutoBidSetting> findCurrentByAuctionIdAndUserIdForUpdate(Long auctionId, Long userId);
+```
+
+기존 `findByAuctionIdAndUserIdAndActiveSlotTrue()`(non-locking)는 순수 조회(GET /auto-bids/me
+등)에 그대로 남겨뒀다 — write 경로 세 지점만 이 새 locking finder로 교체했다:
+
+```text
+- UPDATE_AUTO_BID: updateAutoBid()가 own-setting 조회를 이 locking finder로 바꿨다. 단, 이
+  조회는 원래 Auction FOR UPDATE보다 "먼저" 실행됐다 - locking read로 바꾸면서 그 순서를
+  유지하면 AutoBidSetting 락을 Auction 락보다 먼저 잡게 되어 #45가 확정한 lock ordering
+  (Auction FOR UPDATE → AutoBidSetting FOR UPDATE, 다른 두 경로는 이미 이 순서)과 충돌해 새
+  데드락 경로가 생긴다. 그래서 순서 자체를 뒤집었다 - auctionId는 controller/path variable에서
+  이미 넘어오므로, own-setting을 거치지 않고도 Auction을 먼저 조회할 수 있다.
+  결과: Auction FOR UPDATE(auctionId 직접 사용) → own-setting FOR UPDATE(신규 locking
+  finder) → penalty/closed/minCap/40907 검증 → (LIVE라면) competitor FOR UPDATE → Proxy →
+  mutation → audit → commit. 세 write 경로 모두 "Auction → own-setting → competitor" 순서로
+  통일됐다.
+- CREATE_AUTO_BID: createAutoBid()의 40908 사전 존재 검사를 이 locking finder로 바꿨다(이미
+  Auction 락 이후에 실행되던 위치라 순서 변경은 필요 없었다). uk_auto_bid_setting_active_slot
+  UNIQUE 제약은 그대로 마지막 방어선으로 남겨뒀다 - 두 겹 방어(사전 locking 검사 + DB UNIQUE)다.
+- PLACE_BID: BidCommandService.cancelOwnActiveAutoBidIfPresent()도 이 locking finder로
+  바꿨다(이미 Auction 락 이후 실행되던 위치라 순서 변경은 필요 없었다).
+```
+
+**데드락 위험 재확인**: 세 경로 모두 이제 "Auction FOR UPDATE → own-setting FOR UPDATE →
+competitor FOR UPDATE" 순서를 지킨다. own-setting은 호출자 본인의 단일 row이고 competitor
+쿼리는 `user.id <> :userId`로 호출자 본인을 제외하므로 두 락이 같은 row를 다시 잡는 일은 없다.
+Auction 락이 이미 모든 write 트랜잭션을 완전히 직렬화하므로(#45), 이 시점에 같은 auction의
+AutoBidSetting row를 두고 경쟁할 수 있는 다른 살아있는 트랜잭션은 없다(#45와 동일 근거).
+
+**회귀 전환**: 버그를 재현했던 `AutoBidCapUpdateStaleReadMySqlIT`를
+`AutoBidCapUpdateConcurrencyMySqlIT`로 이름을 바꾸고 `@Tag("experiment")`를 제거했다 - 시나리오
+(초기 cap=100, 동시 PATCH 200/150)는 그대로 유지하고 delay 대상만 새 locking finder로
+맞췄다. 정책 assertion(`최종 cap >= 200000`)도 약화하지 않았다. 실행 순서에 따라 어느 요청이
+200/409(40907)를 받는지는 갈릴 수 있어 HTTP 성공/실패 개수는 느슨하게(200 또는 409만 허용, 500
+불허) 확인하고, 최종 DB invariant(cap >= 200000)만 고정 assert한다 - 실제 MySQL에서 green.
+
+### 같은 메커니즘이 있던 나머지 두 경로
+
+```text
+CREATE_AUTO_BID의 40908 사전 검사
+  - RESOLVED. findCurrentByAuctionIdAndUserIdForUpdate()로 교체해 사전 검사 자체도 stale하게
+    "없음"을 반환하지 않는다. uk_auto_bid_setting_active_slot UNIQUE 제약은 그대로 최종
+    방어선으로 남아있다 - 사전 검사가 이제 locking read라 대부분의 경우 40908이 사전 검사에서
+    바로 나가고, DB UNIQUE는 여전히 이론적 마지막 backstop 역할을 한다.
+    AutoBidConcurrencyMySqlIT(기존, "서로 다른 key 동시 CREATE → 정확히 1개만 성공") 재확인 완료.
+
+PLACE_BID의 cancelOwnActiveAutoBidIfPresent
+  - RESOLVED. findCurrentByAuctionIdAndUserIdForUpdate()로 교체했다.
+  - 신규 `AutoBidCancelOnConcurrentManualBidMySqlIT`로 실제 MySQL 강제 재현/검증했다:
+    ManualBidConcurrencyRaceIT(#35)와 동일한 AuctionRepository delay 패턴으로 CREATE_AUTO_BID가
+    먼저 Auction 락을 잡고 보유하도록 강제한 뒤, 그 커밋 직후 Manual Bid가 own-setting을 locking
+    read로 확인해 정확히 취소하는지(`autoBidCanceled=true`, 설정이 CANCELED로 전이) 검증한다 -
+    green.
+```
+
+### 참조 조회 vs mutable 조회 구분
+
+```text
+UserRepository.findById() — 이 command들 안에서는 User를 mutate하지 않는 참조 조회다. 이번
+  Proxy price-state locking invariant(AutoBidSetting 읽기-쓰기 보호)의 대상이 아니다. 다만
+  "안전하다"고 단정하지 않는다 - 이 트랜잭션이 안 바꾸더라도 다른 트랜잭션이 penaltyUntil 같은
+  입찰 판단 필드를 동시에 바꾸면 이 non-locking read도 stale decision을 낼 수 있다. User의
+  mutable eligibility state(penalty 등)에 대한 read consistency는 이번 #46 follow-up의 범위가
+  아니며 별도 정책 범위로 남겨둔다.
+
+AutoBidSetting 조회(findCurrentByAuctionIdAndUserIdForUpdate, write 경로 전용) — "mutable,
+  business-decision" 조회. 읽은 값(maxAmount/status)이 그대로 (a) 검증 조건에 쓰이고 (b) 같은
+  트랜잭션에서 그 엔티티 자체가 mutate(changeMaxAmount/cancel)되어 flush된다.
+  read-then-overwrite 패턴이라 non-locking이면 stale write가 가능했다 - Auction이
+  findByIdForUpdate로 이미 이렇게 보호받는 것과 같은 이유로 locking current read로 바꿨다
+  (위 RESOLUTION 참고). 순수 조회(findByAuctionIdAndUserIdAndActiveSlotTrue, GET
+  /auto-bids/me 등)는 여전히 non-locking 그대로다 - business 결정에 쓰이지 않는다.
+```
+
+### A안 적용 후 검증 중 발견 — `ProxyMixedConcurrencyMySqlIT` 3-way 동시 CREATE의 "전원 201" assertion은 concurrency invariant가 아니었다
+
+A안 적용 후 `ProxyMixedConcurrencyMySqlIT`의 3인 동시 LIVE AutoBid CREATE 테스트를 20회 반복
+실행해 약 1/3(19회 중 7회) 확률로 실패를 관찰했다. 원인은 lock 경합/데드락이 아니라 **정상
+도메인 규칙**이었다 - cap 구성(150000/300000/200000)에서 Auction 락이 세 요청을 직렬화하는
+순서상 최약 cap(150000)이 다른 두 참가자(300000/200000)보다 나중에 처리되면, 그 둘의 pairwise
+경쟁으로 `currentPrice`가 205000까지 오르고 `minCapAmount`가 210000이 되어 150000 cap이
+정당하게 `409/40906 CAP_TOO_LOW`로 거절된다(응답 body로 직접 확인). 6가지 처리 순서 중 최약
+cap이 마지막인 경우가 2가지라 이론상 1/3 확률과 실측 결과가 일치한다.
+
+즉 이 테스트가 원래 하드코딩했던 "3명 모두 항상 201"은 **concurrency correctness invariant가
+아니라 실행 순서에 의존하는 잘못된 assertion**이었다 - #46의 lock-ordering 수정이 만든 결함이
+아니다(own-setting/competitor 락이 늘어나며 지연이 커져 "최약 cap이 마지막에 처리되는" 순서가
+더 자주 나오게 되어 노출 빈도만 높아졌다). production Proxy 가격 정책은 변경하지 않았고, 테스트만
+domain invariant에 맞게 고쳤다: 최강(B)/차강(C) cap은 항상 201을 요구하고, 최약(A) cap은
+201 또는 409/40906만 허용하며, 응답 성공 개수 대신 트랜잭션 종료 후 DB post-state(ACTIVE 최대
+1개, winner=최강 cap, 나머지 CAP_REACHED, 거절된 요청은 row 미생성, currentWinner-Bid 일치,
+가격 단조증가, winner effectiveCap 초과 금지)를 assert하도록 수정했다 - 수정 후 8회 연속 green
+확인.
+
+참고: 20회 반복 중 20번째 실행이 미완료로 남은 것은 반복 루프 전체에 건 10분 커맨드 타임아웃
+때문이었다 - 개별 테스트 자체의 hang/데드락 증거로 취급하지 않는다(개별 실행에서 hang이
+재현되면 그때 별도 조사).
 
 ## Freeze Blockers
 

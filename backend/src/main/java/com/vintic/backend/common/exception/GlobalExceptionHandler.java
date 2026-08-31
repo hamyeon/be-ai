@@ -89,10 +89,13 @@ public class GlobalExceptionHandler {
     }
 
     // 존재하지 않는 경매 조회 (404 Not Found)
+    // #46: FINAL contract §0-A는 40401=AUCTION_NOT_FOUND, 40402=ORDER_NOT_FOUND로 확정한다.
+    // Order 도메인이 아직 없어 40402가 다른 예외에 점유되지 않은 상태를 확인한 뒤 40402→40401로
+    // 옮겼다(단독 renumbering, 다른 4xx 코드는 이번에 건드리지 않았다).
     @ExceptionHandler(AuctionNotFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleAuctionNotFoundException(AuctionNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(ApiResponse.fail(40402, e.getMessage()));
+                .body(ApiResponse.fail(40401, e.getMessage()));
     }
 
     // 존재하지 않는 사용자 참조 (404 Not Found)

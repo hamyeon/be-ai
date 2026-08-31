@@ -111,7 +111,7 @@ class AuctionControllerTest {
 
         mockMvc.perform(get("/api/auctions/999"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value(40402));
+                .andExpect(jsonPath("$.error.code").value(40401));
     }
 
     @Test
@@ -148,7 +148,7 @@ class AuctionControllerTest {
 
         mockMvc.perform(get("/api/auctions/999/bids"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value(40402));
+                .andExpect(jsonPath("$.error.code").value(40401));
     }
 
     @Test
@@ -185,7 +185,7 @@ class AuctionControllerTest {
                         .contentType("application/json")
                         .content(objectMapper.writeValueAsString(new PlaceBidRequest(15000L))))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value(40402));
+                .andExpect(jsonPath("$.error.code").value(40401));
     }
 
     @Test
@@ -315,7 +315,7 @@ class AuctionControllerTest {
 
         mockMvc.perform(get("/api/auctions/999/live").requestAttr("currentUserId", 2L))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value(40402));
+                .andExpect(jsonPath("$.error.code").value(40401));
     }
 
     @Test
@@ -340,7 +340,7 @@ class AuctionControllerTest {
 
         mockMvc.perform(get("/api/auctions/999/auto-bid/recommendation").requestAttr("currentUserId", 2L))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value(40402));
+                .andExpect(jsonPath("$.error.code").value(40401));
     }
 
     @Test
