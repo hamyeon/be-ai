@@ -18,6 +18,8 @@ import com.vintic.backend.common.util.NicknameMasker;
 import com.vintic.backend.common.util.ProductDisplayName;
 import com.vintic.backend.common.util.TimePolicy;
 import com.vintic.backend.like.repository.AuctionLikeRepository;
+import com.vintic.backend.order.domain.OrderStatus;
+import com.vintic.backend.order.repository.OrderRepository;
 import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.user.domain.User;
 import com.vintic.backend.user.repository.UserRepository;
@@ -46,6 +48,7 @@ public class AuctionQueryService {
     private final UserRepository userRepository;
     private final AutoBidSettingRepository autoBidSettingRepository;
     private final AuctionLikeRepository auctionLikeRepository;
+    private final OrderRepository orderRepository;
     private final Clock clock;
 
     public AuctionQueryService(
@@ -54,6 +57,7 @@ public class AuctionQueryService {
             UserRepository userRepository,
             AutoBidSettingRepository autoBidSettingRepository,
             AuctionLikeRepository auctionLikeRepository,
+            OrderRepository orderRepository,
             Clock clock
     ) {
         this.auctionRepository = auctionRepository;
@@ -61,6 +65,7 @@ public class AuctionQueryService {
         this.userRepository = userRepository;
         this.autoBidSettingRepository = autoBidSettingRepository;
         this.auctionLikeRepository = auctionLikeRepository;
+        this.orderRepository = orderRepository;
         this.clock = clock;
     }
 
@@ -105,12 +110,10 @@ public class AuctionQueryService {
                         seller.getId(),
                         seller.getNickname(),
                         seller.getProfileImageUrl(),
-                        // #55 DEFERRED DATA SOURCE GAP: Order 도메인이 없어(#56에서 구현 예정)
-                        // 실제 판매 완료 건수를 집계할 source가 아직 없다. 0은 "실제로 0건"이라는
-                        // 의미가 아니다 - FINAL contract가 이 필드를 non-null Int(O)로 요구해
-                        // shape만 맞춘 placeholder다. Order 도메인이 연결되기 전까지 이 값에
-                        // 의미를 부여하지 않는다.
-                        0
+                        // #56-1: Order 도메인이 생겨 실제 카운트로 연결한다. "판매 완료"는 PAID
+                        // Order만 센다(#56-0 확정) - PAYMENT_PENDING/PAYMENT_EXPIRED/CANCELED는
+                        // 제외. 단일 count(*) 쿼리라 N+1이 아니다.
+                        (int) orderRepository.countByAuction_Product_Seller_IdAndStatus(seller.getId(), OrderStatus.PAID)
                 ),
                 product.getDescription(),
                 auction.getStartPrice(),

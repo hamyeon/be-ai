@@ -3,11 +3,14 @@ package com.vintic.backend.auction;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.auction.domain.AuctionStatus;
 import com.vintic.backend.auction.domain.CannotBidReason;
+import com.vintic.backend.auction.domain.AuctionResult;
 import com.vintic.backend.auction.dto.AuctionDetailFixtures;
 import com.vintic.backend.auction.dto.AuctionDetailResponse;
 import com.vintic.backend.auction.dto.AuctionLiveResponse;
+import com.vintic.backend.auction.dto.AuctionResultResponse;
 import com.vintic.backend.auction.dto.SimilarAuctionsResponse;
 import com.vintic.backend.auction.service.AuctionQueryService;
+import com.vintic.backend.auction.service.AuctionResultQueryService;
 import com.vintic.backend.autobid.domain.AutoBidSettingStatus;
 import com.vintic.backend.autobid.dto.AutoBidCancelResponse;
 import com.vintic.backend.autobid.dto.AutoBidMaxAmountRequest;
@@ -71,6 +74,9 @@ class AuctionControllerTest {
 
     @MockitoBean
     private AuctionQueryService auctionQueryService;
+
+    @MockitoBean
+    private AuctionResultQueryService auctionResultQueryService;
 
     @MockitoBean
     private BidQueryService bidQueryService;
@@ -442,6 +448,57 @@ class AuctionControllerTest {
                 .thenThrow(new AuctionNotFoundException("존재하지 않는 경매입니다. auctionId: 999"));
 
         mockMvc.perform(get("/api/auctions/999/live").requestAttr("currentUserId", 2L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value(40401));
+    }
+
+    @Test
+    void 결과_조회_WON_성공시_200과_orderId를_반환한다() throws Exception {
+        OffsetDateTime now = OffsetDateTime.now();
+        AuctionResultResponse response = new AuctionResultResponse(
+                1L, AuctionResult.WON,
+                new AuctionResultResponse.Product(10L, "Nike Dunk Low Panda", "Dunk Low", "https://example.com/a.jpg"),
+                1, 105000L, 105000L, 3000L, 108000L,
+                now.plusHours(24), now, 50L, null, false
+        );
+        when(auctionResultQueryService.getResult(1L, 2L)).thenReturn(response);
+
+        mockMvc.perform(get("/api/auctions/1/result").requestAttr("currentUserId", 2L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.result").value("WON"))
+                .andExpect(jsonPath("$.data.rank").value(1))
+                .andExpect(jsonPath("$.data.finalPrice").value(105000))
+                .andExpect(jsonPath("$.data.orderId").value(50))
+                .andExpect(jsonPath("$.data.backupEligible").value(false));
+    }
+
+    @Test
+    void 결과_조회_LOST_성공시_backupEligible을_반환한다() throws Exception {
+        OffsetDateTime now = OffsetDateTime.now();
+        AuctionResultResponse response = new AuctionResultResponse(
+                1L, AuctionResult.LOST,
+                new AuctionResultResponse.Product(10L, "Nike Dunk Low Panda", "Dunk Low", "https://example.com/a.jpg"),
+                2, 105000L, 100000L, null, null,
+                null, now, null, null, true
+        );
+        when(auctionResultQueryService.getResult(1L, 2L)).thenReturn(response);
+
+        mockMvc.perform(get("/api/auctions/1/result").requestAttr("currentUserId", 2L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.result").value("LOST"))
+                .andExpect(jsonPath("$.data.rank").value(2))
+                .andExpect(jsonPath("$.data.myLastBidAmount").value(100000))
+                .andExpect(jsonPath("$.data.orderId").doesNotExist())
+                .andExpect(jsonPath("$.data.backupEligible").value(true));
+    }
+
+    @Test
+    void 존재하지_않는_경매의_결과_조회는_404를_반환한다() throws Exception {
+        when(auctionResultQueryService.getResult(999L, 2L))
+                .thenThrow(new AuctionNotFoundException("존재하지 않는 경매입니다. auctionId: 999"));
+
+        mockMvc.perform(get("/api/auctions/999/result").requestAttr("currentUserId", 2L))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value(40401));
     }

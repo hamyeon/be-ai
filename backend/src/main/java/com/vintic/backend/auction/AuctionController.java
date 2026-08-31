@@ -2,8 +2,10 @@ package com.vintic.backend.auction;
 
 import com.vintic.backend.auction.dto.AuctionDetailResponse;
 import com.vintic.backend.auction.dto.AuctionLiveResponse;
+import com.vintic.backend.auction.dto.AuctionResultResponse;
 import com.vintic.backend.auction.dto.SimilarAuctionsResponse;
 import com.vintic.backend.auction.service.AuctionQueryService;
+import com.vintic.backend.auction.service.AuctionResultQueryService;
 import com.vintic.backend.autobid.dto.AutoBidCancelResponse;
 import com.vintic.backend.autobid.dto.AutoBidMaxAmountRequest;
 import com.vintic.backend.autobid.dto.AutoBidMeResponse;
@@ -44,6 +46,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuctionController {
 
     private final AuctionQueryService auctionQueryService;
+    private final AuctionResultQueryService auctionResultQueryService;
     private final BidQueryService bidQueryService;
     private final ManualBidService manualBidService;
     private final ActivityLogService activityLogService;
@@ -53,6 +56,7 @@ public class AuctionController {
 
     public AuctionController(
             AuctionQueryService auctionQueryService,
+            AuctionResultQueryService auctionResultQueryService,
             BidQueryService bidQueryService,
             ManualBidService manualBidService,
             ActivityLogService activityLogService,
@@ -61,6 +65,7 @@ public class AuctionController {
             AuctionLikeService auctionLikeService
     ) {
         this.auctionQueryService = auctionQueryService;
+        this.auctionResultQueryService = auctionResultQueryService;
         this.bidQueryService = bidQueryService;
         this.manualBidService = manualBidService;
         this.activityLogService = activityLogService;
@@ -81,6 +86,27 @@ public class AuctionController {
     ) {
         AuctionDetailResponse response = auctionQueryService.getAuctionDetail(auctionId, userId);
         activityLogService.recordView(userId, auctionId, response.product().productId());
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    // #56-1: Result는 별도 persisted entity가 아니라 Auction/Order 상태로부터 매 조회마다
+    // 계산한다(side-effect free) - 낙찰자 Order는 이 endpoint가 만들지 않고
+    // AuctionSettlementService가 별도 시점에 만든다(AuctionResultQueryService 클래스 주석 참고).
+    @Operation(
+            summary = "경매 결과 조회",
+            description = "낙찰/패찰/차순위 결과를 계산해 반환한다. BACKUP_WAITING/FORFEITED는 BackupOffer/Penalty "
+                    + "도메인이 아직 없어(#56-2) 이번 범위에서는 나오지 않는다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 경매(40401)")
+    })
+    @GetMapping("/{auctionId}/result")
+    public ResponseEntity<ApiResponse<AuctionResultResponse>> getResult(
+            @PathVariable Long auctionId,
+            @RequestAttribute("currentUserId") Long userId
+    ) {
+        AuctionResultResponse response = auctionResultQueryService.getResult(auctionId, userId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
