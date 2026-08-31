@@ -16,7 +16,36 @@ public interface AutoBidSettingRepository extends JpaRepository<AutoBidSetting, 
     // #41부터 (auction_id, user_id)만으로는 유일하지 않다 - CANCELED 이력이 여러 건 쌓일 수
     // 있기 때문이다(uk_auto_bid_setting_active_slot 참고). activeSlot=true인 "현재 설정"은
     // (auction_id, user_id, active_slot) UNIQUE 덕분에 항상 0~1건이라 안전하게 Optional로 받는다.
+    // 순수 조회(GET /auto-bids/me 등) 전용이다 - business 결정을 내리는 write 경로는 아래
+    // findCurrentByAuctionIdAndUserIdForUpdate()를 써야 한다(#46 follow-up 참고).
     Optional<AutoBidSetting> findByAuctionIdAndUserIdAndActiveSlotTrue(Long auctionId, Long userId);
+
+    // #46 follow-up: write 경로가 "본인의 현재 AutoBidSetting"을 읽고 그 값을 검증/덮어쓰기에
+    // 그대로 쓰는 모든 지점(UPDATE_AUTO_BID의 entrant 조회, CREATE_AUTO_BID의 40908 사전 검사,
+    // PLACE_BID의 cancelOwnActiveAutoBidIfPresent) 전용 locking current read다.
+    //
+    // 이유: MySQL/InnoDB REPEATABLE READ의 read view는 트랜잭션의 첫 non-locking consistent
+    // read에서 확립될 수 있다 - 이 구조에서는 command 실행 전 IdempotencyClaimService의 claim
+    // 조회가 그 역할을 한다(#46 follow-up에서 실측). 그 뒤에 나오는 모든 일반 SELECT는 "누구의
+    // row인가"와 무관하게 그 read view를 그대로 쓴다 - Auction FOR UPDATE(locking read라
+    // read view와 무관하게 항상 최신을 봄) 뒤에 실행되더라도 예외가 아니다.
+    // AutoBidSetting.maxAmount/status는 이 read view로 읽은 값이 그대로 검증 조건과 이후
+    // changeMaxAmount()/cancel()의 덮어쓰기에 쓰이는 mutable, business-decision 필드라
+    // non-locking read면 다른 트랜잭션의 커밋을 놓치고 stale write(lost update)로 이어질 수
+    // 있다 - 실제로 AutoBidCapUpdateStaleReadMySqlIT(강제 race window)에서 재현했다
+    // (초기 cap=100, 동시 PATCH 200/150 → 고쳐지기 전엔 150이 이미 커밋된 200을 덮어씀).
+    //
+    // Auction row lock을 이미 잡은 뒤에만 호출한다(호출부가 lock ordering을 보장) - 이 row를
+    // 쓸 수 있는 다른 살아있는 트랜잭션이 이 시점엔 없으므로 데드락 위험은 없다(#45와 동일 근거).
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select s from AutoBidSetting s
+            where s.auction.id = :auctionId and s.user.id = :userId and s.activeSlot = true
+            """)
+    Optional<AutoBidSetting> findCurrentByAuctionIdAndUserIdForUpdate(
+            @Param("auctionId") Long auctionId,
+            @Param("userId") Long userId
+    );
 
     // #45: PESSIMISTIC_WRITE로 바꿨다 - Proxy resolution이 "이번 트리거를 낸 사용자를 제외한
     // 나머지 ACTIVE 경쟁자"를 찾을 때 쓰는데, 일반 SELECT였을 때는 다음 문제가 있었다.

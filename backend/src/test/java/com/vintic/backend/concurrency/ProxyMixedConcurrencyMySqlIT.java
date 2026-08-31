@@ -223,6 +223,19 @@ class ProxyMixedConcurrencyMySqlIT {
         }
     }
 
+    // #46 follow-up: 이 테스트는 원래 "3명 모두 항상 201"을 assert했으나, 이는 domain invariant가
+    // 아니라 실행 순서 의존적인 잘못된 가정이었다 - 20회 반복 실측에서 약 1/3 확률로 재현되는
+    // 실패를 발견해 원인을 규명했다(아래 주석 및 contract-gap.md #46 notes 참고). Proxy 가격
+    // 정책 자체는 바꾸지 않고, 이 테스트의 assertion만 실제 domain invariant에 맞게 고쳤다.
+    //
+    // cap 구성(A=150000, B=300000, C=200000)에서 pairwise 최대 상승폭을 계산하면:
+    //   - B(300000)는 A/C가 먼저 경쟁해도 그 결과 가격이 최대 160000(=155000+5000)까지만
+    //     오르므로 항상 minCap을 충족한다 - 항상 201이어야 한다.
+    //   - C(200000)도 같은 이유로 A/B가 먼저 경쟁해도 그 결과 minCap이 최대 160000이라 항상
+    //     충족한다 - 항상 201이어야 한다.
+    //   - A(150000)만 B/C가 "둘 다" 먼저 경쟁한 뒤에 등록되면(price가 205000까지 올라
+    //     minCap=210000) 정당하게 40906 CAP_TOO_LOW로 거절될 수 있다 - Auction 락이 세 요청을
+    //     직렬화하는 순서(6가지 중 A가 마지막인 2가지)에 따라 갈리는 정상적인 결과다.
     @Test
     void 복수_사용자의_AutoBid_등록이_동시에_들어와도_최종_상태는_invariant를_지킨다() throws Exception {
         Auction auction = persistLiveAuction(105000L, 5000L);
@@ -266,29 +279,65 @@ class ProxyMixedConcurrencyMySqlIT {
             ready.await();
             start.countDown();
 
-            List<ResponseEntity<ApiResponse<AutoBidRegisterResponse>>> responses = List.of(
-                    futureA.get(30, TimeUnit.SECONDS), futureB.get(30, TimeUnit.SECONDS), futureC.get(30, TimeUnit.SECONDS)
-            );
-            for (var response : responses) {
-                assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+            ResponseEntity<ApiResponse<AutoBidRegisterResponse>> responseA = futureA.get(30, TimeUnit.SECONDS);
+            ResponseEntity<ApiResponse<AutoBidRegisterResponse>> responseB = futureB.get(30, TimeUnit.SECONDS);
+            ResponseEntity<ApiResponse<AutoBidRegisterResponse>> responseC = futureC.get(30, TimeUnit.SECONDS);
+
+            assertThat(responseB.getStatusCode())
+                    .as("최강 cap(300000)은 실행 순서와 무관하게 항상 등록에 성공해야 한다(500/DB exception 누출 금지)")
+                    .isEqualTo(HttpStatus.CREATED);
+            assertThat(responseC.getStatusCode())
+                    .as("차강 cap(200000)은 실행 순서와 무관하게 항상 등록에 성공해야 한다(500/DB exception 누출 금지)")
+                    .isEqualTo(HttpStatus.CREATED);
+
+            // 최약 cap(150000)은 등록 시점 minCap을 충족하면 201, 앞선 B/C 경쟁으로 충족 못하면
+            // 409/40906만 정상이다 - 그 외(다른 코드, 500)는 실패다.
+            assertThat(responseA.getStatusCode())
+                    .as("cap=150000은 minCap 충족 여부에 따라 201 또는 409만 허용된다")
+                    .isIn(HttpStatus.CREATED, HttpStatus.CONFLICT);
+            boolean aRejectedByCapTooLow = responseA.getStatusCode() == HttpStatus.CONFLICT;
+            if (aRejectedByCapTooLow) {
+                assertThat(responseA.getBody().success()).isFalse();
+                assertThat(responseA.getBody().error().code())
+                        .as("A가 거절됐다면 반드시 40906(CAP_TOO_LOW)이어야 한다 - 다른 409/500은 진짜 결함이다")
+                        .isEqualTo(40906);
             }
 
-            // 최강 cap(B, 300000)이 최종 승자여야 하고, 나머지 둘은 CAP_REACHED여야 한다 -
-            // 3파전은 최강/차강 cap만으로 가격이 정해진다(ProxyPriceEngineTest에서 이미 검증된 규칙,
-            // 여기서는 실제 concurrent DB 실행 후에도 그 결과가 유지되는지만 본다).
+            // 핵심 assertion은 응답 성공 개수가 아니라 트랜잭션 종료 후 DB post-state다.
             List<AutoBidSetting> settings = autoBidSettingRepository.findAll().stream()
                     .filter(s -> s.getAuction().getId().equals(auction.getId()))
                     .toList();
-            assertThat(settings).hasSize(3);
+            assertThat(settings)
+                    .as("40906으로 거절된 CREATE는 current AutoBidSetting row를 남기지 않아야 한다")
+                    .hasSize(aRejectedByCapTooLow ? 2 : 3);
+
             long activeCount = settings.stream().filter(s -> s.getStatus() == AutoBidSettingStatus.ACTIVE).count();
-            long capReachedCount = settings.stream().filter(s -> s.getStatus() == AutoBidSettingStatus.CAP_REACHED).count();
-            assertThat(activeCount).isEqualTo(1);
-            assertThat(capReachedCount).isEqualTo(2);
+            assertThat(activeCount)
+                    .as("ACTIVE AutoBidSetting은 최대 1개여야 한다")
+                    .isEqualTo(1);
 
             AutoBidSetting winner = settings.stream()
                     .filter(s -> s.getStatus() == AutoBidSettingStatus.ACTIVE)
                     .findFirst().orElseThrow();
-            assertThat(winner.getUser().getId()).isEqualTo(2L); // 최강 cap(300000)을 등록한 사용자
+            assertThat(winner.getUser().getId())
+                    .as("최강 cap(300000, user 2)이 실행 순서와 무관하게 최종 ACTIVE/winner여야 한다")
+                    .isEqualTo(2L);
+
+            // winner가 아닌 나머지 영속 row는(등록에 성공했다면) 전부 CAP_REACHED여야 한다.
+            List<AutoBidSetting> nonWinners = settings.stream()
+                    .filter(s -> s.getStatus() != AutoBidSettingStatus.ACTIVE)
+                    .toList();
+            for (AutoBidSetting nonWinner : nonWinners) {
+                assertThat(nonWinner.getStatus())
+                        .as("winner가 아닌 영속 설정은 CAP_REACHED여야 한다: userId=" + nonWinner.getUser().getId())
+                        .isEqualTo(AutoBidSettingStatus.CAP_REACHED);
+            }
+
+            if (aRejectedByCapTooLow) {
+                assertThat(autoBidSettingRepository.findByAuctionIdAndUserIdAndActiveSlotTrue(auction.getId(), 1L))
+                        .as("40906으로 거절된 user 1은 current AutoBidSetting이 없어야 한다")
+                        .isEmpty();
+            }
 
             assertPostStateInvariants(auction.getId(), 105000L);
         } finally {

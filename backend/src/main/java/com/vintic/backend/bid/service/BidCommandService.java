@@ -188,8 +188,14 @@ public class BidCommandService {
 
     // ACTIVE/CAP_REACHED만 취소한다 - RESERVED는 계약에 명시된 취소 대상이 아니다(§9,
     // "myState.autoBidStatus가 ACTIVE 또는 CAP_REACHED인 사용자"만 안내 대상으로 언급됨).
+    //
+    // #46 follow-up: locking current read를 쓴다 - Auction 락은 이 메서드 호출 시점에 이미
+    // placeManualBid()에서 잡혀 있으므로 lock ordering 위반 없이 여기서 own-setting을 잠글 수
+    // 있다. non-locking read였다면, 같은 사용자가 동시에 다른 경로(예: 다른 탭의 AutoBid CREATE)로
+    // 방금 커밋한 ACTIVE 설정을 REPEATABLE READ read view 때문에 놓쳐 autoBidCanceled=false로
+    // 잘못 응답하고 실제로는 취소돼야 할 AutoBid가 남을 수 있었다(§9 정책 위반).
     private boolean cancelOwnActiveAutoBidIfPresent(Long auctionId, Long userId) {
-        Optional<AutoBidSetting> setting = autoBidSettingRepository.findByAuctionIdAndUserIdAndActiveSlotTrue(auctionId, userId);
+        Optional<AutoBidSetting> setting = autoBidSettingRepository.findCurrentByAuctionIdAndUserIdForUpdate(auctionId, userId);
         if (setting.isEmpty()) {
             return false;
         }
