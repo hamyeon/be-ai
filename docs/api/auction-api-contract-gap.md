@@ -72,31 +72,32 @@ unchanged.
 
 | # | Endpoint | 비고 |
 | --- | --- | --- |
-| 10 | GET /auctions/{id}/result | — |
-| 11 | POST /auctions/{id}/award/forfeit | — |
-| 12 | GET /orders/{id} | Order 패키지 자체가 없음 |
-| 13 | POST /orders/{id}/pay | — |
-| 14 | GET /me/penalties | `User.isBidRestricted()` 내부 로직만 존재, 조회 API 없음 |
-| 15 | GET /backup-offers/{id} | BackupOffer 패키지 없음 |
-| 16 | POST /backup-offers/{id}/accept | — |
-| 17 | POST /backup-offers/{id}/decline | — |
+| 12 | GET /orders/{id} | Order 도메인은 있지만(#56-1) 조회 endpoint 자체가 없음 |
+| 13 | POST /orders/{id}/pay | 동일 |
+| 14 | GET /me/penalties | `User.isBidRestricted()` 내부 로직만 존재, 조회 API 없음. `Penalty` 엔티티는 있지만(#56-2) 조회 endpoint가 없음 |
 
+#10(`GET /result`)/#11(`POST /award/forfeit`)은 #56-1/#56-2에서, #15/#16/#17(BackupOffer GET/
+accept/decline)은 #56-2/#56-3에서 구현 완료 — 아래 `#56-3 Implementation Notes` 참고.
 #18(Similar)/#19(POST likes)/#20(DELETE likes)는 #55에서 구현 완료 — 아래 `#55 Implementation
 Notes` 참고.
 
 ## Endpoint Status Summary
 
 ```text
-endpoint implemented (엔드포인트 존재 여부 기준, contract 완전 일치를 의미하지 않음): 12/20
-  (#1, #2, #3, #4, #5, #6, #7, #8, #9, #18, #19, #20)
-not implemented yet: 8/20 (#10, #11, #12, #13, #14, #15, #16, #17)
+endpoint implemented (엔드포인트 존재 여부 기준, contract 완전 일치를 의미하지 않음): 17/20
+  (#1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #15, #16, #17, #18, #19, #20)
+not implemented yet: 3/20 (#12, #13, #14 — Order 조회/결제, 페널티 조회)
 implementation gaps (contract resolved, code lagging): #1, #9 — 위 §Deferred Implementation Gaps 참고
   (#1은 product.name/subName·seller.completedSalesCount 두 필드만 남은 gap — 아래
-   #55 Implementation Notes 참고. #3/#18/#19/#20은 #55에서 gap 없이 구현됨)
+   #55 Implementation Notes 참고. seller.completedSalesCount는 #56-1에서 실제 PAID Order
+   count로 연결돼 해소됨. #3/#18/#19/#20은 #55에서 gap 없이 구현됨)
   (#4, #5, #6, #7, #8은 각각 #40/#41에서 확정한 정책을 그대로 구현해 gap 없음 — §40/§41 Implementation Notes 참고)
   (#2/#9의 extensionCount·maxExtensions와 #9의 BID_NOT_ALIGNED는 #43에서 해소. #2의 마지막
    남은 gap이던 numeric error mapping(40402)도 #46에서 AuctionNotFoundException을 40401로
    옮기며 해소되어, #2는 IMPLEMENTED, no gap이다 — #46 Implementation Notes 참고)
+  (#10/#11/#15/#16/#17은 #56-1/#56-2/#56-3에서 gap 없이 구현됨 — 아래 `#56-3 Implementation
+   Notes` 참고. BackupOffer accept의 소유자 검증 부재는 계약 자체가 정의하지 않는 항목이라
+   gap이 아니라 "계약이 침묵하는 부분"으로 별도 기록했다)
 contract conflicts: 0/20
 ```
 
@@ -1161,26 +1162,156 @@ Forfeit + BackupOffer 생성/조회. accept/decline은 여전히 다음 범위(#
   것이다 - #56-1에서 이미 예견하고 남겨뒀던 gap이 실제로 해소됐다.
 ```
 
-### #56-3 남은 범위
+## #56-3 Implementation Notes
+
+BackupOffer accept/decline + Idempotency. #56은 이번 패스로 종료 — 남은 항목은 전부 #57로
+넘어간다(아래 `#57 남은 범위` 참고).
+
+### 구현
 
 ```text
-- POST /backup-offers/{id}/accept, POST /backup-offers/{id}/decline
-  - accept: BackupOffer.status WAITING -> ACCEPTED, Order 생성(purchasePrice = 그 candidate의
-    myLastBidAmount, paymentDeadline = 수락 시각 + 24h), Idempotency-Key 필수(§0.11,
-    ACCEPT_BACKUP_OFFER:{backupOfferId})
-  - decline: WAITING -> DECLINED, 다음 순위(rank 3)에게 새 BackupOffer 생성 가능 - #56-0 결정대로
-    rank 3까지만(rank 4는 후보 아님)
-  - next-backup-candidate 선정 로직: AuctionForfeitService.createBackupOfferIfCandidateExists()가
-    rank 2 전용으로 하드코딩돼 있다 - rank 3 체이닝이 필요해지는 시점에 "다음 미소진 순위를 찾는"
-    형태로 일반화해야 한다(지금은 재사용 가능한 형태로 분리돼 있지 않다 - #56-2 범위에서 Forfeit
-    가 실제로 구현되며 처음 만들어진 로직이라, 재사용 지시가 있었지만 rank 2 하나만 다루는 이번
-    형태로는 그대로 재사용할 수 없다는 점을 명시해 둔다)
+신규
+  backupoffer/service/BackupCandidateSelector.java - #56-2에서 rank 2로 하드코딩돼 있던 forfeit의
+                                           후보 선정 로직을 일반화했다. next(ranked, afterRank)/
+                                           rankOf(ranked, userId) 두 static 메서드로 분리해
+                                           forfeit(afterRank=1 -> rank2)과 decline(afterRank=
+                                           declinedRank -> rank3)이 공유한다. MAX_BACKUP_RANK=3을
+                                           이 클래스 하나에서만 관리한다(#56-0 확정: rank 4는
+                                           후보 아님).
+  backupoffer/service/BackupOfferCommandService.java - accept()/decline() 트랜잭션. accept는
+                                           WAITING 상태 확인 -> deadline 만료 lazy 판정(scheduler
+                                           없이 status가 아니라 offer.isExpired(now)로 판정) ->
+                                           offer.accept() -> Order.createForBackupAccept() 순.
+                                           decline은 offer.decline() -> BackupCandidateSelector로
+                                           다음 후보 찾아 BackupOffer 생성(있으면).
+  backupoffer/service/BackupOfferService.java - Controller 진입점. accept는
+                                           IdempotencyClaimService.claimAndExecute()로 감싸고
+                                           (기존 response_snapshot 구조 그대로 재사용, 새 메커니즘
+                                           추가 없음), decline은 Idempotency-Key를 요구하지 않아
+                                           바로 커맨드로 위임한다(§0.11에 decline이 없음).
+  common/exception/{BackupOfferExpiredException,BackupOfferAlreadyResolvedException,
+    InvalidBackupOfferStatusException}.java
+
+수정
+  order/domain/Order.java                - createForBackupAccept() 추가(#56-1 주석에서 예고한
+                                           "별도 팩토리"). createForWinner와 필드 구성이 동일해
+                                           실제 생성/검증 로직은 private create()로 합쳤다 - 이름만
+                                           분리해 호출부 가독성을 유지한다.
+  backupoffer/domain/BackupOffer.java    - accept()/decline()/isExpired(now) 추가. 상태 가드는
+                                           domain boundary에서(Order.cancel()과 동일 패턴),
+                                           40911/40912 매핑은 서비스가 한다.
+  backupoffer/repository/BackupOfferRepository.java - findByIdForUpdate(PESSIMISTIC_WRITE) 추가.
+                                           **의도적으로 auction/product를 join fetch하지 않는다**
+                                           - MySQL의 SELECT FOR UPDATE는 join된 모든 테이블의
+                                           row에 락을 걸어서, auction까지 잠그면
+                                           AuctionForfeitService/AuctionSettlementService가 이미
+                                           확립한 lock ordering(Auction 먼저)과 교차해 새 데드락
+                                           경로가 생긴다.
+  order/service/AuctionForfeitService.java - BackupCandidateSelector.next(ranked, 1) 재사용으로
+                                           교체(동작 변화 없음, 순수 리팩터링).
+  backupoffer/BackupOfferController.java  - POST /accept, POST /decline 매핑 추가.
+  common/exception/GlobalExceptionHandler.java - 40911/40912 매핑 추가.
+
+테스트(신규)
+  backupoffer/service/BackupCandidateSelectorTest.java   - 순수 단위, rank 경계값/rankOf 미존재
+  backupoffer/service/BackupOfferCommandServiceTest.java - @DataJpaTest, accept/decline 8케이스
+  backupoffer/BackupOfferControllerTest.java(확장)        - accept/decline 5케이스 추가
+  concurrency/BackupOfferAcceptConcurrencyMySqlIT.java   - 실제 MySQL, 서로 다른 key 동시 accept
+                                           시 Order 1건만 / 같은 key 재요청 시 exact replay
+  concurrency/BackupOfferAcceptAtomicityMySqlIT.java     - 실제 MySQL, orders INSERT 강제 실패 시
+                                           offer/Order/Idempotency claim 전부 롤백
+  concurrency/BackupOfferDeclineChainMySqlIT.java        - 실제 MySQL+실제 HTTP, rank2 decline ->
+                                           rank3 생성 / rank3 decline -> 추가 생성 없음
+```
+
+**실행 상태**: 최초 작성 시점엔 이 환경에 Docker가 없어 컴파일만 확인한 상태였다 - 이후
+Docker가 활성화되어 이 저장소의 MySqlIT 18개 클래스 전부를 실제로 실행해 **확인했다**
+(`AuctionForfeitConcurrencyMySqlIT`/`AuctionForfeitAtomicityMySqlIT`(#56-2)와 신규 3개
+(`BackupOfferAcceptConcurrencyMySqlIT`/`BackupOfferAcceptAtomicityMySqlIT`/
+`BackupOfferDeclineChainMySqlIT`) 포함 전부 green). 그 과정에서 실제 버그 2건을 발견해 고쳤다
+- 아래 `실제 MySQL 실행에서 발견한 버그` 참고. `./gradlew test` 전체(618개, H2 슬라이스/단위
+테스트 포함) 중 business regression 615개 전부 통과, 나머지 3개는 아래 두 experiment/
+benchmark 클래스의 의도된 guard다(§summary.md, business regression과 별도 취급).
+
+```text
+ManualBidConcurrencyRaceIT      - #34/#35 correctness 실험. raw CSV 덮어쓰기 방지 guard가
+                                   이미 존재하는 파일을 보고 의도적으로 실패시킨다
+                                   ("본 실험 raw CSV가 이미 존재합니다") - 버그 아님.
+ManualBidPerformanceBenchmarkIT - #36 performance 벤치마크. CONCURRENCY_PERFORMANCE_LABEL이
+                                   설정되지 않으면 의도적으로 실패한다(opt-in 전용,
+                                   기본 test 실행에 포함되면 안 되는 실험) - 버그 아님.
+```
+
+### 실제 MySQL 실행에서 발견한 버그 (Docker 활성화 후 재실행 중 발견/수정)
+
+`AuctionForfeitConcurrencyMySqlIT`/`AuctionForfeitAtomicityMySqlIT`(#56-2에서 작성, 그때는
+Docker가 없어 컴파일만 확인됐던 파일) 둘 다 같은 원인으로 실패했다 - **테스트 코드의 버그였고,
+production 코드는 무관하다.**
+
+```text
+원인: 픽스처가 auctionRepository.save(auction)으로 Auction을 실제로 영속화하기 전에
+      bidRepository.save(Bid.place(auction, ...))를 먼저 호출했다. Bid.auction은 not-null
+      FK인데 아직 transient(영속화 전)인 Auction을 참조해 Hibernate가
+      TransientPropertyValueException을 던졌다. H2(@DataJpaTest)는 이 두 클래스가 아예
+      실행하지 않는 경로라(@SpringBootTest+@Testcontainers 전용) 이번에 Docker로 처음
+      실행하기 전까지 드러나지 않았다.
+수정: auctionRepository.save(auction)을 먼저 호출해 반환된 managed 인스턴스에 대해서만
+      이후 Bid 저장/placeManualBid()/end()를 수행하도록 순서를 바꿨다 - #56-1의
+      AuctionSettlementMySqlIT와 신규 BackupOffer* 3개 IT가 이미 쓰던 순서와 동일하게
+      맞췄다(그 4개는 애초에 순서가 맞아 이번에도 문제없이 통과했다).
+영향 범위: 테스트 픽스처 2개 파일만 수정했다 - AuctionForfeitService/OrderRepository 등
+      production 코드는 전혀 건드리지 않았다. 두 파일 모두 재실행 후 green 확인.
+```
+
+### Lifecycle consistency 재검토 중 발견해 수정한 버그 2건
+
+accept가 실제로 두 번째 Order(원 낙찰자와 다른 buyer)를 만들기 시작하면서, `#56-1/#56-2` 시점엔
+드러나지 않았던 `AuctionResultQueryService`의 가정 두 개가 깨지는 것을 확인하고 그 자리에서
+고쳤다(새 기능 추가가 아니라 기존 코드의 실제 결함 수정):
+
+```text
+1. finalPrice 버그: WON일 때 finalPrice를 auction.getCurrentPrice()(경매 전체의 최종 낙찰가)에서
+   가져오고 있었다 - 원 낙찰자는 그 값과 자신의 구매 금액이 항상 같아 문제가 드러나지 않았지만,
+   차순위 수락자는 order.purchasePrice(예: 20000)가 auction.getCurrentPrice()(예: 30000, 원
+   낙찰가)와 다르다. 고친 뒤: WON일 때 finalPrice = order.getPurchasePrice() (이 사용자가 실제로
+   지불하는 금액). 원 낙찰자 케이스는 두 값이 항상 같으므로 회귀 없음
+   (AuctionResultQueryServiceTest#차순위_수락자의_WON_finalPrice는_원_낙찰가가_아니라_자신의_구매금액이다).
+
+2. backupEligible 버그: "rank 2/3이면 무조건 true"였다 - #56-0 원 결정("아직 소진되지 않은
+   경우"만 true)을 놓치고 있었다(#56-2 시점엔 BackupOffer 상태 자체가 항상 WAITING이라 이
+   구분이 드러나지 않았다). 고친 뒤: BACKUP_WAITING은 항상 true(정의상 소진 전), LOST는
+   rank 2/3이면서 그 후보에게 offer 자체가 없을 때만 true(offer가 있는데 LOST라면 이미
+   DECLINED/EXPIRED로 소진된 상태라는 뜻 - WAITING/ACCEPTED였다면 앞선 분기에서 이미
+   BACKUP_WAITING/WON으로 갈렸을 것이므로)
+   (AuctionResultQueryServiceTest#이미_DECLINED된_후보는_LOST여도_backupEligible이_false다).
+```
+
+### 계약이 침묵하는 부분 - accept/decline 소유자 검증 없음
+
+FINAL contract §16/§17은 accept/decline에 별도 403(예: "이 offer의 candidate가 아님")을
+정의하지 않는다 - "발생 가능" 목록에 40911/40912/40905만 있고 소유권 관련 코드가 없다. GET
+/backup-offers/{id}(§15)도 동일하게 소유자 검증이 없다(#56-2에서 이미 확인한 gap과 같은
+패턴). 이 구현은 계약을 그대로 따라 accept/decline 모두 candidate 본인 여부를 검증하지
+않는다 - **backupOfferId를 아는 인증된 사용자라면 누구든 다른 사람의 제안을 accept/decline할
+수 있다.** 계약이 임의로 확장하지 않는 범위에서 가장 보수적인 해석이지만, 실제 서비스라면
+반드시 짚어야 할 보안 gap이다 - #57 이전에 계약 자체를 수정할지(신규 403 코드 추가) 결정이
+필요하다.
+
+## #57 남은 범위
+
+```text
 - GET /orders/{id}, POST /orders/{id}/pay
-- Backup accepted Order의 PAYMENT_EXPIRED -> rank 3 이양(#56-0 §5) - 실제 만료 처리 자체는 #57
-- UserPenalty의 noShowCount/bidRestrictedUntil 반영 정책(§14, 서버 설정) - #57
-- BackupOffer expiry / payment expiry scheduler - #57
+- Backup accepted Order의 PAYMENT_EXPIRED -> rank 3 이양(#56-0 §5) - 이양 로직 자체는
+  BackupCandidateSelector로 이미 일반화돼 있어 재사용 가능하나, 실제 만료 판정/전이(scheduler)는
+  없다
+- UserPenalty의 noShowCount/bidRestrictedUntil 반영 정책(§14, 서버 설정) - Penalty row 저장까지만
+  구현됐고(#56-2), User 상태에 반영하는 정책은 여전히 없다
+- GET /me/penalties(§14) - Penalty 엔티티는 있지만 조회 endpoint가 없다
+- BackupOffer expiry / payment expiry scheduler
 - 실제 LIVE->ENDED settlement 호출부(scheduler) - DEFERRED UNTIL LIFECYCLE INTEGRATION(#44/#45와
   동일 성격, 여전히 미정)
+- accept/decline 소유자 검증 정책 결정(바로 위 "계약이 침묵하는 부분" 참고)
+```
 
 ## Freeze Blockers
 
