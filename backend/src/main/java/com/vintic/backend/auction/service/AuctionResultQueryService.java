@@ -36,10 +36,12 @@ import java.util.Optional;
 // 조회되는 시점엔 이미 settlement가 끝나 있는 것이 전제다(#44/#45가 이미 같은 전제로 남겨둔
 // DEFERRED UNTIL LIFECYCLE INTEGRATION 항목과 동일한 성격의 gap).
 //
-// #56-2 범위: NO_BIDS/WON/LOST/BACKUP_WAITING/FORFEITED/PAYMENT_EXPIRED 전부 판정 가능하다
-// (PAYMENT_EXPIRED만 여전히 production에서 도달 불가 - Order를 그 상태로 전이시키는 scheduler가
-// #57). 판정 우선순위는 #56-0이 확정한 순서(§Result 판정 예) 그대로다: NO_BIDS -> BACKUP_WAITING
-// -> WON -> FORFEITED -> PAYMENT_EXPIRED -> LOST.
+// NO_BIDS/WON/LOST/BACKUP_WAITING/FORFEITED/PAYMENT_EXPIRED 전부 판정 가능하다(PAYMENT_EXPIRED만
+// 여전히 production에서 도달 불가 - Order를 그 상태로 전이시키는 scheduler가 #57). 판정 우선순위는
+// #56-0이 확정한 순서(§Result 판정 예) 그대로다: NO_BIDS -> BACKUP_WAITING -> WON -> FORFEITED ->
+// PAYMENT_EXPIRED -> LOST. #56-3(accept/decline)이 BackupOffer 상태를 실제로 바꾸기 시작하면서
+// WON/backupEligible 계산이 "원 낙찰자"와 "차순위 수락자" 두 종류를 모두 정확히 구분해야 한다 -
+// finalPrice/backupEligible 관련 주석 참고.
 @Service
 public class AuctionResultQueryService {
 
@@ -98,6 +100,11 @@ public class AuctionResultQueryService {
         Long orderId = null;
         if (result == AuctionResult.WON) {
             Order won = order.orElseThrow(); // determineResult가 WON을 반환했다면 order는 반드시 present다.
+            // 차순위 수락자(#56-3)는 order.purchasePrice가 auction.currentPrice(원 낙찰가)와 다르다
+            // (§12: purchasePrice로 통일). finalPrice는 "이 사용자가 실제로 지불하는 금액"을
+            // 의미해야 하므로 여기서 order 기준으로 덮어쓴다 - 원 낙찰자는 두 값이 항상 같아 결과가
+            // 바뀌지 않는다.
+            finalPrice = won.getPurchasePrice();
             shippingFee = won.getShippingFee();
             totalAmount = won.getTotalAmount();
             paymentDeadline = TimePolicy.toApiTime(won.getPaymentDeadline());
@@ -107,11 +114,19 @@ public class AuctionResultQueryService {
         // orderId는 WON일 때만, backupOfferId는 BACKUP_WAITING일 때만 값을 갖는다(§10).
         Long backupOfferId = result == AuctionResult.BACKUP_WAITING ? backupOffer.orElseThrow().getId() : null;
 
-        // #56-0 확정: rank 2/3만 차순위 후보다. BACKUP_WAITING(이미 제안을 받은 상태)도
-        // "아직 소진되지 않음"에 해당하므로 backupEligible=true다 - LOST/BACKUP_WAITING 둘 다
-        // rank가 2/3이면 true, 그 외 result는 전부 false.
-        boolean backupEligible = (result == AuctionResult.LOST || result == AuctionResult.BACKUP_WAITING)
-                && rank != null && (rank == 2 || rank == 3);
+        // #56-0 확정: rank 2/3만 차순위 후보고, "아직 소진되지 않은 경우"만 true다. BACKUP_WAITING은
+        // 정의상 WAITING offer가 있다는 뜻이라 항상 소진 전이다(true). LOST에서는 offer가 아예
+        // 없어야("아직 forfeit이 이 사람 차례까지 오지 않음") true다 - offer가 있는데 LOST라면
+        // determineResult()가 WAITING/PENDING/PAID 분기를 이미 앞에서 다 걸러냈다는 뜻이므로 그
+        // offer는 DECLINED/EXPIRED로 소진된 상태다(true면 안 된다).
+        boolean backupEligible;
+        if (result == AuctionResult.BACKUP_WAITING) {
+            backupEligible = true;
+        } else if (result == AuctionResult.LOST) {
+            backupEligible = rank != null && (rank == 2 || rank == 3) && backupOffer.isEmpty();
+        } else {
+            backupEligible = false;
+        }
 
         return new AuctionResultResponse(
                 auction.getId(),

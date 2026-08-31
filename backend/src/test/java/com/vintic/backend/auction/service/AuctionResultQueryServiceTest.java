@@ -28,8 +28,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
-// FINAL contract §10. #56-2: NO_BIDS/WON/LOST/BACKUP_WAITING/FORFEITED 전부 실제로 도달
-// 가능하다(PAYMENT_EXPIRED만 여전히 scheduler가 없어 production 경로로 도달 불가 - #57).
+// FINAL contract §10. NO_BIDS/WON/LOST/BACKUP_WAITING/FORFEITED 전부 실제로 도달 가능하다
+// (PAYMENT_EXPIRED만 여전히 scheduler가 없어 production 경로로 도달 불가 - #57).
 @DataJpaTest
 @Import({AuctionResultQueryService.class, TestClockConfig.class})
 class AuctionResultQueryServiceTest {
@@ -265,5 +265,57 @@ class AuctionResultQueryServiceTest {
         assertThat(response.backupOfferId()).isEqualTo(offer.getId());
         assertThat(response.rank()).isEqualTo(2);
         assertThat(response.backupEligible()).isTrue();
+    }
+
+    @Test
+    void 차순위_수락자의_WON_finalPrice는_원_낙찰가가_아니라_자신의_구매금액이다() {
+        // #56-3 lifecycle consistency 회귀: 차순위 수락자의 Order.purchasePrice(20000)는
+        // 원 경매 낙찰가(auction.currentPrice=30000)와 다르다 - finalPrice가 auction.currentPrice를
+        // 그대로 반환하면 이 사용자가 실제로 지불하는 금액과 화면에 모순이 생긴다.
+        User seller = persistUser("seller@vintic.local");
+        User winner = persistUser("winner@vintic.local");
+        User candidate = persistUser("candidate@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        bidRepository.save(Bid.place(auction, candidate, 20000L, BidType.MANUAL));
+        auction.placeManualBid(candidate, 20000L);
+        bidRepository.save(Bid.place(auction, winner, 30000L, BidType.MANUAL));
+        auction.placeManualBid(winner, 30000L);
+        auction.end();
+        orderRepository.save(Order.createForBackupAccept(
+                auction, candidate, 20000L, 3000L, LocalDateTime.now().plusHours(24)
+        ));
+        flushAndClear();
+
+        AuctionResultResponse response = auctionResultQueryService.getResult(auction.getId(), candidate.getId());
+
+        assertThat(response.result()).isEqualTo(AuctionResult.WON);
+        assertThat(response.finalPrice()).isEqualTo(20000L);
+        assertThat(response.totalAmount()).isEqualTo(23000L);
+    }
+
+    @Test
+    void 이미_DECLINED된_후보는_LOST여도_backupEligible이_false다() {
+        // #56-3 lifecycle consistency 회귀: rank 2/3이라도 이미 소진된(DECLINED) 후보는 더 이상
+        // 차순위 후보가 아니다(#56-0 §4 "아직 소진되지 않은 경우"만 true).
+        User seller = persistUser("seller@vintic.local");
+        User winner = persistUser("winner@vintic.local");
+        User candidate = persistUser("candidate@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        bidRepository.save(Bid.place(auction, candidate, 20000L, BidType.MANUAL));
+        auction.placeManualBid(candidate, 20000L);
+        bidRepository.save(Bid.place(auction, winner, 30000L, BidType.MANUAL));
+        auction.placeManualBid(winner, 30000L);
+        auction.end();
+        BackupOffer offer = backupOfferRepository.save(BackupOffer.create(auction, candidate, 20000L));
+        offer.decline();
+        flushAndClear();
+
+        AuctionResultResponse response = auctionResultQueryService.getResult(auction.getId(), candidate.getId());
+
+        assertThat(response.result()).isEqualTo(AuctionResult.LOST);
+        assertThat(response.rank()).isEqualTo(2);
+        assertThat(response.backupEligible()).isFalse();
     }
 }
