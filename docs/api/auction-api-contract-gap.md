@@ -52,13 +52,15 @@ unchanged.
 | Gap | Contract | Current Implementation | Action |
 | --- | --- | --- | --- |
 | Direct bid alignment 검증 | **RESOLVED (#43)** | `Auction.placeManualBid()`가 최소금액(`40904`) 통과 이후 `(amount - currentPrice) % bidIncrement != 0`을 확인해 `BidNotAlignedException`(`40913`)을 던진다. AutoBid `maxAmount`에는 적용하지 않는다(§5, 실효 상한) | — |
-| Nickname masking (`/bids`) | Frozen (§0.9, 항상 4개 별표) | `NicknameMasker`(#40)는 구현됐으나 `GET /bids`에는 아직 적용 안 함 — 여전히 마스킹 없이 raw `bidderId` 노출, `isMine`/`isHighest`도 미구현 | 후속 issue(`/bids` final DTO 정리 시 `NicknameMasker` 재사용) |
+| Nickname masking (`/bids`) | **RESOLVED (#55)** | `NicknameMasker`를 `BidResponse`에 적용, `isMine`/`isHighest`/`bidType` 전부 FINAL contract shape로 반환 — 아래 `#55 Implementation Notes` 참고 | — |
 | Numeric error mapping — `AuctionNotFoundException` | **RESOLVED (#46)** | `AuctionNotFoundException`을 40402→40401로 옮겼다. Order 도메인이 아직 없어 40402가 다른 예외에 점유되지 않은 상태를 확인한 뒤 단독으로 renumbering — 아래 `#46 Implementation Notes` 참고 | — |
 | Numeric error mapping — `UserNotFoundException` | Frozen (§0-A) | 스펙의 40403(BACKUP_OFFER_NOT_FOUND) 자리를 `UserNotFoundException`이 여전히 점유 중 — BackupOffer 도메인이 아직 없어 현재는 실제 충돌이 없다 | 후속 issue — BackupOffer 구현 전에 정리 필요(그때 가서 번호 충돌 발생) |
 | `40909 CONCURRENT_CONFLICT` mapping | Frozen (§0-A, HTTP 409 / code 40909 / 재시도 최대 1회) | 없음 — DB lock 예외(`CannotAcquireLockException`, #34 raw에서 135/160 관찰)가 catch-all `Exception` 핸들러로 떨어져 **500 / 50001**로 응답됨 | 후속 issue |
 | Auth: Bearer token | Frozen (§0.1) | Mock 인증(`X-User-Id` 헤더 + `MockAuthInterceptor`) | 후속 issue(인증 시스템 도입 시) |
 | Time 직렬화: ISO-8601 절대시각 (저장된 timestamp) | **RESOLVED** | 아래 `Time Policy (#41 후속)` 참고 — Asia/Seoul 고정 정책으로 `+09:00` 절대시각을 전 응답에 일관 적용 | — |
-| Endpoint #1 응답 shape (`myState`, `product`, `seller`, AI 필드, `isLiked`/`likeCount`, `finalPrice`, `serverTime`, `minNextBidAmount`/`minCapAmount`) | Frozen (§1) | `AuctionDetailResponse`가 flat한 내부 표현(`id, productId, sellerId, currentWinnerId, ...`)만 제공 | 후속 issue |
+| Endpoint #1 응답 shape (`myState`, `product`, `seller`, AI 필드, `isLiked`/`likeCount`, `finalPrice`, `serverTime`, `minNextBidAmount`/`minCapAmount`) | **RESOLVED (#55)** | `AuctionDetailResponse`를 FINAL contract 중첩 shape로 전면 재작성 — 아래 `#55 Implementation Notes` 참고. `product.subName`/`seller.completedSalesCount`는 남은 gap(바로 아래 두 행) | — |
+| `product.name` / `product.subName` | Frozen (§1, 둘 다 필수 O) | `Product` 엔티티에 전용 컬럼이 없다(`brand`/`model`/`colorway`만 구조화 필드로 존재) — `ProductDisplayName` 유틸로 `brand+model+colorway`를 합성해 `name`으로, `model`을 `subName`으로 임시 대체(#55) | 후속 issue — 전용 `name`/`subName`(또는 한국어/영문 구분) 컬럼 도입 여부 결정 필요(스키마 변경) |
+| `seller.completedSalesCount` | Frozen (§1, Int, 필수 O — non-null) | **DEFERRED DATA SOURCE GAP.** Order 도메인이 없어(§Not Implemented Yet #12/#13) 실제 판매 완료 건수를 집계할 source가 없다. `AuctionQueryService`가 non-null 계약을 어기지 않기 위해 항상 `0`을 반환하지만(#55), 이 값은 "실제로 0건"이라는 의미가 아니다 — shape만 충족하고 semantics는 아직 미충족이다 | Order 도메인이 #56에서 구현되면 실제 카운트로 교체 |
 | Endpoint #9 응답 shape (`minNextBidAmount`, `highestBidderMasked`, `isHighestBidder`, `autoBidCanceled`, `proxyResponded`, `endsAt`) | **RESOLVED (#41 후속)** | `PlaceBidResponse`를 FINAL contract shape로 전면 재작성. `extensionCount`도 #43에서 마저 추가됨(바로 아래 행) | — |
 | `/live.extensionCount` / `/live.maxExtensions` / `POST bids.extensionCount` | **RESOLVED (#43)** | 종료 연장 정책(트리거 1분 이내/+3분/최대 3회, §0.13)을 확정하고 `Auction.extensionCount`/`MAX_EXTENSIONS`를 실제 도메인 값으로 연결했다. 아래 `#43 Implementation Notes` 참고 | — |
 | AutoBid POST/PATCH의 `bidOccurred`/`resultingBidAmount`/`isHighestBidder` | **RESOLVED (#42)**, 문서만 미갱신 상태였음 | 코드는 #42에서 이미 `ProxyPriceEngine` 실제 resolution 결과를 반환하도록 구현되어 있었으나(`AutoBidCommandService.createAutoBid`/`updateAutoBid`), 이 문서의 `Proxy integration boundary` 절과 Springdoc/DTO 주석에 "#41 시점, 항상 false/null/false" 문구가 #43 시점까지 남아있었다 — #43에서 문서/Springdoc만 정정했다(코드 변경 없음) | — |
@@ -78,26 +80,29 @@ unchanged.
 | 15 | GET /backup-offers/{id} | BackupOffer 패키지 없음 |
 | 16 | POST /backup-offers/{id}/accept | — |
 | 17 | POST /backup-offers/{id}/decline | — |
-| 18 | GET /auctions/{id}/similar | 다른 경로의 별개 추천 API(`/api/recommendations/auctions`, `/api/curations`)만 존재, 이 계약과 무관 |
-| 19 | POST /auctions/{id}/likes | — |
-| 20 | DELETE /auctions/{id}/likes | — |
+
+#18(Similar)/#19(POST likes)/#20(DELETE likes)는 #55에서 구현 완료 — 아래 `#55 Implementation
+Notes` 참고.
 
 ## Endpoint Status Summary
 
 ```text
-endpoint implemented (엔드포인트 존재 여부 기준, contract 완전 일치를 의미하지 않음): 9/20 (#1, #2, #3, #4, #5, #6, #7, #8, #9)
-not implemented yet: 11/20
-implementation gaps (contract resolved, code lagging): #1, #3, #9 — 위 §Deferred Implementation Gaps 참고
+endpoint implemented (엔드포인트 존재 여부 기준, contract 완전 일치를 의미하지 않음): 12/20
+  (#1, #2, #3, #4, #5, #6, #7, #8, #9, #18, #19, #20)
+not implemented yet: 8/20 (#10, #11, #12, #13, #14, #15, #16, #17)
+implementation gaps (contract resolved, code lagging): #1, #9 — 위 §Deferred Implementation Gaps 참고
+  (#1은 product.name/subName·seller.completedSalesCount 두 필드만 남은 gap — 아래
+   #55 Implementation Notes 참고. #3/#18/#19/#20은 #55에서 gap 없이 구현됨)
   (#4, #5, #6, #7, #8은 각각 #40/#41에서 확정한 정책을 그대로 구현해 gap 없음 — §40/§41 Implementation Notes 참고)
   (#2/#9의 extensionCount·maxExtensions와 #9의 BID_NOT_ALIGNED는 #43에서 해소. #2의 마지막
    남은 gap이던 numeric error mapping(40402)도 #46에서 AuctionNotFoundException을 40401로
-   옮기며 해소되어, #2는 이번에 IMPLEMENTED, no gap으로 재분류한다 — #46 Implementation Notes 참고)
+   옮기며 해소되어, #2는 IMPLEMENTED, no gap이다 — #46 Implementation Notes 참고)
 contract conflicts: 0/20
 ```
 
-`9/20`은 endpoint가 존재하는지만 세는 카운트다 — 그 endpoint가 계약 전 필드를 충족한다는
-뜻이 아니다. 특히 #2 `/live`는 field-level 상태가 아래처럼 갈려 endpoint 자체 상태를
-**`IMPLEMENTED WITH DEFERRED GAPS`**로 기록한다(`IMPLEMENTATION_GAP`과 동일 범주,
+`12/20`은 endpoint가 존재하는지만 세는 카운트다 — 그 endpoint가 계약 전 필드를 충족한다는
+뜻이 아니다. 특히 #1 `GET /auctions/{id}`는 field-level 상태가 아래처럼 갈려 endpoint 자체
+상태를 **`IMPLEMENTED WITH DEFERRED GAPS`**로 기록한다(`IMPLEMENTATION_GAP`과 동일 범주,
 "완전 MATCH"가 아님을 명확히 하기 위한 표기).
 
 구현된 endpoint들이 `CONTRACT_CONFLICT`가 아니라 `IMPLEMENTATION_GAP`인 이유는 각각의
@@ -777,6 +782,157 @@ domain invariant에 맞게 고쳤다: 최강(B)/차강(C) cap은 항상 201을 �
 참고: 20회 반복 중 20번째 실행이 미완료로 남은 것은 반복 루프 전체에 건 10분 커맨드 타임아웃
 때문이었다 - 개별 테스트 자체의 hang/데드락 증거로 취급하지 않는다(개별 실행에서 hang이
 재현되면 그때 별도 조사).
+
+## #55 Implementation Notes
+
+`feat/#55-auction-query-final`에서 #25의 Repository/pagination/stable ordering 기반은
+유지한 채, Auction 조회 계약(#1/#3)을 완성하고 Similar(#18)/Likes(#19/#20)를 신규 구현했다.
+#33~#36 concurrency 실험 결과 문서(protocol.md/environment.md/summary.md)는 raw CSV와
+대조 검증만 하고 **내용을 바꾸지 않았다** — 이미 이전 작업에서 완전히 확정돼 있었다(아래
+참고).
+
+### GET /auctions/{id} — RESOLVED, 필드 2개만 gap
+
+`AuctionDetailResponse`를 flat 표현에서 FINAL contract §1의 중첩 shape
+(`product`/`seller`/`myState`)로 전면 재작성했다.
+
+```text
+product.productId/brand/grade/imageUrls    MATCH (Product 기존 필드 그대로)
+product.name/subName                       근사치 - 아래 "남은 gap" 참고
+seller.sellerId/nickname/profileImageUrl   MATCH (User 기존 필드 그대로)
+seller.completedSalesCount                 DEFERRED DATA SOURCE GAP(0 고정, semantics 미충족) - 아래 "남은 gap" 참고
+description/startPrice/currentPrice/bidIncrement/minNextBidAmount/minCapAmount  MATCH
+startsAt/endsAt/serverTime                 MATCH (TimePolicy 재사용)
+aiEstimatedPrice/aiPriceReason             MATCH - Product.recommendedPrice/reason
+                                            (PricingResult 기반 실제 pricing 결과)를 그대로
+                                            재사용한다. fake 값이 아니다.
+aiRecommendedAutoBidCap                    MATCH - §4에서 이미 확정된 정책(buyer 전용 추천
+                                            소스 없음 -> minCapAmount)을 재사용했다. 새
+                                            정책을 만들지 않았다.
+bidCount/isLiked/likeCount                 MATCH
+myState 전체(isSeller/isHighestBidder/canBid/cannotBidReason/bidRestrictedUntil/
+  autoBidStatus/autoBidCap)                MATCH - Auction.determineCannotBidReason()(#40)
+                                            /AutoBidSettingRepository(#41) 등 기존 domain
+                                            source를 그대로 재사용했다.
+finalPrice                                 MATCH - status==ENDED && currentWinner!=null일 때만
+                                            currentPrice, 아니면 null(유찰 포함).
+```
+
+**남은 gap(fake 값 대신 명시적으로 근사치로 남김)**:
+
+- `product.name`/`product.subName`: `Product` 엔티티에 전용 컬럼이 없다(`brand`/`model`/
+  `colorway`만 구조화 필드). `ProductDisplayName`(신규 유틸)이 `brand+model+colorway`를
+  합성해 `name`으로, `model`을 `subName`으로 대체한다 - 실제 컬럼이 생기기 전까지의
+  근사치이며 완료 보고에서 별도 gap으로 보고했다.
+- `seller.completedSalesCount`: **DEFERRED DATA SOURCE GAP.** Order 도메인이 없어(§Not
+  Implemented Yet #12/#13, #56에서 구현 예정) 항상 `0`을 반환하지만, 이 값은 "실제로 0건"을
+  의미하지 않는다 - FINAL contract의 non-null(Int, O) 계약을 어기지 않기 위한 shape-only
+  placeholder다. Order 도메인 없이 production schema/domain을 이번 #55에서 확장하지 않았고,
+  Order가 #56에서 구현되면 그때 실제 카운트로 연결한다.
+- **인증(RESOLVED)**: `GET /auctions/{id}`/`GET /auctions/{id}/bids`/`GET /auctions/{id}/similar`
+  3개 endpoint 모두 비로그인 접근을 최종 정책으로 확정했다. 기존 계약 문서(§0.1)에는
+  Authorization이 필수(O)로 잘못 표기되어 있었으나, 실제로는 상세조회 도입 시점부터
+  비로그인 접근을 허용해온 의도된 도메인 결정이었다 - production 코드는 변경하지 않고
+  `docs/auction-api-spec-final.md`의 해당 3개 endpoint Authorization 표기를 O -> X(optional)로
+  수정해 문서를 실제 구현에 맞췄다. 인증 헤더가 있으면 개인화(myState/isLiked/isMine)를
+  적용하고 없으면 중립값을 반환하는 동작은 그대로다. 이 항목은 §Auth: Bearer token
+  (Mock auth vs Bearer token 구현 방식 자체의 gap)과는 별개이며, 그 gap은 여전히 유효하다.
+
+쿼리는 기존 `findByIdWithProductAndWinner`(#40, `/live` 전용으로 이미 있던 product+seller+
+currentWinner fetch join)를 그대로 재사용했다 - 새 쿼리를 만들지 않았다.
+
+### GET /auctions/{id}/bids — RESOLVED
+
+`BidResponse`에 `bidderMasked`(`NicknameMasker` 재사용)/`isMine`/`isHighest`/`bidType`을
+추가했다. `isHighest`는 "목록 위치"나 "이 페이지의 최댓값"이 아니라 현재 `Auction.currentWinner`
++`currentPrice`와 정확히 일치하는 단 하나의 Bid만 true로 계산한다(지시대로). #25의 기존
+`Pageable`/`latest`·`oldest`/`createdAt + id` stable ordering과 페이지네이션 테스트는
+전혀 건드리지 않았다 - `BidRepository`의 두 쿼리 메서드는 정렬/페이징 절은 그대로 두고
+`join fetch b.user`만 추가했다(아래 N+1 항목 참고).
+
+### GET /auctions/{id}/similar — 신규 구현, same-brand heuristic
+
+최초 구현 후 프론트 확인 결과를 반영해 최종 정책을 확정했다:
+
+```text
+대상: 상세 화면 "추천상품" 영역(별도 추천경매/추천상품 API 없음 - 이 endpoint가 그 역할을 겸함)
+선정: 같은 brand + 자기 Auction/Product 제외 + 노출 가능(LIVE/SCHEDULED)
+정렬: endAt asc, id asc (deterministic tie-break - endAt이 같아도 항상 같은 순서)
+개수: 최대 4건
+```
+
+**AI/embedding 추천이 아니다.** `recommendation.ProductVectorService`(개인화 추천용, 목적이
+다름)는 의도적으로 쓰지 않았다. 선정 로직은 `AuctionRepository.findSimilarByBrand()` 한
+메서드에만 있고, `AuctionQueryService.getSimilarAuctions()`의 나머지(자기 제외 파라미터/
+likeCount·isLiked 배치 조회/envelope 조립)는 선정 기준이 바뀌어도 재사용 가능하도록
+의도적으로 결합을 최소화했다 - 향후 추천 품질을 바꿀 때 그 한 쿼리(또는 그 쿼리를 호출하는
+한 줄)만 교체하면 된다.
+
+### POST/DELETE /auctions/{id}/likes — 신규 구현
+
+`AuctionLike` entity(`auction_likes` 테이블, `uk_auction_like_auction_user` UNIQUE(auction_id,
+user_id))를 신규 추가했다. FINAL contract §19/§20이 "이미 좋아요한 상태에서 POST"/"좋아요
+없는 상태에서 DELETE"에 대한 별도 에러를 정의하지 않아, 계약이 정의한 유일한 실패 표면(404)을
+넘어서는 에러를 만들지 않는 가장 보수적인 해석으로 두 경우 모두 멱등 처리(현재 상태 그대로
+반환)했다 - 임의 정책이 아니라 계약이 침묵하는 부분에 대한 최소 해석이다.
+
+**동시 좋아요 race 처리 — 시행착오 기록**: 처음엔 "사전 exists-check + saveAndFlush() +
+catch(DataIntegrityViolationException)"를 같은 트랜잭션에서 처리했는데, 실제 MySQL 동시
+요청(`AuctionLikeConcurrencyMySqlIT`)에서 진 쪽이 500으로 샜다 - flush 실패 이후 같은
+영속성 컨텍스트/트랜잭션을 계속 쓰는 게 안전하지 않았다. `REQUIRES_NEW`로 삽입만 격리하는
+두 번째 시도는 `@DataJpaTest` 단위 테스트에서 실패했다 - REQUIRES_NEW 트랜잭션이 별도
+커넥션이라, 같은 테스트의 (아직 커밋되지 않은) Auction/User fixture를 보지 못해 FK
+violation을 진짜 "중복" race로 오판했다. 최종적으로 `IdempotencyClaimService.
+claimAndExecute`/`resolveAfterConflict`(#32)와 동일한 claim/resolve-after-conflict 패턴을
+그대로 적용했다: `AuctionLikeCommandService.like()`가 실패하면 예외를 잡지 않고 그대로
+던져 그 트랜잭션만 깨끗하게 롤백시키고, `AuctionLikeService`(오케스트레이터, non-transactional)
+가 `DataIntegrityViolationException`을 잡아 `currentLikeState()`(완전히 새 트랜잭션)로
+현재 상태를 재조회한다 - InnoDB가 같은 unique key의 두 번째 INSERT를 첫 트랜잭션의 commit까지
+블로킹한다는 성질(#41과 동일 근거)에 의존한다. 실제 MySQL(Testcontainers)로 동시 좋아요 시
+row가 1개만 생성되는지 검증했다(`AuctionLikeConcurrencyMySqlIT`, 4회 연속 green).
+
+### N+1 Audit — 실측으로 2건 발견 후 수정
+
+Hibernate `Statistics`(`getPrepareStatementCount()`)로 실제 쿼리 수를 세는 회귀 테스트를
+추가해(이 저장소 최초의 자동화된 N+1 회귀) 두 건을 실측으로 발견했다:
+
+```text
+1. Bid history: Bid.user가 LAZY라 bidderMasked 계산 시 페이지 크기만큼 SELECT가 반복됨
+   -> BidRepository의 두 쿼리에 join fetch b.user 추가(countQuery는 join 없이 별도 유지),
+      정렬/페이징 자체는 무변경.
+2. Similar: Product.imageUrls(@ElementCollection, LAZY)가 후보 개수만큼 SELECT 반복됨
+   -> Pageable과 collection fetch join을 함께 쓸 수 없어(firstResult/maxResults + fetch
+      join 문제) 대신 Product.imageUrls에 @BatchSize(20) 추가 - 여러 Product의 imageUrls를
+      IN 쿼리 하나로 묶어 로딩한다. 페이징 쿼리 구조 자체는 바꾸지 않았다.
+```
+
+Like count/isLiked(Similar), likeCount/isLiked(상세조회)는 처음부터 배치 조회
+(`countByAuctionIdIn`/`findLikedAuctionIds`)로 설계해 N+1이 없었다.
+
+### #33~#36 Concurrency Experiment 문서 — 검증만, 변경 없음
+
+`docs/experiments/concurrency/{protocol,environment,summary}.md`를 raw CSV 4개
+(`no-lock-correctness`/`pessimistic-correctness`/`no-lock-performance`/
+`pessimistic-performance`)와 대조 검증했다 - **세 문서 모두 이미 완전히 확정돼 있었고
+raw와 100% 일치해 내용을 수정하지 않았다.** 독립적으로 raw CSV를 재계산해(median/p95는
+nearest-rank 방식, throughput은 문서에 정의된 공식) 다음을 재확인했다:
+
+```text
+No-lock correctness:      violations 3/20 (일치)
+Pessimistic correctness:  violations 0/20 (일치)
+No-lock performance:      overall median 27.33ms/p95 38.36ms, success median 29.25ms/p95
+                           40.06ms(문서 40.07ms, 반올림 차이), attempt 253.77/s, successful 32.99/s
+Pessimistic performance:  overall median 60.23ms/p95 111.75ms, success median 45.04ms/p95
+                           99.42ms, attempt 82.56/s, successful 29.72/s
+```
+
+correctness workload(delay=1000ms)와 performance workload(delay=0)를 섞지 않는 점,
+no-lock의 빠른 DB 예외 실패가 attempt throughput을 부풀릴 수 있다는 caveat, frozen
+workload의 N/20을 production race probability로 표현하지 않는다는 caveat, single
+instance/single MySQL 일반화 한계, 레이어별 대안 비교표(JVM lock/optimistic+retry/
+pessimistic DB lock(채택)/Redis 분산 락/SERIALIZABLE/atomic update, 측정하지 않은
+대안에는 수치를 채우지 않음)는 `summary.md`에 이미 전부 있었다(§Alternatives Considered,
+§Limitations, §Interpretation Rules). raw CSV 4개는 읽기만 했고 수정/재생성하지 않았다.
 
 ## Freeze Blockers
 

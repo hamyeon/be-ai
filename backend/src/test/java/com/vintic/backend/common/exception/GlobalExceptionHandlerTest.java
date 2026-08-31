@@ -6,6 +6,7 @@ import com.vintic.backend.autobid.service.AutoBidQueryService;
 import com.vintic.backend.autobid.service.AutoBidService;
 import com.vintic.backend.bid.service.BidQueryService;
 import com.vintic.backend.bid.service.ManualBidService;
+import com.vintic.backend.like.service.AuctionLikeService;
 import com.vintic.backend.recommendation.service.ActivityLogService;
 import com.vintic.backend.user.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -47,6 +48,9 @@ class GlobalExceptionHandlerTest {
 
     @MockitoBean
     private AutoBidQueryService autoBidQueryService;
+
+    @MockitoBean
+    private AuctionLikeService auctionLikeService;
 
     @Test
     void 존재하지_않는_경로는_404를_반환한다() {

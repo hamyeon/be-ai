@@ -2,8 +2,7 @@ package com.vintic.backend.common.auth.mock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.auction.AuctionController;
-import com.vintic.backend.auction.domain.AuctionStatus;
-import com.vintic.backend.auction.dto.AuctionDetailResponse;
+import com.vintic.backend.auction.dto.AuctionDetailFixtures;
 import com.vintic.backend.auction.service.AuctionQueryService;
 import com.vintic.backend.autobid.service.AutoBidQueryService;
 import com.vintic.backend.autobid.service.AutoBidService;
@@ -11,6 +10,7 @@ import com.vintic.backend.bid.dto.PlaceBidRequest;
 import com.vintic.backend.bid.dto.PlaceBidResponse;
 import com.vintic.backend.bid.service.BidQueryService;
 import com.vintic.backend.bid.service.ManualBidService;
+import com.vintic.backend.like.service.AuctionLikeService;
 import com.vintic.backend.recommendation.service.ActivityLogService;
 import com.vintic.backend.config.MockAuthWebConfig;
 import com.vintic.backend.user.repository.UserRepository;
@@ -24,11 +24,11 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -66,6 +66,9 @@ class MockAuthInterceptorTest {
 
     @MockitoBean
     private AutoBidQueryService autoBidQueryService;
+
+    @MockitoBean
+    private AuctionLikeService auctionLikeService;
 
     // 경매 조회/입찰은 추천용 행동 로그를 남긴다. 인증 검증에는 영향이 없어 목으로 둔다.
     @MockitoBean
@@ -109,10 +112,7 @@ class MockAuthInterceptorTest {
 
     @Test
     void currentUserId가_필요없는_API는_헤더가_없어도_통과한다() throws Exception {
-        when(auctionQueryService.getAuctionDetail(1L)).thenReturn(new AuctionDetailResponse(
-                1L, 10L, 100L, null, 10000L, 10000L, 5000L,
-                LocalDateTime.now(), LocalDateTime.now().plusHours(1), AuctionStatus.LIVE, 0L
-        ));
+        when(auctionQueryService.getAuctionDetail(eq(1L), any())).thenReturn(AuctionDetailFixtures.sample());
 
         mockMvc.perform(get("/api/auctions/1"))
                 .andExpect(status().isOk())

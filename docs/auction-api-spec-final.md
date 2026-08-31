@@ -385,6 +385,8 @@ GET /api/auctions/{auctionId}
 
 경매 상태(`SCHEDULED` / `LIVE` / `ENDED`)와 무관하게 하나의 상세 API를 사용한다. 상품 정보, 판매자, AI 시세, 내 참여 상태를 함께 반환한다.
 
+비로그인 접근을 허용한다. Authorization이 있으면 `myState`/`isLiked` 등 개인화 필드를 채우고, 없으면 중립값을 반환한다.
+
 ## Request ✔️
 
 ### Path Variable
@@ -397,7 +399,7 @@ GET /api/auctions/{auctionId}
 
 | 이름 | Type | Description | Required |
 | --- | --- | --- | --- |
-| Authorization | String | Bearer {accessToken} | O |
+| Authorization | String | Bearer {accessToken} | X |
 
 ```
 Authorization: Bearer {accessToken}
@@ -744,6 +746,8 @@ GET /api/auctions/{auctionId}/bids
 
 성공한 유효 입찰만 공개한다. 닉네임 마스킹은 서버에서 수행한다.
 
+비로그인 접근을 허용한다. Authorization이 있으면 `isMine` 등 개인화 필드를 채우고, 없으면 중립값을 반환한다.
+
 ## Request ✔️
 
 ### Path Variable
@@ -756,7 +760,7 @@ GET /api/auctions/{auctionId}/bids
 
 | 이름 | Type | Description | Required |
 | --- | --- | --- | --- |
-| Authorization | String | Bearer {accessToken} | O |
+| Authorization | String | Bearer {accessToken} | X |
 
 ```
 Authorization: Bearer {accessToken}
@@ -2817,6 +2821,8 @@ GET /api/auctions/{auctionId}/similar
 
 상품 상세 하단의 “비슷한 상품 보기” 목록.
 
+비로그인 접근을 허용한다. Authorization이 있으면 `isLiked` 등 개인화 필드를 채우고, 없으면 중립값을 반환한다.
+
 ## Request ✔️
 
 ### Path Variable (1)
@@ -2829,7 +2835,7 @@ GET /api/auctions/{auctionId}/similar
 
 | 이름 | Type | Description | Required |
 | --- | --- | --- | --- |
-| Authorization | String | Bearer {accessToken} | O |
+| Authorization | String | Bearer {accessToken} | X |
 
 ```
 Authorization: Bearer {accessToken}

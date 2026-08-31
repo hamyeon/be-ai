@@ -3,8 +3,10 @@ package com.vintic.backend.auction;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.auction.domain.AuctionStatus;
 import com.vintic.backend.auction.domain.CannotBidReason;
+import com.vintic.backend.auction.dto.AuctionDetailFixtures;
 import com.vintic.backend.auction.dto.AuctionDetailResponse;
 import com.vintic.backend.auction.dto.AuctionLiveResponse;
+import com.vintic.backend.auction.dto.SimilarAuctionsResponse;
 import com.vintic.backend.auction.service.AuctionQueryService;
 import com.vintic.backend.autobid.domain.AutoBidSettingStatus;
 import com.vintic.backend.autobid.dto.AutoBidCancelResponse;
@@ -33,6 +35,8 @@ import com.vintic.backend.common.exception.CapNotIncreasedException;
 import com.vintic.backend.common.exception.CapTooLowException;
 import com.vintic.backend.common.exception.PenaltyRestrictedException;
 import com.vintic.backend.common.exception.SellerCannotBidException;
+import com.vintic.backend.like.dto.LikeResponse;
+import com.vintic.backend.like.service.AuctionLikeService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -40,10 +44,10 @@ import com.vintic.backend.recommendation.service.ActivityLogService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -80,33 +84,82 @@ class AuctionControllerTest {
     @MockitoBean
     private AutoBidQueryService autoBidQueryService;
 
+    @MockitoBean
+    private AuctionLikeService auctionLikeService;
+
     // 조회/입찰 시 추천용 행동 로그를 남긴다. 기록 자체는 여기서 검증하지 않고
     // ActivityLogServiceTest가 담당하므로 빈만 채워둔다.
     @MockitoBean
     private ActivityLogService activityLogService;
 
     @Test
-    void 경매_상세조회_성공시_200과_sellerId_bidCount를_포함한_경매_정보를_반환한다() throws Exception {
+    void 경매_상세조회_성공시_200과_FINAL_contract_필드를_반환한다() throws Exception {
+        OffsetDateTime now = OffsetDateTime.now();
         AuctionDetailResponse response = new AuctionDetailResponse(
-                1L, 10L, 100L, null, 10000L, 10000L, 5000L,
-                LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2), AuctionStatus.SCHEDULED, 2L
+                1L,
+                AuctionStatus.LIVE,
+                new AuctionDetailResponse.Product(10L, "Nike Dunk Low Panda", "Nike", "Dunk Low", "B", List.of("https://example.com/a.jpg")),
+                new AuctionDetailResponse.Seller(100L, "seller", "https://example.com/p.jpg", 0),
+                "설명",
+                50000L, 105000L, 5000L, 110000L, 110000L,
+                now.minusHours(1), now.plusHours(1), now,
+                100000L, 110000L, "산정 근거",
+                2, true, 556,
+                new AuctionDetailResponse.MyState(false, true, false, CannotBidReason.ALREADY_HIGHEST_BIDDER, null, AutoBidSettingStatus.ACTIVE, 120000L),
+                null
         );
-        when(auctionQueryService.getAuctionDetail(1L)).thenReturn(response);
+        when(auctionQueryService.getAuctionDetail(eq(1L), any())).thenReturn(response);
+
+        mockMvc.perform(get("/api/auctions/1").header("X-User-Id", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.auctionId").value(1))
+                .andExpect(jsonPath("$.data.status").value("LIVE"))
+                .andExpect(jsonPath("$.data.product.productId").value(10))
+                .andExpect(jsonPath("$.data.product.name").value("Nike Dunk Low Panda"))
+                .andExpect(jsonPath("$.data.product.subName").value("Dunk Low"))
+                .andExpect(jsonPath("$.data.product.grade").value("B"))
+                .andExpect(jsonPath("$.data.product.imageUrls[0]").value("https://example.com/a.jpg"))
+                .andExpect(jsonPath("$.data.seller.sellerId").value(100))
+                .andExpect(jsonPath("$.data.seller.nickname").value("seller"))
+                .andExpect(jsonPath("$.data.seller.completedSalesCount").value(0))
+                .andExpect(jsonPath("$.data.description").value("설명"))
+                .andExpect(jsonPath("$.data.minNextBidAmount").value(110000))
+                .andExpect(jsonPath("$.data.minCapAmount").value(110000))
+                .andExpect(jsonPath("$.data.aiEstimatedPrice").value(100000))
+                .andExpect(jsonPath("$.data.aiRecommendedAutoBidCap").value(110000))
+                .andExpect(jsonPath("$.data.bidCount").value(2))
+                .andExpect(jsonPath("$.data.isLiked").value(true))
+                .andExpect(jsonPath("$.data.likeCount").value(556))
+                .andExpect(jsonPath("$.data.myState.isHighestBidder").value(true))
+                .andExpect(jsonPath("$.data.myState.cannotBidReason").value("ALREADY_HIGHEST_BIDDER"))
+                .andExpect(jsonPath("$.data.myState.autoBidStatus").value("ACTIVE"))
+                .andExpect(jsonPath("$.data.myState.autoBidCap").value(120000))
+                .andExpect(jsonPath("$.data.finalPrice").doesNotExist());
+    }
+
+    @Test
+    void ENDED_경매는_finalPrice를_반환한다() throws Exception {
+        AuctionDetailResponse response = AuctionDetailFixtures.sample();
+        AuctionDetailResponse ended = new AuctionDetailResponse(
+                response.auctionId(), AuctionStatus.ENDED, response.product(), response.seller(),
+                response.description(), response.startPrice(), response.currentPrice(), response.bidIncrement(),
+                response.minNextBidAmount(), response.minCapAmount(), response.startsAt(), response.endsAt(),
+                response.serverTime(), response.aiEstimatedPrice(), response.aiRecommendedAutoBidCap(),
+                response.aiPriceReason(), response.bidCount(), response.isLiked(), response.likeCount(),
+                response.myState(), 105000L
+        );
+        when(auctionQueryService.getAuctionDetail(eq(1L), any())).thenReturn(ended);
 
         mockMvc.perform(get("/api/auctions/1"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.id").value(1))
-                .andExpect(jsonPath("$.data.productId").value(10))
-                .andExpect(jsonPath("$.data.sellerId").value(100))
-                .andExpect(jsonPath("$.data.status").value("SCHEDULED"))
-                .andExpect(jsonPath("$.data.currentWinnerId").doesNotExist())
-                .andExpect(jsonPath("$.data.bidCount").value(2));
+                .andExpect(jsonPath("$.data.status").value("ENDED"))
+                .andExpect(jsonPath("$.data.finalPrice").value(105000));
     }
 
     @Test
     void 존재하지_않는_경매를_조회하면_404를_반환한다() throws Exception {
-        when(auctionQueryService.getAuctionDetail(999L))
+        when(auctionQueryService.getAuctionDetail(eq(999L), any()))
                 .thenThrow(new AuctionNotFoundException("존재하지 않는 경매입니다. auctionId: 999"));
 
         mockMvc.perform(get("/api/auctions/999"))
@@ -115,16 +168,21 @@ class AuctionControllerTest {
     }
 
     @Test
-    void 입찰이력_조회_성공시_200과_page_정보를_포함한_입찰_목록을_반환한다() throws Exception {
-        BidResponse bid = new BidResponse(1L, 2L, 15000L, BidType.MANUAL, LocalDateTime.now());
+    void 입찰이력_조회_성공시_200과_masking_isMine_isHighest를_포함한_목록을_반환한다() throws Exception {
+        BidResponse bid = new BidResponse(
+                1L, "bid****", true, 15000L, BidType.MANUAL, OffsetDateTime.now(), true
+        );
         BidHistoryResponse response = new BidHistoryResponse(List.of(bid), 0, 20, false);
-        when(bidQueryService.getBidHistory(eq(1L), anyInt(), anyInt(), anyString())).thenReturn(response);
+        when(bidQueryService.getBidHistory(eq(1L), any(), anyInt(), anyInt(), anyString())).thenReturn(response);
 
-        mockMvc.perform(get("/api/auctions/1/bids"))
+        mockMvc.perform(get("/api/auctions/1/bids").header("X-User-Id", "2"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.bids[0].bidderMasked").value("bid****"))
+                .andExpect(jsonPath("$.data.bids[0].isMine").value(true))
                 .andExpect(jsonPath("$.data.bids[0].amount").value(15000))
                 .andExpect(jsonPath("$.data.bids[0].bidType").value("MANUAL"))
+                .andExpect(jsonPath("$.data.bids[0].isHighest").value(true))
                 .andExpect(jsonPath("$.data.page").value(0))
                 .andExpect(jsonPath("$.data.size").value(20))
                 .andExpect(jsonPath("$.data.hasNext").value(false));
@@ -133,7 +191,7 @@ class AuctionControllerTest {
     @Test
     void 입찰이력_조회시_page_size_order_쿼리파라미터가_서비스로_전달된다() throws Exception {
         BidHistoryResponse response = new BidHistoryResponse(List.of(), 1, 5, false);
-        when(bidQueryService.getBidHistory(1L, 1, 5, "oldest")).thenReturn(response);
+        when(bidQueryService.getBidHistory(eq(1L), any(), eq(1), eq(5), eq("oldest"))).thenReturn(response);
 
         mockMvc.perform(get("/api/auctions/1/bids?page=1&size=5&order=oldest"))
                 .andExpect(status().isOk())
@@ -143,10 +201,80 @@ class AuctionControllerTest {
 
     @Test
     void 존재하지_않는_경매의_입찰이력을_조회하면_404를_반환한다() throws Exception {
-        when(bidQueryService.getBidHistory(eq(999L), anyInt(), anyInt(), anyString()))
+        when(bidQueryService.getBidHistory(eq(999L), any(), anyInt(), anyInt(), anyString()))
                 .thenThrow(new AuctionNotFoundException("존재하지 않는 경매입니다. auctionId: 999"));
 
         mockMvc.perform(get("/api/auctions/999/bids"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value(40401));
+    }
+
+    @Test
+    void Similar_조회_성공시_200과_비슷한_상품_목록을_반환한다() throws Exception {
+        SimilarAuctionsResponse response = new SimilarAuctionsResponse(List.of(
+                new SimilarAuctionsResponse.Item(20L, 30L, "BAPE", "BAPE 베이프 슬라이드", "https://example.com/b.jpg", 234000L, 556, false)
+        ));
+        when(auctionQueryService.getSimilarAuctions(eq(1L), any())).thenReturn(response);
+
+        mockMvc.perform(get("/api/auctions/1/similar"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.items[0].productId").value(20))
+                .andExpect(jsonPath("$.data.items[0].auctionId").value(30))
+                .andExpect(jsonPath("$.data.items[0].brand").value("BAPE"))
+                .andExpect(jsonPath("$.data.items[0].price").value(234000))
+                .andExpect(jsonPath("$.data.items[0].likeCount").value(556))
+                .andExpect(jsonPath("$.data.items[0].isLiked").value(false));
+    }
+
+    @Test
+    void 존재하지_않는_경매의_Similar_조회는_404를_반환한다() throws Exception {
+        when(auctionQueryService.getSimilarAuctions(eq(999L), any()))
+                .thenThrow(new AuctionNotFoundException("존재하지 않는 경매입니다. auctionId: 999"));
+
+        mockMvc.perform(get("/api/auctions/999/similar"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value(40401));
+    }
+
+    @Test
+    void 관심_등록_성공시_200과_liked_likeCount를_반환한다() throws Exception {
+        when(auctionLikeService.like(1L, 2L)).thenReturn(new LikeResponse(true, 557));
+
+        mockMvc.perform(post("/api/auctions/1/likes").requestAttr("currentUserId", 2L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.liked").value(true))
+                .andExpect(jsonPath("$.data.likeCount").value(557));
+    }
+
+    @Test
+    void 존재하지_않는_경매에_관심_등록하면_404를_반환한다() throws Exception {
+        when(auctionLikeService.like(999L, 2L))
+                .thenThrow(new AuctionNotFoundException("존재하지 않는 경매입니다. auctionId: 999"));
+
+        mockMvc.perform(post("/api/auctions/999/likes").requestAttr("currentUserId", 2L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value(40401));
+    }
+
+    @Test
+    void 관심_해제_성공시_200과_liked_false_likeCount를_반환한다() throws Exception {
+        when(auctionLikeService.unlike(1L, 2L)).thenReturn(new LikeResponse(false, 556));
+
+        mockMvc.perform(delete("/api/auctions/1/likes").requestAttr("currentUserId", 2L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.liked").value(false))
+                .andExpect(jsonPath("$.data.likeCount").value(556));
+    }
+
+    @Test
+    void 존재하지_않는_경매의_관심을_해제하면_404를_반환한다() throws Exception {
+        when(auctionLikeService.unlike(999L, 2L))
+                .thenThrow(new AuctionNotFoundException("존재하지 않는 경매입니다. auctionId: 999"));
+
+        mockMvc.perform(delete("/api/auctions/999/likes").requestAttr("currentUserId", 2L))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value(40401));
     }
