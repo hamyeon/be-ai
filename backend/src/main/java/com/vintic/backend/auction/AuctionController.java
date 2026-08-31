@@ -2,6 +2,7 @@ package com.vintic.backend.auction;
 
 import com.vintic.backend.auction.dto.AuctionDetailResponse;
 import com.vintic.backend.auction.dto.AuctionLiveResponse;
+import com.vintic.backend.auction.dto.SimilarAuctionsResponse;
 import com.vintic.backend.auction.service.AuctionQueryService;
 import com.vintic.backend.autobid.dto.AutoBidCancelResponse;
 import com.vintic.backend.autobid.dto.AutoBidMaxAmountRequest;
@@ -17,6 +18,8 @@ import com.vintic.backend.bid.dto.PlaceBidResponse;
 import com.vintic.backend.bid.service.BidQueryService;
 import com.vintic.backend.bid.service.ManualBidService;
 import com.vintic.backend.common.dto.ApiResponse;
+import com.vintic.backend.like.dto.LikeResponse;
+import com.vintic.backend.like.service.AuctionLikeService;
 import com.vintic.backend.recommendation.service.ActivityLogService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -46,6 +49,7 @@ public class AuctionController {
     private final ActivityLogService activityLogService;
     private final AutoBidService autoBidService;
     private final AutoBidQueryService autoBidQueryService;
+    private final AuctionLikeService auctionLikeService;
 
     public AuctionController(
             AuctionQueryService auctionQueryService,
@@ -53,7 +57,8 @@ public class AuctionController {
             ManualBidService manualBidService,
             ActivityLogService activityLogService,
             AutoBidService autoBidService,
-            AutoBidQueryService autoBidQueryService
+            AutoBidQueryService autoBidQueryService,
+            AuctionLikeService auctionLikeService
     ) {
         this.auctionQueryService = auctionQueryService;
         this.bidQueryService = bidQueryService;
@@ -61,17 +66,21 @@ public class AuctionController {
         this.activityLogService = activityLogService;
         this.autoBidService = autoBidService;
         this.autoBidQueryService = autoBidQueryService;
+        this.auctionLikeService = auctionLikeService;
     }
 
-    // 조회는 인증이 필요 없다. 다만 헤더가 있으면 추천용 행동 로그를 남기므로 선택적으로 받는다.
+    // #55: 상세조회는 기존부터 비로그인 접근을 허용해왔다(가입 전 상품을 볼 수 있어야 한다는
+    // 기존 결정) - 계약상 Authorization은 필수지만 이 endpoint를 인증 필수로 바꾸는 것은 도메인
+    // 정책 변경이라 이번 범위에서 임의로 바꾸지 않았다(완료 보고 gap 참고). 헤더가 있으면
+    // myState/isLiked를 개인화하고 추천용 행동 로그도 남긴다.
     // (인터셉터는 currentUserId를 파라미터로 받는 핸들러만 검증하므로 여기선 헤더를 직접 읽는다)
     @GetMapping("/{auctionId}")
     public ResponseEntity<ApiResponse<AuctionDetailResponse>> getAuction(
             @PathVariable Long auctionId,
             @RequestHeader(value = "X-User-Id", required = false) Long userId
     ) {
-        AuctionDetailResponse response = auctionQueryService.getAuctionDetail(auctionId);
-        activityLogService.recordView(userId, auctionId, response.productId());
+        AuctionDetailResponse response = auctionQueryService.getAuctionDetail(auctionId, userId);
+        activityLogService.recordView(userId, auctionId, response.product().productId());
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -95,14 +104,64 @@ public class AuctionController {
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
+    // #55: 상세조회와 동일하게 비로그인 접근을 허용한다 - 헤더가 있으면 isMine을 개인화한다.
     @GetMapping("/{auctionId}/bids")
     public ResponseEntity<ApiResponse<BidHistoryResponse>> getBidHistory(
             @PathVariable Long auctionId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "latest") String order
     ) {
-        BidHistoryResponse response = bidQueryService.getBidHistory(auctionId, page, size, order);
+        BidHistoryResponse response = bidQueryService.getBidHistory(auctionId, userId, page, size, order);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(
+            summary = "비슷한 상품 (상세 화면 추천상품 영역)",
+            description = "같은 브랜드의 노출 가능한(LIVE/SCHEDULED) 다른 경매를 종료 임박순(동률이면 "
+                    + "경매 ID 오름차순으로 deterministic tie-break)으로 최대 4건 반환한다(자기 자신 제외). "
+                    + "AI/embedding 추천이 아니라 same-brand heuristic이다 - 향후 추천 품질 개선 시 "
+                    + "선정 로직만 교체될 수 있다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 경매(40401)")
+    })
+    @GetMapping("/{auctionId}/similar")
+    public ResponseEntity<ApiResponse<SimilarAuctionsResponse>> getSimilarAuctions(
+            @PathVariable Long auctionId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId
+    ) {
+        SimilarAuctionsResponse response = auctionQueryService.getSimilarAuctions(auctionId, userId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(summary = "관심 상품 등록", description = "이미 등록돼 있으면 재등록 없이 현재 상태(liked=true)를 그대로 반환한다(멱등). Idempotency-Key를 요구하지 않는다.")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "등록 성공(또는 이미 등록된 상태)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 경매(40401)")
+    })
+    @PostMapping("/{auctionId}/likes")
+    public ResponseEntity<ApiResponse<LikeResponse>> like(
+            @PathVariable Long auctionId,
+            @RequestAttribute("currentUserId") Long userId
+    ) {
+        LikeResponse response = auctionLikeService.like(auctionId, userId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(summary = "관심 상품 해제", description = "이미 해제돼 있거나 등록한 적이 없어도 에러 없이 현재 상태(liked=false)를 그대로 반환한다(멱등). Idempotency-Key를 요구하지 않는다.")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "해제 성공(또는 이미 해제된 상태)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 경매(40401)")
+    })
+    @DeleteMapping("/{auctionId}/likes")
+    public ResponseEntity<ApiResponse<LikeResponse>> unlike(
+            @PathVariable Long auctionId,
+            @RequestAttribute("currentUserId") Long userId
+    ) {
+        LikeResponse response = auctionLikeService.unlike(auctionId, userId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
