@@ -934,6 +934,161 @@ pessimistic DB lock(채택)/Redis 분산 락/SERIALIZABLE/atomic update, 측정�
 대안에는 수치를 채우지 않음)는 `summary.md`에 이미 전부 있었다(§Alternatives Considered,
 §Limitations, §Interpretation Rules). raw CSV 4개는 읽기만 했고 수정/재생성하지 않았다.
 
+## #56 Implementation Notes
+
+`feat/#56-auction-result-backup-order`. #56-0에서 결과 화면(§10)/낙찰 포기(§11)/주문(§12-13)/
+차순위 제안(§15-17) 관련 미확정 정책을 확정했고, #56-1에서 그중 GET /result와 낙찰자 최초
+Order만 구현했다. Forfeit/BackupOffer accept/decline/pay/scheduler는 이번 범위가 아니다.
+
+### #56-0 정책 확정 (구현 전 결정)
+
+```text
+1. Result 저장 방식
+   - Result는 persisted entity가 아니다. Auction/Order(+ 향후 BackupOffer/UserPenalty) 상태로
+     매 조회마다 계산한다. 별도 Award entity도 만들지 않는다.
+
+2. Auction 종료 / 최초 Order 생성
+   - GET /result는 side-effect free다 - Order를 lazy 생성하지 않는다.
+   - AuctionSettlementService.settle(auctionId)가 명시적 command다. ENDED 대상, winner
+     있으면 PAYMENT_PENDING Order 1건, purchasePrice=finalPrice, paymentDeadline=endsAt+24h.
+     재실행해도 중복 생성하지 않는다.
+   - 실제 LIVE->ENDED scheduler 호출부는 DEFERRED UNTIL LIFECYCLE INTEGRATION(#44/#45의
+     ProxyTrigger.None과 동일 성격). payment expiry scheduler는 #57, BackupOffer expiry
+     scheduler도 이번 범위가 아니다.
+
+3. rank / myLastBidAmount
+   - 사용자별 최고(=최신, monotonic이라 항상 같은 값) persisted Bid amount 내림차순.
+   - 동일 금액은 그 금액에 먼저 도달한 Bid의 createdAt asc, id asc로 FIRST-IN WINS(§0.12
+     그대로 재사용, 새 tie-break 규칙 없음).
+
+4. Backup 후보
+   - winner 이후 rank 2, rank 3까지만 후보다. rank 4 이하는 후보 아님.
+   - backupEligible = rank가 2 또는 3이고 아직 소진되지 않았을 때 true. #56-1엔 BackupOffer가
+     없어 "소진 여부"를 판정할 수 없으므로 LOST이고 rank가 2/3이면 항상 true다(#56-2에서
+     BackupOffer 존재/상태로 정교화 예정).
+
+5. Backup accepted Order의 PAYMENT_EXPIRED
+   - rank 2 수락 후 Order가 PAYMENT_EXPIRED되면 rank 3으로 이양 가능 - 실제 만료 처리/penalty는
+     #57. #56-1은 이 로직 자체가 없다(다음 후보 선정 로직을 아직 만들지 않았다 - #56-2에서
+     BackupOffer와 함께 추가).
+
+6. Penalty
+   - #56-1 범위 아님(Penalty 엔티티 자체를 만들지 않았다). FORFEITED 1건 기록은 #56-2(forfeit
+     구현 시점)로 미룬다. noShowCount/bidRestrictedUntil 정책은 §14대로 서버 설정이고 #57 범위다.
+
+7. Lock / concurrency
+   - 모든 post-auction write command는 Auction을 첫 authoritative lock으로 쓴다.
+     AuctionSettlementService.settle()도 동일 원칙을 따른다(findByIdForUpdate가 이 트랜잭션의
+     첫 statement) - Forfeit/Accept/Decline의 구체적 lock 순서는 #56-2 구현 시점에 다시 정리한다.
+
+8. DB invariant
+   - Order UNIQUE(auction_id, buyer_id) 추가(uk_order_auction_buyer). BackupOffer
+     UNIQUE(auction_id, candidate_id)는 #56-2에서 BackupOffer 생성 시 추가한다. service
+     check만으로 중복을 보장하지 않는다(#41 active-slot/#55 auction_like와 동일 방어 계층).
+
+9. 40403 충돌
+   - 40403은 BACKUP_OFFER_NOT_FOUND 전용으로 비운다. 기존 UserNotFoundException 호출부
+     5개 파일 6곳(AuctionQueryService x2, BidCommandService, AutoBidCommandService,
+     AuctionLikeCommandService, ProductRegistrationService)을 확인한 결과 전부 "이미
+     MockAuthInterceptor가 인증 시점(401/40101)에 존재를 검증한 currentUserId"를 서비스
+     내부에서 재조회하는 방어적 중복 체크였다 - 별도의 public "USER_NOT_FOUND" semantics가
+     필요한 신규 요구는 없었다. #56-1 신규 코드(AuctionResultQueryService/
+     AuctionSettlementService)는 이 패턴을 새로 추가하지 않았다(User 엔티티를 아예 조회하지
+     않는다 - 아래 구현 노트 참고). 기존 6개 호출부 자체를 고치는 것(40403 해제)은 이번 이슈
+     범위를 벗어나 손대지 않았다 - 여전히 후속 정리 대상으로 남는다(BackupOfferNotFoundException이
+     실제로 40403을 쓰기 시작하는 #56-2 전에는 번호 충돌이 실제로 발생하지 않는다).
+
+10. completedSalesCount
+    - Order 도메인이 생겨 실제 PAID Order count로 연결한다(PAYMENT_PENDING/PAYMENT_EXPIRED/
+      CANCELED 제외). N+1 없이 단일 count(*) 쿼리.
+
+11. shippingFee (구현 중 추가로 확인한 사용자 결정)
+    - Product/Auction 어디에도 배송비 필드가 없고 FINAL contract 모든 예시가 3000원 고정이라,
+      전역 고정 상수(AuctionSettlementService.SHIPPING_FEE=3000L)로 처리하기로 확인했다.
+      상품별 배송비가 필요해지면 그때 스키마를 바꾼다.
+```
+
+### #56-1 구현
+
+```text
+신규
+  order/domain/Order.java              - createForWinner() 팩토리만 제공(차순위 수락자용
+                                          팩토리는 #56-2에서 추가)
+  order/domain/OrderStatus.java        - PAYMENT_PENDING/PAID/PAYMENT_EXPIRED/CANCELED 전부
+                                          미리 선언(스키마 재변경 방지, PAID/EXPIRED/CANCELED로의
+                                          실제 전이는 #56-1에 없음)
+  order/repository/OrderRepository.java - findByAuctionIdAndBuyerId, completedSalesCount용 집계
+  order/service/AuctionSettlementService.java - settle() 명시적 command
+  auction/domain/AuctionResult.java    - NO_BIDS/WON/LOST/BACKUP_WAITING/FORFEITED/PAYMENT_EXPIRED
+                                          전부 선언, 뒤 2개는 #56-1 경로에서 도달 불가(주석 참고)
+  auction/dto/AuctionResultResponse.java
+  auction/service/AuctionResultQueryService.java - getResult(), side-effect free
+
+수정
+  bid/repository/BidRepository.java    - findLatestBidPerUserOrderedByRank() 추가(사용자당
+                                          최신 Bid만 남긴 뒤 §0.12 FIRST-IN WINS로 정렬)
+  auction/AuctionController.java       - GET /auctions/{id}/result 매핑, AuctionResultQueryService
+                                          의존성 추가
+  auction/service/AuctionQueryService.java - seller.completedSalesCount를
+                                          OrderRepository.countByAuction_Product_Seller_IdAndStatus로 연결
+                                          (#55 DEFERRED DATA SOURCE GAP 해소)
+
+테스트(신규)
+  order/service/AuctionSettlementServiceTest.java       - @DataJpaTest, settle() 5케이스
+  auction/service/AuctionResultQueryServiceTest.java    - @DataJpaTest, Result 6케이스
+  auction/AuctionControllerTest.java (확장)              - GET /result 3케이스(WON/LOST/404)
+  concurrency/AuctionSettlementMySqlIT.java              - 실제 MySQL, 동시 settle() 시
+                                                            Order 1건만 생성되는지
+
+수정(WebMvcTest 슬라이스 회귀 - AuctionController 생성자에 AuctionResultQueryService가
+추가되며 기존 @WebMvcTest(AuctionController.class) 슬라이스 2곳이 컨텍스트 로딩에
+실패해 함께 고쳤다)
+  common/exception/GlobalExceptionHandlerTest.java     - @MockitoBean AuctionResultQueryService 추가
+  common/auth/mock/MockAuthInterceptorTest.java        - @MockitoBean AuctionResultQueryService 추가
+```
+
+### 구현 중 확인된 assumption / 알려진 gap
+
+```text
+- rank/myLastBidAmount: 한 사용자의 Bid amount 시퀀스는 시간순으로 항상 증가한다(새 Bid는
+  항상 직전 currentPrice보다 커야 저장됨, §0.13 monotonic) - 따라서 "최신 Bid" == "최고 Bid"라
+  별도 MAX(amount) 집계 없이 findLatestBidPerUserOrderedByRank() 하나로 rank와
+  myLastBidAmount를 동시에 구한다.
+
+- settlement 전 ENDED 경매 조회: settle()이 아직 실행되지 않은 ENDED 경매를 실제 낙찰자가
+  /result로 조회하면 Order가 없어 WON이 아니라 LOST로 보인다("GET은 side-effect free" 결정의
+  직접적 결과, AuctionResultQueryServiceTest에 회귀로 고정해뒀다). 실제 production에서는
+  lifecycle 스케줄러가 병합되면 /result 조회 시점엔 이미 settlement가 끝나 있는 것이 전제다 -
+  #44/#45가 이미 남겨둔 DEFERRED UNTIL LIFECYCLE INTEGRATION 항목과 동일한 성격의 gap이다.
+
+- /result의 Auction 상태 게이트 없음: ENDED가 아닌 경매(LIVE/SCHEDULED)에 대해 /result를
+  호출해도 막지 않는다 - 입찰이 없으면 NO_BIDS, 있으면 rank/myLastBidAmount 기준으로 계산된다.
+  계약이 이 경우를 명시하지 않고 프론트는 종료 후에만 이 화면을 쓰므로 별도 방어를 추가하지
+  않았다.
+
+- FORFEITED/CANCELED Order 분기: determineResult()에 OrderStatus.CANCELED(forfeit로 인한
+  취소)를 위한 전용 분기가 없다 - #56-1엔 forfeit 자체가 없어 도달 불가능하고, #56-2에서
+  UserPenalty 존재 여부로 FORFEITED를 판별하는 로직과 함께 추가한다(주석으로 명시해뒀다).
+
+- 40403 번호 충돌: 위 정책 9번 참고 - 기존 UserNotFoundException 4개 호출부는 이번에 고치지
+  않았고, BackupOfferNotFoundException이 도입되는 #56-2 전에 정리가 필요하다.
+```
+
+### #56-2 남은 범위
+
+```text
+- POST /auctions/{id}/award/forfeit (Order CANCELED 전이, FORFEITED penalty 1건, BackupOffer
+  최초 생성)
+- BackupOffer 도메인(entity/repository), GET /backup-offers/{id}, accept/decline
+- next-backup-candidate 선정 로직(#56-0 결정: rank 2 -> 3까지만, 소진 여부 판정) - #56-1엔
+  이 로직 자체가 없다(재사용 가능한 형태로 분리해 두라는 지시가 있었으나, Forfeit/BackupOffer
+  구현이 이번 범위에서 빠지며 실제 선정 로직을 아직 만들지 않았다 - #56-2 착수 시 처음부터
+  설계한다)
+- UserPenalty 도메인(entity/repository), FORFEITED 1건 기록, Result의 FORFEITED 분기
+- GET /orders/{id}, POST /orders/{id}/pay (Order 조회/결제 endpoint 자체는 #56-1에 없다 -
+  Order는 settlement 내부에서만 생성/조회된다)
+- BackupOffer UNIQUE(auction_id, candidate_id) DB invariant
+
 ## Freeze Blockers
 
 ```text
