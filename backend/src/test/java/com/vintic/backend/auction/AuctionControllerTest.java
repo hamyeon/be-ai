@@ -6,6 +6,7 @@ import com.vintic.backend.auction.domain.CannotBidReason;
 import com.vintic.backend.auction.domain.AuctionResult;
 import com.vintic.backend.auction.dto.AuctionDetailFixtures;
 import com.vintic.backend.auction.dto.AuctionDetailResponse;
+import com.vintic.backend.auction.dto.AuctionForfeitResponse;
 import com.vintic.backend.auction.dto.AuctionLiveResponse;
 import com.vintic.backend.auction.dto.AuctionResultResponse;
 import com.vintic.backend.auction.dto.SimilarAuctionsResponse;
@@ -28,6 +29,7 @@ import com.vintic.backend.bid.dto.PlaceBidResponse;
 import com.vintic.backend.bid.service.BidQueryService;
 import com.vintic.backend.bid.service.ManualBidService;
 import com.vintic.backend.common.exception.AlreadyHighestBidderException;
+import com.vintic.backend.common.exception.AlreadyPaidException;
 import com.vintic.backend.common.exception.AuctionClosedException;
 import com.vintic.backend.common.exception.AuctionNotFoundException;
 import com.vintic.backend.common.exception.AuctionNotStartedException;
@@ -36,10 +38,12 @@ import com.vintic.backend.common.exception.AutoBidNotFoundException;
 import com.vintic.backend.common.exception.BidAmountTooLowException;
 import com.vintic.backend.common.exception.CapNotIncreasedException;
 import com.vintic.backend.common.exception.CapTooLowException;
+import com.vintic.backend.common.exception.NotAwardeeException;
 import com.vintic.backend.common.exception.PenaltyRestrictedException;
 import com.vintic.backend.common.exception.SellerCannotBidException;
 import com.vintic.backend.like.dto.LikeResponse;
 import com.vintic.backend.like.service.AuctionLikeService;
+import com.vintic.backend.order.service.AuctionForfeitService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -92,6 +96,9 @@ class AuctionControllerTest {
 
     @MockitoBean
     private AuctionLikeService auctionLikeService;
+
+    @MockitoBean
+    private AuctionForfeitService auctionForfeitService;
 
     // 조회/입찰 시 추천용 행동 로그를 남긴다. 기록 자체는 여기서 검증하지 않고
     // ActivityLogServiceTest가 담당하므로 빈만 채워둔다.
@@ -501,6 +508,38 @@ class AuctionControllerTest {
         mockMvc.perform(get("/api/auctions/999/result").requestAttr("currentUserId", 2L))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value(40401));
+    }
+
+    @Test
+    void 낙찰_포기_성공시_200과_FORFEITED를_반환한다() throws Exception {
+        when(auctionForfeitService.forfeit(1L, 2L))
+                .thenReturn(new AuctionForfeitResponse(1L, AuctionResult.FORFEITED));
+
+        mockMvc.perform(post("/api/auctions/1/award/forfeit").requestAttr("currentUserId", 2L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.auctionId").value(1))
+                .andExpect(jsonPath("$.data.result").value("FORFEITED"));
+    }
+
+    @Test
+    void 낙찰자가_아닌_사용자의_낙찰_포기는_403과_40303을_반환한다() throws Exception {
+        when(auctionForfeitService.forfeit(1L, 2L))
+                .thenThrow(new NotAwardeeException("낙찰자가 아닙니다. auctionId: 1, userId: 2"));
+
+        mockMvc.perform(post("/api/auctions/1/award/forfeit").requestAttr("currentUserId", 2L))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value(40303));
+    }
+
+    @Test
+    void 이미_결제완료된_주문의_낙찰_포기는_409와_40914를_반환한다() throws Exception {
+        when(auctionForfeitService.forfeit(1L, 2L))
+                .thenThrow(new AlreadyPaidException("이미 결제가 완료된 주문입니다. orderId: 50"));
+
+        mockMvc.perform(post("/api/auctions/1/award/forfeit").requestAttr("currentUserId", 2L))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value(40914));
     }
 
     @Test

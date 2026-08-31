@@ -3,11 +3,15 @@ package com.vintic.backend.auction.service;
 import com.vintic.backend.auction.domain.Auction;
 import com.vintic.backend.auction.domain.AuctionResult;
 import com.vintic.backend.auction.dto.AuctionResultResponse;
+import com.vintic.backend.backupoffer.domain.BackupOffer;
+import com.vintic.backend.backupoffer.repository.BackupOfferRepository;
 import com.vintic.backend.bid.domain.Bid;
 import com.vintic.backend.bid.domain.BidType;
 import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.order.domain.Order;
 import com.vintic.backend.order.repository.OrderRepository;
+import com.vintic.backend.penalty.domain.Penalty;
+import com.vintic.backend.penalty.repository.PenaltyRepository;
 import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.support.TestClockConfig;
 import com.vintic.backend.user.domain.User;
@@ -24,9 +28,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
-// FINAL contract §10. #56-1: WON/LOST/NO_BIDS + rank/myLastBidAmount/backupEligible만 다룬다 -
-// BACKUP_WAITING/FORFEITED/PAYMENT_EXPIRED는 BackupOffer/Penalty/pay-scheduler가 있어야
-// 실제로 도달 가능한데 이번 범위엔 없다(AuctionResultQueryService 클래스 주석 참고).
+// FINAL contract §10. #56-2: NO_BIDS/WON/LOST/BACKUP_WAITING/FORFEITED 전부 실제로 도달
+// 가능하다(PAYMENT_EXPIRED만 여전히 scheduler가 없어 production 경로로 도달 불가 - #57).
 @DataJpaTest
 @Import({AuctionResultQueryService.class, TestClockConfig.class})
 class AuctionResultQueryServiceTest {
@@ -39,6 +42,12 @@ class AuctionResultQueryServiceTest {
 
     @Autowired
     private OrderRepository orderRepository;
+
+    @Autowired
+    private BackupOfferRepository backupOfferRepository;
+
+    @Autowired
+    private PenaltyRepository penaltyRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -210,5 +219,51 @@ class AuctionResultQueryServiceTest {
 
         assertThat(firstResponse.rank()).isEqualTo(1);
         assertThat(secondResponse.rank()).isEqualTo(2);
+    }
+
+    @Test
+    void FORFEITED_penalty가_있으면_Order가_CANCELED여도_FORFEITED를_반환한다() {
+        User seller = persistUser("seller@vintic.local");
+        User winner = persistUser("winner@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        bidRepository.save(Bid.place(auction, winner, 30000L, BidType.MANUAL));
+        auction.placeManualBid(winner, 30000L);
+        auction.end();
+        Order order = orderRepository.save(Order.createForWinner(
+                auction, winner, auction.getCurrentPrice(), 3000L, auction.getEndAt().plusHours(24)
+        ));
+        order.cancel();
+        penaltyRepository.save(Penalty.forfeited(winner, auction));
+        flushAndClear();
+
+        AuctionResultResponse response = auctionResultQueryService.getResult(auction.getId(), winner.getId());
+
+        assertThat(response.result()).isEqualTo(AuctionResult.FORFEITED);
+        assertThat(response.orderId()).isNull();
+        assertThat(response.backupEligible()).isFalse();
+    }
+
+    @Test
+    void WAITING_BackupOffer가_있으면_BACKUP_WAITING과_backupOfferId를_반환한다() {
+        User seller = persistUser("seller@vintic.local");
+        User winner = persistUser("winner@vintic.local");
+        User candidate = persistUser("candidate@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        bidRepository.save(Bid.place(auction, candidate, 20000L, BidType.MANUAL));
+        auction.placeManualBid(candidate, 20000L);
+        bidRepository.save(Bid.place(auction, winner, 30000L, BidType.MANUAL));
+        auction.placeManualBid(winner, 30000L);
+        auction.end();
+        BackupOffer offer = backupOfferRepository.save(BackupOffer.create(auction, candidate, 20000L));
+        flushAndClear();
+
+        AuctionResultResponse response = auctionResultQueryService.getResult(auction.getId(), candidate.getId());
+
+        assertThat(response.result()).isEqualTo(AuctionResult.BACKUP_WAITING);
+        assertThat(response.backupOfferId()).isEqualTo(offer.getId());
+        assertThat(response.rank()).isEqualTo(2);
+        assertThat(response.backupEligible()).isTrue();
     }
 }

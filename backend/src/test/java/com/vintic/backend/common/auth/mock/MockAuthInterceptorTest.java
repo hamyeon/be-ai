@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.auction.AuctionController;
 import com.vintic.backend.auction.dto.AuctionDetailFixtures;
 import com.vintic.backend.auction.service.AuctionQueryService;
+import com.vintic.backend.auction.service.AuctionResultQueryService;
 import com.vintic.backend.autobid.service.AutoBidQueryService;
 import com.vintic.backend.autobid.service.AutoBidService;
 import com.vintic.backend.bid.dto.PlaceBidRequest;
@@ -11,6 +12,7 @@ import com.vintic.backend.bid.dto.PlaceBidResponse;
 import com.vintic.backend.bid.service.BidQueryService;
 import com.vintic.backend.bid.service.ManualBidService;
 import com.vintic.backend.like.service.AuctionLikeService;
+import com.vintic.backend.order.service.AuctionForfeitService;
 import com.vintic.backend.recommendation.service.ActivityLogService;
 import com.vintic.backend.config.MockAuthWebConfig;
 import com.vintic.backend.user.repository.UserRepository;
@@ -56,6 +58,9 @@ class MockAuthInterceptorTest {
     private AuctionQueryService auctionQueryService;
 
     @MockitoBean
+    private AuctionResultQueryService auctionResultQueryService;
+
+    @MockitoBean
     private BidQueryService bidQueryService;
 
     @MockitoBean
@@ -69,6 +74,9 @@ class MockAuthInterceptorTest {
 
     @MockitoBean
     private AuctionLikeService auctionLikeService;
+
+    @MockitoBean
+    private AuctionForfeitService auctionForfeitService;
 
     // 경매 조회/입찰은 추천용 행동 로그를 남긴다. 인증 검증에는 영향이 없어 목으로 둔다.
     @MockitoBean

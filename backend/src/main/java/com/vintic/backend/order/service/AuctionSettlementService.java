@@ -5,6 +5,7 @@ import com.vintic.backend.auction.domain.AuctionStatus;
 import com.vintic.backend.auction.repository.AuctionRepository;
 import com.vintic.backend.common.exception.AuctionNotFoundException;
 import com.vintic.backend.common.exception.InvalidAuctionStatusException;
+import com.vintic.backend.common.util.ShippingPolicy;
 import com.vintic.backend.order.domain.Order;
 import com.vintic.backend.order.repository.OrderRepository;
 import com.vintic.backend.user.domain.User;
@@ -20,11 +21,6 @@ import java.util.Optional;
 // 이 메서드를 그대로 재사용한다.
 @Service
 public class AuctionSettlementService {
-
-    // FINAL contract 모든 응답 예시가 shippingFee=3000으로 고정돼 있고, Product/Auction 어디에도
-    // 배송비 필드가 없다 - 사용자 확인 결과 v1 범위에서는 전역 고정 상수로 처리한다(사용자 확정).
-    // 상품별 배송비가 필요해지면 그때 별도 이슈로 스키마를 바꾼다.
-    static final long SHIPPING_FEE = 3000L;
 
     private final AuctionRepository auctionRepository;
     private final OrderRepository orderRepository;
@@ -68,7 +64,7 @@ public class AuctionSettlementService {
                 auction,
                 winner,
                 auction.getCurrentPrice(),
-                SHIPPING_FEE,
+                ShippingPolicy.FLAT_FEE,
                 auction.getEndAt().plusHours(24)
         );
         return Optional.of(orderRepository.save(order));
