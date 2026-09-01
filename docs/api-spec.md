@@ -490,8 +490,16 @@ AWAITING_USER_CONFIRMATION
 
 | 필드 | 허용 값 |
 | --- | --- |
-| `conditionGrade` | `DS`(새상품) / `S` / `A` / `B` / `C` |
+| `conditionGrade` | `DS`(새상품) / `S` / `A` / `B` / `C` / `UNKNOWN`(판정 불가) |
 | `componentStatus` | `FULL`(모두 포함) / `PARTIAL`(일부 포함) / `NONE`(없음) |
+
+`conditionGrade`에 대해 두 가지를 유의해 주세요.
+
+- **`UNKNOWN`을 그대로 보낼 수 있습니다.** Vision이 사진에서 상태를 판정할 근거를 찾지
+  못하면 `UNKNOWN`을 반환합니다. 사용자가 고치지 않고 그대로 보내도 가격 계산은
+  정상 동작하며, 기본 반영률이 적용됩니다.
+- **`S`는 Vision이 반환하지 않습니다.** Vision의 등급은 `DS` / `A` / `B` / `C` / `UNKNOWN`
+  다섯 가지입니다. `S`는 사용자가 직접 등급을 선택하는 화면에서만 들어옵니다.
 
 ---
 
