@@ -68,25 +68,19 @@ unchanged.
 
 ## Not Implemented Yet
 
-계약은 확정돼 있지만 endpoint 자체가 아직 없다. 이 상태는 freeze를 막지 않는다.
-
-| # | Endpoint | 비고 |
-| --- | --- | --- |
-| 12 | GET /orders/{id} | Order 도메인은 있지만(#56-1) 조회 endpoint 자체가 없음 |
-| 13 | POST /orders/{id}/pay | 동일 |
-| 14 | GET /me/penalties | `User.isBidRestricted()` 내부 로직만 존재, 조회 API 없음. `Penalty` 엔티티는 있지만(#56-2) 조회 endpoint가 없음 |
+없음(#57에서 마지막 3개가 구현됐다 — 아래 `#57 Implementation Notes` 참고).
 
 #10(`GET /result`)/#11(`POST /award/forfeit`)은 #56-1/#56-2에서, #15/#16/#17(BackupOffer GET/
-accept/decline)은 #56-2/#56-3에서 구현 완료 — 아래 `#56-3 Implementation Notes` 참고.
-#18(Similar)/#19(POST likes)/#20(DELETE likes)는 #55에서 구현 완료 — 아래 `#55 Implementation
-Notes` 참고.
+accept/decline)은 #56-2/#56-3에서, #12/#13/#14(Order 조회/Mock 결제/페널티 조회)는 #57-1/#57-2
+에서 구현 완료 — 아래 `#56-3`/`#57 Implementation Notes` 참고. #18(Similar)/#19(POST likes)/
+#20(DELETE likes)는 #55에서 구현 완료 — 아래 `#55 Implementation Notes` 참고.
 
 ## Endpoint Status Summary
 
 ```text
-endpoint implemented (엔드포인트 존재 여부 기준, contract 완전 일치를 의미하지 않음): 17/20
-  (#1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #15, #16, #17, #18, #19, #20)
-not implemented yet: 3/20 (#12, #13, #14 — Order 조회/결제, 페널티 조회)
+endpoint implemented (엔드포인트 존재 여부 기준, contract 완전 일치를 의미하지 않음): 20/20
+  (#1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #17, #18, #19, #20)
+not implemented yet: 0/20
 implementation gaps (contract resolved, code lagging): #1, #9 — 위 §Deferred Implementation Gaps 참고
   (#1은 product.name/subName·seller.completedSalesCount 두 필드만 남은 gap — 아래
    #55 Implementation Notes 참고. seller.completedSalesCount는 #56-1에서 실제 PAID Order
@@ -98,8 +92,15 @@ implementation gaps (contract resolved, code lagging): #1, #9 — 위 §Deferred
   (#10/#11/#15/#16/#17은 #56-1/#56-2/#56-3에서 gap 없이 구현됨 — 아래 `#56-3 Implementation
    Notes` 참고. BackupOffer accept의 소유자 검증 부재는 계약 자체가 정의하지 않는 항목이라
    gap이 아니라 "계약이 침묵하는 부분"으로 별도 기록했다)
+  (#12/#13/#14는 #57-1/#57-2에서 gap 없이 구현됨 — 아래 `#57 Implementation Notes` 참고)
 contract conflicts: 0/20
 ```
+
+endpoint 20/20은 "20개 모두 존재한다"는 뜻이지 "이 서비스가 결제/배송까지 완결된 커머스"라는
+뜻이 아니다 — 실제 PG 연동, 결제수단 API, 환불/webhook, 배송, 강제 만료용 production API는
+FINAL contract가 애초에 v1 범위에 넣지 않은 항목들이라 이 20개 목록에 없다(§13 "API 상세
+설명" 원문 "실제 PG 연동... v1 범위에서 구현하지 않는다"). 아래 `#57 Implementation Notes`의
+"v1 제외 범위" 참고.
 
 `12/20`은 endpoint가 존재하는지만 세는 카운트다 — 그 endpoint가 계약 전 필드를 충족한다는
 뜻이 아니다. 특히 #1 `GET /auctions/{id}`는 field-level 상태가 아래처럼 갈려 endpoint 자체
@@ -1297,20 +1298,92 @@ FINAL contract §16/§17은 accept/decline에 별도 403(예: "이 offer의 cand
 반드시 짚어야 할 보안 gap이다 - #57 이전에 계약 자체를 수정할지(신규 403 코드 추가) 결정이
 필요하다.
 
-## #57 남은 범위
+## #57 Implementation Notes
+
+Order 조회/Mock 결제(#57-1) + 결제 기한 만료 scheduler·BackupOffer 만료 scheduler·UserPenalty
+완성(#57-2) + 최종 정리(#57-3). §Not Implemented Yet의 마지막 3개(#12/#13/#14)가 이번에
+전부 gap 없이 구현됐다 - 20/20.
+
+### 구현
 
 ```text
-- GET /orders/{id}, POST /orders/{id}/pay
-- Backup accepted Order의 PAYMENT_EXPIRED -> rank 3 이양(#56-0 §5) - 이양 로직 자체는
-  BackupCandidateSelector로 이미 일반화돼 있어 재사용 가능하나, 실제 만료 판정/전이(scheduler)는
-  없다
-- UserPenalty의 noShowCount/bidRestrictedUntil 반영 정책(§14, 서버 설정) - Penalty row 저장까지만
-  구현됐고(#56-2), User 상태에 반영하는 정책은 여전히 없다
-- GET /me/penalties(§14) - Penalty 엔티티는 있지만 조회 endpoint가 없다
-- BackupOffer expiry / payment expiry scheduler
-- 실제 LIVE->ENDED settlement 호출부(scheduler) - DEFERRED UNTIL LIFECYCLE INTEGRATION(#44/#45와
-  동일 성격, 여전히 미정)
-- accept/decline 소유자 검증 정책 결정(바로 위 "계약이 침묵하는 부분" 참고)
+신규
+  order/OrderController.java              - GET /{orderId}, POST /{orderId}/pay
+  order/service/OrderQueryService.java     - side-effect free 조회(§12 전체 shape)
+  order/service/OrderCommandService.java   - pay() 상태 멱등 처리(PAID 재호출은 기존 결과 그대로)
+  order/service/OrderExpirationService.java - Auction FOR UPDATE -> Order FOR UPDATE -> User
+                                              FOR UPDATE 순으로 잠그고 PAYMENT_EXPIRED 전이 +
+                                              penalty + 다음 BackupOffer 생성을 한 트랜잭션으로
+  order/service/OrderExpirationScheduler.java - 후보 id 조회(non-locking)와 건당 처리를 분리,
+                                              실패 1건이 나머지 처리를 막지 않음
+  order/LocalExpiredOrderSeeder.java       - local 전용 시연 seed, 기본 비활성(opt-in)
+  backupoffer/service/BackupOfferExpirationService.java - Auction FOR UPDATE -> BackupOffer
+                                              FOR UPDATE, WAITING+deadline 초과만 EXPIRED 전이
+  backupoffer/service/BackupOfferExpirationScheduler.java - 위와 동일한 분리 구조
+  penalty/PenaltyController.java           - GET /api/me/penalties
+  penalty/service/PenaltyQueryService.java - User.noshowCount/bidRestrictedUntil + Penalty
+                                              이력을 그대로 읽기만 함(side-effect free)
+  penalty/service/BidRestrictionPolicy.java - 고정 기간(설정값, 기본 7일), escalating 없음
+  common/exception/{OrderNotFoundException,OrderAccessDeniedException,OrderCanceledException}.java
+
+수정
+  order/domain/Order.java       - pay()/expire() 추가(cancel()과 동일한 상태 가드 패턴)
+  backupoffer/domain/BackupOffer.java - expire() 추가(accept()/decline()과 동일한 가드 패턴)
+  penalty/domain/Penalty.java   - paymentExpired() 팩토리 추가(forfeited()는 변경 없음)
+  user/domain/User.java         - recordPaymentExpiredPenalty() 추가(noshowCount++/bidRestrictedUntil 설정)
+  order/repository/OrderRepository.java, backupoffer/repository/BackupOfferRepository.java,
+  penalty/repository/PenaltyRepository.java, user/repository/UserRepository.java - 만료 후보
+  조회/락 획득/이력 조회 메서드 추가
+  common/exception/GlobalExceptionHandler.java - 40402/40304/40915 매핑 추가,
+  PaymentExpiredException(40910)은 재사용(신규 예외 아님)
+```
+
+### noShowCount 정책 확정(#57-2, 사용자 결정)
+
+```text
+noShowCount는 PAYMENT_EXPIRED penalty만 센다. FORFEITED는 penalties 이력에는 남지만
+noShowCount에는 반영하지 않는다 - AuctionForfeitService(#56)는 이번에 전혀 수정하지 않았다.
+FORFEITED가 bidRestrictedUntil을 유발하는지는 계약/기존 정책에 확정된 내용이 없어 임의로
+확대하지 않았다 - 이 gap은 여전히 열려 있다(아래 "남은 gap" 참고).
+bidRestrictedUntil은 고정 기간(penalty.bid-restriction-days, 기본 7일)이고 회차별 escalating은
+적용하지 않는다(§14 "회차별 제재 기간 정책은 서버 설정으로 관리" - 서버 설정으로 최소 요건만
+충족, escalating 자체는 확정 정책이 아니라 이번에 만들지 않았다).
+```
+
+### Scheduler 운영 설정
+
+```text
+payment.expiration.enabled / backup-offer.expiration.enabled 기본값은 false다(base
+application.yml). 이 프로젝트의 MySqlIT 다수가 @ActiveProfiles("local")을 데이터소스 설정
+모양만 빌려 쓰는데(#56-3 harness부터의 기존 관례), 기본 활성화하면 그 테스트들의
+@SpringBootTest 컨텍스트에도 1분 주기 cron이 함께 떠서 실제로 기존 테스트(예:
+BackupOfferAcceptAtomicityMySqlIT의 CHECK(1=0) 강제 실패 기법)를 깨뜨리는 것을 확인했다 -
+"위험한 백그라운드 작업은 기본 꺼두고 명시적으로 켠다" 패턴(ai.call-log.cleanup-enabled와
+동일)을 그대로 따랐다. 실제 API가 뜨는 dev profile(application-dev.yml, docker-compose.yml
+SPRING_PROFILES_ACTIVE=dev)에서는 명시적으로 true. local.expired-order-seed.enabled도 같은
+이유로 기본 false, opt-in 전용이다.
+```
+
+### v1 제외 범위(계약 그대로, 이번에 구현하지 않음)
+
+```text
+실제 PG 연동, 결제수단 선택 API, 환불/webhook, 배송, 강제 만료용 production API 전부
+FINAL contract §13이 "v1 범위에서 구현하지 않는다"고 명시한 항목이다. 코드베이스 전체를
+grep한 결과 이 5가지 중 어느 것도 구현돼 있지 않음을 확인했다(PG/webhook/refund/shipping/
+force-expire 관련 신규 클래스·엔드포인트 없음) - #57-3에서도 추가하지 않았다.
+```
+
+### 남은 gap (여전히 열려 있음, #57에서 결정/구현하지 않음)
+
+```text
+- accept/decline 소유자 검증 정책 결정(바로 위 "계약이 침묵하는 부분" 참고) - #56-3부터 이어진
+  gap, #57에서도 결정하지 않았다.
+- FORFEITED가 bidRestrictedUntil을 유발해야 하는지 - 위 "noShowCount 정책 확정" 참고, 계약에
+  없어 임의로 만들지 않았다.
+- 실제 LIVE->ENDED settlement 호출부, SCHEDULED->LIVE 전환 - DEFERRED UNTIL LIFECYCLE
+  INTEGRATION(#44/#45와 동일 성격, 여전히 미정). #57의 두 scheduler는 이미 ENDED이고 Order/
+  BackupOffer가 존재하는 이후 단계만 다룬다 - LIVE/ENDED 전환 자체는 여전히 별도 scheduler가
+  없다.
 ```
 
 ## Freeze Blockers
@@ -1332,7 +1405,7 @@ None
 - 최고입찰자 화면: `canBid=false` + `cannotBidReason=ALREADY_HIGHEST_BIDDER`로 직접 입찰 버튼 비활성화.
 - AutoBid `ACTIVE`/`CAP_REACHED` 사용자가 직접입찰 바텀시트를 열 때 "직접 입찰하면 현재 자동입찰이 중단됩니다." 경고 노출.
 - 결제 화면 라벨을 "최종 낙찰가"가 아니라 `purchasePrice` 기반 "상품 금액"으로.
-- PAYMENT_EXPIRED 화면의 `noShowCount`/`bidRestrictedUntil`은 `/api/me/penalties`에서(백엔드 선행 필요, §Not Implemented Yet #14).
+- PAYMENT_EXPIRED 화면의 `noShowCount`/`bidRestrictedUntil`은 `/api/me/penalties`에서(#57-2에서 구현 완료 — 아래 `#57 Implementation Notes` 참고).
 - 차순위 제안 화면: `purchasePrice` = 실제 구매 가능 금액, `deadline` 라벨은 "구매 결정 기한"으로.
 - 닉네임 마스킹 4개 고정 통일(서버 구현 전까지는 프론트 표시값과 실제 서버값이 다를 수 있음 — §Deferred Implementation Gaps).
 - 연장 시 `/live.endsAt` 최신값 + `extensionCount`/`maxExtensions` 사용.

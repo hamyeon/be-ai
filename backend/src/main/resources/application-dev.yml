@@ -11,6 +11,18 @@ spring:
       ddl-auto: update # 자바 코드로 테이블을 정의하면 DB에 알아서 테이블을 만들어주는 옵션
     show-sql: true
 
+# #57-2: 실제 API가 떠 있는 profile(docker-compose.yml SPRING_PROFILES_ACTIVE=dev)에서는
+# 결제 기한 만료 / 차순위 제안 만료 scheduler를 명시적으로 켠다. base(application.yml)의
+# 기본값 false는 local이 borrow하는 MySqlIT 컨텍스트와의 간섭을 막기 위한 것이라 여기서는
+# 적용되지 않는다 - dev는 실제 스케줄러가 돌아야 하는 유일한 배포 profile이다.
+payment:
+  expiration:
+    enabled: true
+
+backup-offer:
+  expiration:
+    enabled: true
+
 # 배포 환경 관리 엔드포인트.
 #
 # 관리 포트(기본 8081)는 보안그룹에서 외부 인바운드를 막는 것이 전제다.
