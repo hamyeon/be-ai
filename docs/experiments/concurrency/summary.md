@@ -179,6 +179,159 @@ correctness와 완전히 분리된 별도 실험이다. **test-only delay를 전
 
 ---
 
+## Experiment C — Optimistic Lock + Retry (#74)
+
+독립변수는 이전과 동일하게 **Auction 최초 조회 방식** 하나이며, 이번 값은 "non-locking
+`findById` + `@Version` conflict 시 bounded retry(`maxAttempts=5`, backoff 없음)"다. raw는
+`raw/optimistic-correctness.csv`(20 rows) + `raw/optimistic-performance.csv`(400 rows). 상세
+설계는 [protocol.md §Optimistic Lock + Retry Experiment](./protocol.md)와
+[environment.md §74](./environment.md) 참고.
+
+### Optimistic Correctness (#74-3)
+
+- runs: 20 / request attempts: 160
+- Any post-state invariant violation: **0/20**
+- Success requests: 20/160, business rejection: 1/160, unexpected DB failure: 139/160(전부
+  `CannotAcquireLockException`)
+- optimistic conflict(`ObjectOptimisticLockingFailureException`): **1건**, total retries: 1건,
+  average retries/request: 0.00625(1/160), retry distribution: {0회: 159, 1회: 1}, exhaustion:
+  0건
+
+**"Optimistic conflict가 거의 발생하지 않았다"라고 단순 해석하지 않는다.** 정확히는:
+Auction 선행 Pessimistic serialization이 사라지면서(No-lock/Optimistic 둘 다 Auction 최초
+조회가 non-locking), 여러 request가 `executeManualBidOnLoadedAuction()` 내부
+`cancelOwnActiveAutoBidIfPresent()`가 쓰는 `AutoBidSetting.findCurrentByAuctionIdAndUserIdForUpdate()`
+(`PESSIMISTIC_WRITE`, 이 workload엔 매칭 row가 없는 조회)에 동시 진입해 InnoDB gap-lock
+경쟁으로 먼저 탈락했다 — 이는 No-lock(#34)에서도 이미 관찰된 것과 같은 종류의 DB lock
+failure다(§Limitations, No-lock 135/160 `CannotAcquireLockException`). Auction 버전 충돌
+지점에 도달하기도 전에 대부분의 request가 이 downstream lock에서 먼저 종료되어, optimistic
+retry mechanism 자체는 이번 workload에서 충분히 관찰되지 못했다. 유일하게 관찰된 conflict
+(run 15, bidder 132)는 §Retry Semantics에서 그대로 인용한다.
+
+### Optimistic Performance (#74-4B)
+
+- attempts: 400 (success 50, `UNEXPECTED_DB_FAILURE` 350 — 전부 `CannotAcquireLockException`,
+  business rejection 0)
+- overall latency: median 34.38ms, p95 50.26ms (N=400)
+- attempt throughput: 196.99/s, successful throughput: 24.62/s
+- optimistic conflict: **0건**, total retries: 0건, exhaustion: 0건
+- no-retry latency: median 34.38ms, p95 50.26ms (N=400) — retried latency: **표본 0건, 계산
+  불가.** delay=0인 조건에서는 Auction row에 대한 실제 read-modify-write 겹침 자체가 매우
+  좁아, retry가 발생하기도 전에(또는 발생 없이) 대부분 downstream AutoBidSetting lock에서
+  종료됐다.
+
+### 3전략 비교 — Correctness
+
+| Metric | No-lock (#34) | Pessimistic Lock (#35) | Optimistic + Retry (#74) |
+| --- | ---: | ---: | ---: |
+| Runs | 20 | 20 | 20 |
+| Logical requests | 160 | 160 | 160 |
+| Any invariant violation | 3/20 | 0/20 | 0/20 |
+| Success | 25 | 61 | 20 |
+| Business rejection | 해당 컬럼 없음 | 99 | 1 |
+| Unexpected/DB failure | 135 (`CannotAcquireLockException`) | 0 | 139 (`CannotAcquireLockException`) |
+| Lost update / winner mismatch | 3/20 각각 | 0/20 각각 | 0/20 각각 |
+| Duplicate / partial-state Bid | 관찰 안 함(해당 개념 없음) | 관찰 안 함 | **0건**(success=persisted Bid 합 20=20, 전 run `successPersistedMismatch=false`) |
+| Optimistic conflicts | 해당 없음 | 해당 없음 | 1 |
+| Total retries | 해당 없음 | 해당 없음 | 1 |
+| Avg retries/request | 해당 없음 | 해당 없음 | 0.00625 |
+| Exhausted | 해당 없음 | 해당 없음 | 0 |
+
+### 3전략 비교 — Performance
+
+| Metric | No-lock (#36-A) | Pessimistic Lock (#36-A) | Optimistic + Retry (#74-4B) |
+| --- | ---: | ---: | ---: |
+| Measurement attempts | 400 | 400 | 400 |
+| Overall median | 27.33ms | 60.23ms | 34.38ms |
+| Overall p95 | 38.36ms | 111.75ms | 50.26ms |
+| Attempt throughput | 253.77/s | 82.56/s | 196.99/s |
+| Successful throughput | 32.99/s | 29.72/s | 24.62/s |
+| Success | 52 | 144 | 50 |
+| Business rejection | 0 | 256 | 0 |
+| DB failure | 348 | 0 | 350 |
+| Optimistic conflicts | 해당 없음 | 해당 없음 | 0 |
+| Total retries | 해당 없음 | 해당 없음 | 0 |
+| Exhausted | 해당 없음 | 해당 없음 | 0 |
+| No-retry latency (median/p95) | 해당 없음 | 해당 없음 | 34.38ms / 50.26ms (N=400) |
+| Retried latency (median/p95) | 해당 없음 | 해당 없음 | 표본 0건 |
+
+**outcome mix가 세 전략 모두 다르므로 attempt throughput만으로 우열을 판단하지 않는다.**
+No-lock과 Optimistic은 outcome mix(대부분 `CannotAcquireLockException`으로 빠르게 실패)가
+서로 비슷해 attempt throughput이 둘 다 높게(253.77/s, 196.99/s) 나온다 — 이는 "실패가 빨라서
+많은 시도를 처리한 것"이지 "그 전략이 더 우수해서"가 아니다. Pessimistic은 실패(business
+rejection)도 lock 대기를 거치므로 상대적으로 느리지만(median 60.23ms) DB failure가 전혀
+없다. Optimistic은 이번 workload에서 conflict/retry 비용이 사실상 0으로 관찰돼, latency
+차이(34.38ms vs No-lock 27.33ms)는 retry 비용이 아니라 `@Version` 컬럼 추가/`OptimisticBidRetryOrchestrator`
++`OptimisticBidAttemptService`+Idempotency claim 경유에 따른 부가적인 서비스 계층 오버헤드일
+가능성이 높다 — 이번 raw만으로는 그 오버헤드의 정확한 출처(추가 bean 호출 vs `@Version`
+컬럼)를 분리하지 않는다.
+
+### Retry Semantics: retry ≠ 이전 validation 재실행
+
+correctness run 15에서 실제로 관찰된 유일한 conflict 사례(`raw/logs/optimistic-run-15.log`):
+
+```text
+bidder=132 amount=20000
+  attempt 1: Auction.currentPrice=10000(읽은 시점) 기준으로 20000은 유효(minNext=15000) →
+             commit 시도 → 다른 bidder(136)가 먼저 currentPrice=40000으로 commit →
+             ObjectOptimisticLockingFailureException(conflict 1회)
+  attempt 2: 새 트랜잭션에서 Auction을 다시 조회 → currentPrice=40000(최신) →
+             minNextBidAmount=45000 → amount(20000) < 45000 → BidAmountTooLowException
+결과: exhaustion이 아니라 정상 business rejection(§protocol.md §6과 일치)
+```
+
+이 사례가 보여주는 것은 **retry가 "이전 attempt의 validation을 그대로 다시 실행"하는 것이
+아니라는** 점이다. attempt 2는 attempt 1의 계산값(어떤 것도)을 재사용하지 않고,
+`OptimisticBidAttemptService.attempt()` → `findById()`(새 트랜잭션, 최신 커밋 상태) →
+`BidCommandService.executeManualBidOnLoadedAuction()`(상태/판매자/최고입찰자/최소금액/정렬
+검증 전체)을 처음부터 다시 수행한다. 즉:
+
+```text
+retry ≠ 이전 validation 재실행(캐시된 계산값으로 재시도)
+retry = 최신 state 기준으로 command 전체를 처음부터 재검증
+```
+
+그 결과 attempt 1에서는 유효했던 금액이 attempt 2에서는 무효가 될 수 있고, 이는 버그가
+아니라 "최신 상태 기준 재검증"이 정확히 의도대로 동작한 것이다.
+
+### Idempotency와 Internal Retry의 관계
+
+두 가지를 명확히 구분한다:
+
+```text
+HTTP duplicate request  → 기존 Idempotency-Key / claim UNIQUE 제약 / exact snapshot replay가 담당
+Internal optimistic retry → 하나의 logical command 안에서 벌어지는 attempt 단위 transaction retry
+```
+
+`OptimisticManualBidService`는 production `ManualBidService`와 동일한 얇은 진입점 +
+`IdempotencyClaimService.claimAndExecute()` 위임 구조를 그대로 재사용한다(ad-hoc 두 번째
+idempotency 시스템 없음). claim insert + 최종 response snapshot 커밋은 `claimAndExecute()`의
+단일 물리 트랜잭션(T0) 하나에서 이루어지고, 그 안에서 호출되는
+`OptimisticBidRetryOrchestrator`(non-tx)와 `OptimisticBidAttemptService.attempt()`
+(`REQUIRES_NEW`)는 T0를 suspend한 채 매 attempt마다 독립적으로 커밋/롤백된다.
+
+**정상 실행에서 실측 확인한 것**(#74-2, 실제 MySQL IT 6/6 통과):
+- duplicate Bid 없음(성공 1건당 persisted Bid 정확히 1건)
+- 실패(conflict/business rejection/exhaustion) attempt는 Auction/Bid mutation까지 포함해
+  전부 rollback — partial state 없음
+- same Idempotency-Key + same payload → 재실행 없이 원본 결과(attempt/conflict count 포함)
+  그대로 replay
+- same key + different payload → `IdempotencyPayloadMismatchException`(40905), 재실행 없음
+- exhaustion 시 claim도 함께 rollback되어 같은 key로 이후 재시도가 claim 잔여물과 모순 없이
+  정상 동작
+
+**한계(Idempotency crash window) — 반드시 함께 기록한다.** 성공한 attempt의 Auction/Bid
+변경은 `REQUIRES_NEW`이므로 T0(claim) 커밋보다 **먼저** 독립적으로 커밋된다. 따라서
+"Bid는 이미 커밋됐는데 claim/snapshot 커밋 직전에 프로세스가 죽는" crash window가 이론상
+존재한다 — 이 경우 같은 key로 재시도하면 claim row가 없어(rollback되지 않고 애초에
+아직 없는 상태) 커맨드가 다시 실행되어 중복 Bid가 발생할 수 있다. **production Pessimistic
+경로는 command와 claim/snapshot이 하나의 물리 트랜잭션이라 이 window가 존재하지 않는다.**
+이 실험은 정상 종료(성공/business rejection/exhaustion) 케이스만 실제 MySQL로 검증했고,
+프로세스 crash 자체를 재현하지 않았다 — 이 optimistic 실험 경로를 **"완전한
+production-ready optimistic strategy"라고 표현하지 않는다.**
+
+---
+
 ## Decision
 
 - Correctness 관점: 동일 frozen workload 20회에서 No-lock은 3/20 run에서 post-state
@@ -189,6 +342,43 @@ correctness와 완전히 분리된 별도 실험이다. **test-only delay를 전
 - 이 두 관점을 종합해 "이 read-modify-write 경로에 대해 correctness를 얻는 대신 어느 정도의
   latency/throughput 비용을 지불할지"는 이 문서가 결정하지 않는다 — 실험 결과를 raw 그대로
   보존하고 사실을 사실대로, 해석은 해석대로 분리해서 남기는 것이 이 문서의 목적이다.
+- **Optimistic Lock + Retry(#74) 추가 후**: correctness 관점에서 Optimistic도 0/20으로
+  invariant violation이 없었다(Pessimistic과 동일). 다만 이번 workload에서는 대부분의
+  request가 Auction 버전 충돌 지점 이전에 downstream `AutoBidSetting` lock 경쟁으로
+  탈락해(§Experiment C), optimistic conflict/retry 자체는 160개 중 1건만 관찰됐다 — 이
+  결과만으로 Optimistic Lock + Retry의 correctness나 retry 비용을 결론짓지 않는다(표본
+  부족, §Experiment C Limitations). Performance 관점에서 Optimistic(median 34.38ms, attempt
+  TPS 196.99/s)은 No-lock과 Pessimistic 사이에 위치했지만, 이 역시 conflict 0건인 상태의
+  측정값이라 "retry 비용을 포함한 성능"으로 해석하지 않는다.
+
+## Production Strategy Reconsideration (#74)
+
+이번 실험값과 §Experiment C의 Idempotency crash window 한계를 근거로 판단한다 — 이 branch
+에서 실제 production lock 전략은 교체하지 않았다.
+
+**결론: 현재 production Pessimistic Lock(`findByIdForUpdate` + `PESSIMISTIC_WRITE`)을
+유지한다.**
+
+- **Optimistic으로 즉시 교체하지 않는 이유**:
+  1. 이번 측정 workload에서 optimistic conflict가 correctness 160건 중 1건, performance
+     400건 중 0건만 관찰돼, retry mechanism의 correctness/성능 비용을 통계적으로 신뢰성
+     있게 평가할 표본이 없다(§Experiment C).
+  2. Idempotency claim(T0)과 optimistic attempt 커밋(T1..REQUIRES_NEW)이 서로 다른 물리
+     트랜잭션이라 발생하는 crash window(§Experiment C)가 존재를 확인했고, 이를 닫는 별도
+     설계(예: claim/커맨드를 다시 한 트랜잭션으로 묶거나 crash 복구 로직 추가)가 아직
+     없다 — production Pessimistic 경로는 이 window 자체가 없다.
+  3. Pessimistic Lock은 이미 #35/#36-A에서 0/20 invariant violation + `CannotAcquireLockException`
+     0/160(correctness), DB failure 0/400(performance)로 이 route의 downstream
+     `AutoBidSetting` lock 경쟁까지 포함해 가장 예측 가능한 결과를 보였다(Auction을 먼저
+     직렬화해 그 이후 lock 경합 자체가 발생하지 않음).
+- **추가 검증이 필요한 부분**: (a) 실제로 conflict가 자주 발생하는 workload(예: Auction
+  선행 직렬화를 인위적으로 제거하지 않고도 진짜 hot auction에서 자연 발생하는 동시 입찰
+  빈도)에서의 재측정, (b) claim/attempt 트랜잭션 경계를 하나로 합치거나 crash 복구를 위한
+  idempotent replay 전략 설계, (c) `AutoBidSetting` FOR UPDATE 자체의 lock topology 재검토
+  (이번 실험 범위 밖, §Experiment C에서 도입 원인만 확인했고 수정하지 않음).
+- 이 결론은 **이번 측정 workload(로컬 단일 인스턴스, frozen dataset, 특정 delay 조건)
+  범위 안에서만** 유효하다 — "Optimistic은 항상 느리다/불안전하다"거나 "Pessimistic은
+  항상 안전하다"를 의미하지 않는다.
 
 ## Alternatives Considered (#40)
 
@@ -214,7 +404,7 @@ Concurrency control — 서로 다른 user/request가 동일 Auction state를 �
 | Atomic UPDATE (단일 conditional UPDATE) | 제외 | 단순 counter 증가가 아니라 `currentPrice`/`currentWinner` 갱신, validation, `Bid` 생성, Idempotency 처리, 향후 Proxy resolution까지 하나의 트랜잭션으로 일관돼야 한다. 이 전체를 단일 conditional UPDATE 하나로 표현하는 것은 부적절하다 |
 | SERIALIZABLE isolation | 제외 | 트랜잭션 전체의 isolation을 강화하는 방식이라 영향 범위와 contention 비용이 이 read-modify-write 경로(경쟁 대상이 단일 Auction row로 명확함)에 비해 과하다 |
 | Pessimistic Lock (`SELECT ... FOR UPDATE`) | **채택** | 단일 MySQL Auction row가 contention point이고 authoritative read부터 직렬화가 필요하다. #35 frozen correctness workload에서 0/20 post-state violation 관찰(§Experiment A) — 단, 이것이 절대적 무결성 확률 0을 의미하지는 않는다(§Limitations). #36에서 latency/tail-latency 비용도 함께 확인했다(§Experiment B) |
-| Optimistic Lock + retry | 후속 후보 | 충돌률이 낮은 workload라면 장점이 있으나, retry 횟수/backoff/재검증/최종 실패 semantics를 추가로 설계해야 한다. 이번 범위에서 실험하지 않았다 |
+| Optimistic Lock + retry | **실험 완료(#74), production 미채택** | correctness 0/20 invariant violation은 Pessimistic과 동일했으나, 이번 workload에서 conflict/retry 표본이 극히 적어(correctness 1/160, performance 0/400) retry 비용을 신뢰성 있게 평가할 수 없었다. 또한 Idempotency claim과 attempt 커밋이 분리된 트랜잭션이라 발생하는 crash window(§Experiment C)가 아직 해소되지 않았다. 상세는 §Experiment C, §Production Strategy Reconsideration(#74) 참고 |
 | Redisson (분산 락) | 보류 | 단일 MySQL row 문제에 Redis라는 별도 coordination 시스템을 추가로 들일 필요가 없다. 다중 DB 또는 DB transaction 바깥 resource까지 묶는 distributed coordination 요구가 생기면 재검토한다 |
 | Queue / Kafka (event-driven serialize) | 보류 | 현재 synchronous bid response 계약과 맞지 않고 운영 복잡도가 과하다. 고부하에서 입찰을 완전히 serialize하는 event-driven architecture가 필요해질 때 별도 검토한다 |
 
@@ -255,6 +445,34 @@ Concurrency control — 서로 다른 user/request가 동일 Auction state를 �
   production 차이가 없음을 diff로 확인했지만, 두 측정 대상의 repository 전체 revision
   자체는 동일하지 않으므로 완전한 microbenchmark 수준의 단일 변수 비교로 일반화하지
   않는다.
+
+### Optimistic Lock + Retry (#74)
+
+- **표본 부족**: correctness 160개 request 중 optimistic conflict는 1건, performance
+  400개 request 중 0건만 관찰됐다 — retry 발생 시 latency(retried latency)는 correctness
+  1건, performance 0건으로 어떤 통계적 결론도 내리지 않는다. 이 값들을 "optimistic retry는
+  비용이 낮다/없다"로 일반화하지 않는다 — 단지 이번 workload에서 conflict가 거의 발생하지
+  않았을 뿐이다.
+- **표본이 부족한 원인 자체가 결과다**: Auction 선행 Pessimistic serialization이 없으면
+  (No-lock/Optimistic 공통) 여러 request가 `AutoBidSetting.findCurrentByAuctionIdAndUserIdForUpdate()`
+  (`PESSIMISTIC_WRITE`, 매칭 row 없는 조회)에 동시 진입해 InnoDB gap-lock 경쟁으로 먼저
+  탈락한다 — No-lock(#34, 135/160)과 Optimistic(#74, correctness 139/160·performance
+  350/400) 모두에서 이 downstream lock failure가 Auction 버전 충돌보다 압도적으로 많이
+  관찰됐다. 이는 새로 발견된 결함이 아니라 두 전략이 Auction 최초 조회를 non-locking으로
+  둔다는 공통점에서 구조적으로 노출되는 현상이다.
+- **Idempotency crash window**: claim(T0)과 성공한 attempt의 커밋(T1..`REQUIRES_NEW`)이
+  서로 다른 물리 트랜잭션이라, T1 커밋 이후 T0 커밋 이전 사이에 프로세스가 죽으면 Bid는
+  남고 claim/snapshot은 없는 상태가 될 수 있다 — 같은 key로 재시도하면 중복 Bid로 이어질
+  수 있다. 이 실험은 정상 종료 케이스만 실제 MySQL로 검증했고 crash를 재현하지 않았다.
+  **이 optimistic 실험 경로를 "완전한 production-ready optimistic strategy"라고 표현하지
+  않는다.**
+- **Auction.@Version/BidCommandService extract는 production code 변경이다.** "production
+  code 완전 무변경"으로 서술하지 않는다 — behavior-preserving임을 diff로 확인했을 뿐이다
+  (§environment.md #74 src/main 변경 고지).
+- delay=1000ms가 armed 상태인 동안 매 attempt(재시도 포함)에 적용되도록 구성해, No-lock/
+  Pessimistic과 동일한 "test-only race window 위치/값"을 재사용했다 — 다만 이로 인해 retry가
+  있는 이 전략에서는 delay가 여러 번 누적 적용될 수 있다는 점이 No-lock/Pessimistic과의
+  구조적 차이다(§protocol.md Optimistic Lock + Retry Experiment).
 
 ## Remaining Questions
 
