@@ -55,6 +55,24 @@ analysis:
 recommendation:
   vector-backfill-on-startup: ${RECOMMENDATION_VECTOR_BACKFILL:false}
 
+# Auction lifecycle scheduler(#73-3). SCHEDULED->LIVE(startAt 도달)/LIVE->ENDED(endAt 도달)
+# 전환 + 시작 시 RESERVED AutoBid 정산(#73-1)/종료 시 #56 AuctionSettlementService 연결(#73-2)을
+# 주기적으로 trigger한다. 기본은 꺼둔다 - 이유는 아래 payment.expiration과 동일하다(이 프로젝트의
+# MySqlIT 다수가 @ActiveProfiles("local")을 데이터소스 설정 모양만 빌려 쓰는데, 기본 활성화하면
+# 그 테스트들의 @SpringBootTest 컨텍스트에도 스케줄러가 함께 떠서 실제로 다른 테스트를 건드리는
+# 것을 #57-2에서 확인했다 - 동일한 이유로 여기도 opt-in). batch-size는 두 스케줄러가 공유한다 -
+# 별도 batch framework 없이 기존 Pageable 기반 페이지네이션(findEndingSoon/findPopular와 동일
+# 관례)을 그대로 재사용한다.
+auction:
+  lifecycle:
+    batch-size: ${AUCTION_LIFECYCLE_BATCH_SIZE:100}
+    start:
+      cron: ${AUCTION_START_CRON:0 * * * * *}
+      enabled: ${AUCTION_START_ENABLED:false}
+    end:
+      cron: ${AUCTION_END_CRON:0 * * * * *}
+      enabled: ${AUCTION_END_ENABLED:false}
+
 # 결제 기한 만료 페널티 정책.
 # 회차별 escalating 없이 고정 기간만 적용한다(#57-2 사용자 확정) - FINAL contract §14가
 # "회차별 제재 기간 정책은 서버 설정으로 관리한다"고만 명시하고 구체적인 값은 계약에 고정하지

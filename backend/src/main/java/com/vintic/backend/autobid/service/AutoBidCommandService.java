@@ -99,6 +99,12 @@ public class AutoBidCommandService {
         if (auction.isClosed()) {
             throw new AuctionClosedException("이미 종료되었거나 취소된 경매입니다. auctionId: " + auctionId);
         }
+        // BidCommandService.placeManualBid()와 동일한 이유(scheduler polling 지연 동안 마감
+        // 시각은 지났지만 status가 아직 LIVE인 구간)로 endAt도 함께 본다 - AutoBid도 LIVE
+        // 경로에서 maybeExtend()를 호출하므로 같은 gap을 공유한다.
+        if (auction.getStatus() == AuctionStatus.LIVE && auction.hasReachedDeadline(LocalDateTime.now(clock))) {
+            throw new AuctionClosedException("이미 마감 시각이 지난 경매입니다. auctionId: " + auctionId);
+        }
         if (auction.getProduct().getSeller().isSameUser(user)) {
             throw new SellerCannotBidException("판매자는 자신의 경매에 자동입찰을 등록할 수 없습니다. auctionId: " + auctionId);
         }
@@ -219,6 +225,10 @@ public class AutoBidCommandService {
         }
         if (auction.isClosed()) {
             throw new AuctionClosedException("이미 종료되었거나 취소된 경매입니다. auctionId: " + auctionId);
+        }
+        // createAutoBid()와 동일한 이유로 endAt도 함께 본다.
+        if (auction.getStatus() == AuctionStatus.LIVE && auction.hasReachedDeadline(LocalDateTime.now(clock))) {
+            throw new AuctionClosedException("이미 마감 시각이 지난 경매입니다. auctionId: " + auctionId);
         }
 
         Long validationMinCapAmount = auction.getMinNextBidAmount();

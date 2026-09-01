@@ -407,29 +407,23 @@ same key + same payload retry는 최초 response_snapshot을 그대로 반환한
    "서로 다른 key" 동시 요청만 검증 - 그건 idempotency가 아니라 active-slot UNIQUE 레이어)
 ```
 
-### DEFERRED UNTIL LIFECYCLE INTEGRATION
+### SCHEDULED → LIVE 시작 정산(trigger=None) — RESOLVED(#73)
 
-`ProxyPriceEngine`의 trigger=None(경매 시작 시 RESERVED 일괄 정산) 순수 계산 자체는
-`ProxyPriceEngineTest.트리거없는_정산`에 이미 충분히 커버되어 있다(0/1/2명 예약자,
-FIRST-IN WINS, cap 차등 케이스). 여기서 검증하지 않은 것은 **"실제 `SCHEDULED → LIVE`
-lifecycle을 통해 이 trigger=None 경로가 실제로 호출되는 production 진입점"**이다 —
-이 프로젝트에 경매 시작을 자동으로 트리거하는 scheduler/lifecycle 코드가 아직 없기 때문에
-(§Not Implemented Yet 참고), 이 통합 테스트를 지금 추가하면 존재하지 않는 production
-호출부를 테스트만을 위해 억지로 만들게 된다 — 하지 않았다.
-
-**lifecycle 병합 후 활성화할 테스트 조건**:
+`ProxyPriceEngine`의 trigger=None(경매 시작 시 RESERVED 일괄 정산) 순수 계산은
+`ProxyPriceEngineTest.트리거없는_정산`이 이미 커버(0/1/2명 예약자, FIRST-IN WINS, cap
+차등)하고 있었고, 이번 #73-1에서 그 계산을 실제로 호출하는 production 진입점
+(`AuctionStartService.startIfDue()`)이 추가됐다 - 아래 최소 케이스를 서비스/DB 레벨로
+검증했다(`AuctionStartServiceTest`(#73-1) + `AuctionStartAtomicityMySqlIT`(#73-4, 실제
+MySQL 동시 invocation 포함)):
 
 ```text
-- lifecycle/scheduler가 SCHEDULED → LIVE 전환 시점에 ProxyPriceEngine.resolve(trigger=None)을
-  실제로 호출하는 production 코드(가칭 AuctionLifecycleService 등)가 병합되면,
-- 그 호출부를 대상으로 "RESERVED 1명/2명 이상 시나리오에서 lifecycle 호출 결과가
-  ProxyPriceEngineTest의 순수 계산 결과와 일치하는지"를 서비스/DB 레벨 테스트로 추가한다.
-- 최소 케이스: 예약자 0명(가격 불변), 1명(최소 한 단계 응찰), 2명 이상(최강/차강 기준
-  가격 결정 + FIRST-IN WINS)을 실제 Auction.start() 이후 상태(currentPrice/currentWinner/
-  AutoBidSetting.status/영속 Bid)로 검증한다.
-- 이 항목이 이번 #44 범위에서 빠진 이유가 "trigger=None 계산이 미검증"이 아니라
-  "production 호출부 자체가 아직 없음"이라는 점을 테스트 추가 시 주석으로 남긴다.
+- 예약자 0명: RESERVED 조회 결과가 비어 있으면 Proxy resolve 자체를 호출하지 않는다(가격 불변).
+- 예약자 1명: 최소 한 단계 응찰(startPrice + bidIncrement), ACTIVE 전환, Bid 1건 생성.
+- 예약자 2명 이상: 최강/차강 기준 가격 결정 + FIRST-IN WINS(동일 cap일 때 registeredAt/id
+  tie-break), 승자 ACTIVE·패자 CAP_REACHED.
 ```
+
+상세 구현/정책/설정은 `#73 Implementation Notes`(이 문서 하단) 참고.
 
 ### 확인했으나 변경하지 않은 것
 
@@ -498,13 +492,13 @@ stale해도 뒤이은 `changeMaxAmount()`가 절대값을 그대로 덮어써 �
 CAP_REACHED로 정상화), Manual+AutoBid CREATE, Manual+AutoBid UPDATE, `AutoBidConcurrencyMySqlIT`/
 `ManualBidIdempotencyMySqlIT`(기존 테스트) 전부 재실행해 통과 확인.
 
-### SYSTEM_OPEN(시작 정산) lock 대상 — DEFERRED UNTIL LIFECYCLE INTEGRATION 유지
+### SYSTEM_OPEN(시작 정산) lock 대상 — RESOLVED(#73-1)
 
-`ProxyTrigger.None`(경매 시작 시 RESERVED 일괄 정산)은 여전히 production 호출부가 없다
-(#44에서 이미 DEFERRED로 기록). lifecycle이 병합되면 그 호출부도 **동일한 lock audit
-대상**에 포함해야 한다 - 특히 이번에 발견한 "Auction 락만으로는 관련 AutoBidSetting 후보
-visibility가 보장되지 않는다"는 교훈이 그대로 적용된다(RESERVED 일괄 정산도 여러
-AutoBidSetting을 동시에 읽고 판정하므로 같은 stale-snapshot 위험이 있다).
+`ProxyTrigger.None`(경매 시작 시 RESERVED 일괄 정산)의 production 호출부
+(`AuctionStartService`)가 #73-1에서 추가됐다. 이 문서가 #44에서 미리 요구했던 lock audit
+대상 그대로 적용했다 - "Auction 락만으로는 관련 AutoBidSetting 후보 visibility가 보장되지
+않는다"는 교훈을 그대로 따라 `AutoBidSettingRepository.findByAuctionIdAndStatusForUpdate()`도
+PESSIMISTIC_WRITE로 만들었다(Auction FOR UPDATE 이후에만 호출, lock ordering 유지).
 
 ### 실제 MySQL 혼합 동시성 검증 — RESOLVED
 
@@ -954,9 +948,9 @@ Order만 구현했다. Forfeit/BackupOffer accept/decline/pay/scheduler는 이�
    - AuctionSettlementService.settle(auctionId)가 명시적 command다. ENDED 대상, winner
      있으면 PAYMENT_PENDING Order 1건, purchasePrice=finalPrice, paymentDeadline=endsAt+24h.
      재실행해도 중복 생성하지 않는다.
-   - 실제 LIVE->ENDED scheduler 호출부는 DEFERRED UNTIL LIFECYCLE INTEGRATION(#44/#45의
-     ProxyTrigger.None과 동일 성격). payment expiry scheduler는 #57, BackupOffer expiry
-     scheduler도 이번 범위가 아니다.
+   - 실제 LIVE->ENDED scheduler 호출부 - **RESOLVED(#73-2)**, `AuctionEndService`가
+     `auction.end()` 이후 같은 트랜잭션에서 `settle()`을 호출한다. payment expiry
+     scheduler(#57)/BackupOffer expiry scheduler(#57)는 여전히 별개 범위(ENDED 이후 단계).
 
 3. rank / myLastBidAmount
    - 사용자별 최고(=최신, monotonic이라 항상 같은 값) persisted Bid amount 내림차순.
@@ -1059,9 +1053,12 @@ Order만 구현했다. Forfeit/BackupOffer accept/decline/pay/scheduler는 이�
 
 - settlement 전 ENDED 경매 조회: settle()이 아직 실행되지 않은 ENDED 경매를 실제 낙찰자가
   /result로 조회하면 Order가 없어 WON이 아니라 LOST로 보인다("GET은 side-effect free" 결정의
-  직접적 결과, AuctionResultQueryServiceTest에 회귀로 고정해뒀다). 실제 production에서는
-  lifecycle 스케줄러가 병합되면 /result 조회 시점엔 이미 settlement가 끝나 있는 것이 전제다 -
-  #44/#45가 이미 남겨둔 DEFERRED UNTIL LIFECYCLE INTEGRATION 항목과 동일한 성격의 gap이다.
+  직접적 결과, AuctionResultQueryServiceTest에 회귀로 고정해뒀다). `#73-2`에서
+  `AuctionEndService`가 `end()`+`settle()`을 같은 트랜잭션으로 묶어 lifecycle scheduler가
+  production 호출부를 갖게 됐지만(`auction.lifecycle.end.enabled`, 기본 profile은 여전히
+  false), 이 gap 자체("GET이 settle을 대신 트리거하지 않는다")는 계약(§10 side-effect
+  free) 그대로 유지된다 - scheduler가 꺼져 있는 profile(base/test/local 기본)에서는 여전히
+  누군가(스케줄러 또는 테스트)가 명시적으로 lifecycle을 진행시켜야 WON이 보인다.
 
 - /result의 Auction 상태 게이트 없음: ENDED가 아닌 경매(LIVE/SCHEDULED)에 대해 /result를
   호출해도 막지 않는다 - 입찰이 없으면 NO_BIDS, 있으면 rank/myLastBidAmount 기준으로 계산된다.
@@ -1380,11 +1377,106 @@ force-expire 관련 신규 클래스·엔드포인트 없음) - #57-3에서도 �
   gap, #57에서도 결정하지 않았다.
 - FORFEITED가 bidRestrictedUntil을 유발해야 하는지 - 위 "noShowCount 정책 확정" 참고, 계약에
   없어 임의로 만들지 않았다.
-- 실제 LIVE->ENDED settlement 호출부, SCHEDULED->LIVE 전환 - DEFERRED UNTIL LIFECYCLE
-  INTEGRATION(#44/#45와 동일 성격, 여전히 미정). #57의 두 scheduler는 이미 ENDED이고 Order/
-  BackupOffer가 존재하는 이후 단계만 다룬다 - LIVE/ENDED 전환 자체는 여전히 별도 scheduler가
-  없다.
+- 실제 LIVE->ENDED settlement 호출부, SCHEDULED->LIVE 전환 - **RESOLVED(#73)**, 아래
+  `#73 Implementation Notes` 참고. #57의 두 scheduler(Order/BackupOffer 만료)는 여전히
+  ENDED 이후 단계만 다루고, 이번 #73은 그 앞 단계(SCHEDULED→LIVE/LIVE→ENDED)를 담당한다 -
+  두 scheduler 그룹은 서로 다른 lifecycle 구간을 나눠 맡는 관계다.
 ```
+
+## #73 Implementation Notes
+
+Auction lifecycle scheduler(SCHEDULED→LIVE, LIVE→ENDED→settlement) production trigger
+구현. FINAL API contract는 이번에 변경하지 않았다 - 기존 20개 endpoint shape 그대로, 새
+endpoint 없음. `#44`/`#45`/`#57`이 "DEFERRED UNTIL LIFECYCLE INTEGRATION"으로 남겨뒀던
+항목들을 이번에 해소했다(이 문서 여러 곳의 해당 표기를 이 섹션으로 통일해 가리킨다).
+
+### 구현
+
+```text
+auction/service/AuctionStartService.java   - SCHEDULED→LIVE(auction.start(), 기존 도메인
+                                              메서드 재사용) + 시작 시 RESERVED AutoBidSetting
+                                              일괄 정산. ProxyPriceEngine.resolve(trigger=
+                                              ProxyTrigger.None)을 실제로 호출하는 첫
+                                              production 진입점이다(#42가 미리 shape만
+                                              만들어 둔 트리거) - 가격/승자/CAP_REACHED
+                                              계산은 전부 기존 ProxyPriceEngine/
+                                              ProxyResolutionApplier/EffectiveCapCalculator
+                                              그대로, 새 계산식 없음.
+auction/service/AuctionEndService.java     - LIVE→ENDED(auction.end()) + #56
+                                              AuctionSettlementService.settle(auctionId)를
+                                              같은 트랜잭션에서 호출. settle() 내부 로직은
+                                              한 줄도 복제하지 않았다.
+auction/service/{AuctionStartScheduler,
+  AuctionEndScheduler}.java                - 후보 id 조회(non-locking, batch size 적용) +
+                                              건당 lifecycle service 호출 + 개별 실패 격리
+                                              (한 건 실패가 나머지를 막지 않음). #57-2
+                                              OrderExpirationScheduler와 동일한 구조.
+auction/repository/AuctionRepository.java  - findScheduledDueForStart/findLiveDueForEnd
+                                              (id만 스칼라, Pageable로 batch size 제한 -
+                                              findEndingSoon/findPopular와 동일한 기존
+                                              페이지네이션 관례 재사용).
+autobid/repository/AutoBidSettingRepository.java - findByAuctionIdAndStatusForUpdate
+                                              (RESERVED 일괄 조회 전용 locking read, 기존
+                                              findByAuctionIdAndStatusAndUserIdNot과 동일한
+                                              lock 근거).
+```
+
+### 정책 확정
+
+```text
+latest endsAt 기준: 종료 판정은 스케줄러가 조회한 candidate 시각이 아니라
+  AuctionEndService.endIfDue()가 Auction FOR UPDATE 이후 다시 읽은 "현재" endAt이다 -
+  연장(#43 maybeExtend())으로 endAt이 뒤로 밀린 경매를 최초 예정 시각 기준으로 조기
+  종료하지 않는다. 스케줄러는 candidate id만 넘기고 시각값 자체는 넘기지 않는다.
+RESERVED 활성화: ProxyTrigger.None으로 RESERVED 전체를 한 번에 정산 - 유효한 cap은
+  ACTIVE, finalPrice에 못 미치는 cap은 CAP_REACHED, 동일 cap은 기존 FIRST-IN WINS(§0.12)
+  그대로. 새 tie-break/scheduler 전용 bidding rule 없음.
+lock 순서: Auction FOR UPDATE → AutoBidSetting(RESERVED) FOR UPDATE(시작) / Auction FOR
+  UPDATE → Order FOR UPDATE(종료, settle() 내부) - #45/#46이 확립한 "Auction 먼저" 순서를
+  그대로 따른다. 새 순서 없음.
+Result는 여전히 derived다 - 별도 Result entity/row를 만들지 않았다. GET /result는
+  Auction/Order 상태를 매 조회마다 계산하는 기존 구조(#56) 그대로다.
+```
+
+### 운영 설정
+
+```text
+auction.lifecycle.batch-size          (기본 100, 두 scheduler 공유)
+auction.lifecycle.start.cron/enabled  (기본 매분 / 기본 false)
+auction.lifecycle.end.cron/enabled    (기본 매분 / 기본 false)
+```
+
+base(`application.yml`) 기본값은 `false`다 - `#57-2`와 동일한 이유(MySqlIT 다수가 `local`
+profile을 데이터소스 설정 모양만 빌려 쓰는데, scheduler가 기본 활성화면 그 테스트들과
+간섭한다 - `#58-3`에서 실측 확인된 문제). 실제 API profile(`dev`, `docker-compose.yml`
+`SPRING_PROFILES_ACTIVE=dev`)에서만 `application-dev.yml`로 명시적으로 `true`. 새 worker
+profile은 만들지 않았다 - `#57` scheduler 설정(`payment.expiration`/`backup-offer.expiration`)
+값도 이번에 건드리지 않았다.
+
+### 확인된 운영 한계
+
+```text
+- 단일 application scheduler 가정: 리더 선출/분산 조정이 없다. 여러 인스턴스가 동시에
+  뜨면 각자 독립적으로 polling한다 - MySQL PESSIMISTIC_WRITE가 실제 상태 전이 중복은
+  막아주지만(#73-4 MySQL IT로 동시 invocation 실측 확인), 인스턴스 수만큼 같은 candidate를
+  중복 조회/lock 경합하는 비효율은 여전히 남는다. 이번 범위에서 leader election을
+  도입하지 않았다.
+- cron 간격(기본 1분)만큼 lifecycle 전환이 실제 startAt/endAt보다 늦게 반영될 수 있다 -
+  즉시성이 필요한 요구는 이번 범위가 아니다.
+```
+
+### #73-4 MySQL IT(신규)
+
+```text
+AuctionStartAtomicityMySqlIT - rollback(Bid INSERT 강제 실패) + 동시 invocation(2-thread,
+                                strong/weak cap 경쟁 fixture로 FIRST-IN/CAP_REACHED까지 함께
+                                확인) 2건
+AuctionEndAtomicityMySqlIT   - rollback(Order INSERT 강제 실패) + 동시 invocation(2-thread,
+                                winner Order 중복 생성 없음 확인) 2건
+```
+
+새 `#34`~`#46`류 concurrency 탐색 실험으로 확대하지 않았다 - 이번 issue가 요구한
+invariant(동일 Auction 중복 처리 방지)만 검증했다.
 
 ## Freeze Blockers
 

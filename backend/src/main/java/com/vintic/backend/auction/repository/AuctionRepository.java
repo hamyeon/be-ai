@@ -98,4 +98,28 @@ public interface AuctionRepository extends JpaRepository<Auction, Long> {
             order by count(b) desc, a.endAt asc
             """)
     List<Auction> findPopular(@Param("statuses") List<AuctionStatus> statuses, Pageable pageable);
+
+    // #73-3: AuctionStartScheduler가 이번 회차에 처리할 후보를 고르는 non-locking 조회다. id만
+    // 스칼라로 뽑는다 - status/startAt 같은 business decision은 여기서 내리지 않고,
+    // AuctionStartService.startIfDue()가 이 id로 다시 locking read를 해 authoritative하게
+    // 재확인한다(OrderRepository.findExpiredPendingOrderIds와 동일한 원칙, 식별 전용).
+    // Pageable은 batch size 제한 전용이다 - findEndingSoon/findPopular와 동일한 기존 페이지네이션
+    // 관례를 그대로 재사용한다(새 batch framework 없음).
+    @Query("select a.id from Auction a where a.status = :status and a.startAt <= :now")
+    List<Long> findScheduledDueForStart(
+            @Param("status") AuctionStatus status,
+            @Param("now") LocalDateTime now,
+            Pageable pageable
+    );
+
+    // #73-3: AuctionEndScheduler 전용, 위와 동일한 원칙. 여기서 읽는 endAt은 후보 선별용일 뿐이고
+    // authoritative하지 않다 - AuctionEndService.endIfDue()가 락 이후 다시 읽은 "최신" endAt만
+    // 신뢰한다(#73-2가 이미 확립한 원칙, 이 쿼리 결과를 endIfDue()에 넘기지 않고 auctionId만
+    // 넘긴다).
+    @Query("select a.id from Auction a where a.status = :status and a.endAt <= :now")
+    List<Long> findLiveDueForEnd(
+            @Param("status") AuctionStatus status,
+            @Param("now") LocalDateTime now,
+            Pageable pageable
+    );
 }

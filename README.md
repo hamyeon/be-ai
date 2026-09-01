@@ -71,11 +71,9 @@ point는 단일 MySQL row(`Auction`)이고, 모든 write 경로가 이미 같은
 두 메서드는 같은 pairwise 비교 로직(effectiveCap 계산 + FIRST-IN WINS tie-break)을 공유한다.
 경쟁자 판정은 "다른 사용자의 ACTIVE AutoBid" 존재 여부가 아니라 `Auction.currentWinner`/
 `currentPrice`를 기준으로 한다. `SCHEDULED → LIVE` 전환 시점의 RESERVED 일괄 정산
-(`ProxyTrigger.None`)은 순수 계산 로직 자체는 있지만, 그걸 실제로 호출하는 production
-진입점(lifecycle scheduler)이 아직 없다 - `DEFERRED UNTIL LIFECYCLE INTEGRATION`으로 남아있다
-(아래 Award 흐름의 settlement와 동일한 성격의 gap). 상세는
-[auction-api-contract-gap.md의 `Proxy Bidding 실제 구현(#41 후속)`](docs/api/auction-api-contract-gap.md)
-절 참고.
+(`ProxyTrigger.None`)은 `#73-1`에서 실제 production 호출부(`AuctionStartService`)가
+생겼다 - 이 엔진을 그대로 호출할 뿐 새 계산식은 없다. 상세는 아래
+`Auction Lifecycle Scheduler` 절 참고.
 
 ## Award → BackupOffer → Order 흐름
 
@@ -83,7 +81,7 @@ point는 단일 MySQL row(`Auction`)이고, 모든 write 경로가 이미 같은
 상태를 조합해 매 조회마다 계산한다(`AuctionResultQueryService`, side-effect free).
 
 ```text
-[경매 종료] --settle()(명시적 command, 아직 scheduler 없음)--> [winner Order: PAYMENT_PENDING]
+[경매 종료] --settle()(#73-2: AuctionEndService가 LIVE→ENDED 직후 같은 트랜잭션에서 호출)--> [winner Order: PAYMENT_PENDING]
                                                                 paymentDeadline = endsAt + 24h
 
 [winner] --POST /award/forfeit--> Order: CANCELED
@@ -109,11 +107,12 @@ point는 단일 MySQL row(`Auction`)이고, 모든 write 경로가 이미 같은
                                                      + 다음 순위 BackupOffer(있으면)
 ```
 
-- **settlement 호출부 자체는 없다**: `AuctionSettlementService.settle()`은 테스트/향후
-  lifecycle scheduler가 호출하는 명시적 command다 - `LIVE→ENDED` 전환을 감지해 자동으로
-  부르는 production 코드가 아직 없다(Proxy Bidding의 `ProxyTrigger.None`과 동일한
-  DEFERRED 상태). 이 gap은 #57에서도 해소하지 않았다 - 아래 두 scheduler는 이미 ENDED이고
-  Order/BackupOffer가 존재하는 이후 단계(결제 기한 만료, 차순위 제안 만료)만 다룬다.
+- **settlement 호출부**: `#73-2`에서 `AuctionEndService`가 `LIVE→ENDED` 전환 직후 같은
+  트랜잭션 안에서 `AuctionSettlementService.settle()`을 호출하도록 연결했다(`settle()`
+  내부 로직은 그대로 재사용, 복제하지 않음). `#57`의 두 scheduler(결제 기한 만료/차순위
+  제안 만료)는 여전히 ENDED 이후 단계만 다룬다 - `#73`은 그 앞 단계(SCHEDULED→LIVE/
+  LIVE→ENDED)를 담당해 lifecycle 전체가 이어졌다. 상세는 아래
+  `Auction Lifecycle Scheduler` 절 참고.
 - **rank 2/3까지만 후보다**: `BackupCandidateSelector`가 forfeit/decline/두 만료 scheduler
   전부가 공유하는 단일 선정 로직이다(#56, #57-2에서 재사용만 하고 새 순위 정책을 만들지
   않았다).
@@ -133,6 +132,39 @@ point는 단일 MySQL row(`Auction`)이고, 모든 write 경로가 이미 같은
   검증 부재, FORFEITED의 bidRestrictedUntil 미반영):
   [`docs/api/auction-api-contract-gap.md`](docs/api/auction-api-contract-gap.md)의
   `#56-1`~`#57 Implementation Notes` 참고.
+
+## Auction Lifecycle Scheduler
+
+`#73`. `SCHEDULED → LIVE`/`LIVE → ENDED`를 시간 기반으로 자동 전환하는 production
+scheduler. FINAL API contract는 변경 없음(새 endpoint 없음, 기존 20개 그대로).
+
+```text
+[SCHEDULED] --startAt 도달--> [LIVE] + RESERVED AutoBidSetting 일괄 정산(ProxyTrigger.None)
+[LIVE]      --endAt 도달-----> [ENDED] + #56 AuctionSettlementService.settle() 호출
+```
+
+- **latest endsAt 기준**: 종료 판정은 스케줄러가 candidate를 고를 때 본 시각이 아니라,
+  `AuctionEndService`가 Auction을 다시 잠근 뒤 읽은 "현재" `endAt`이다 - 종료 연장(`#43`
+  `maybeExtend()`)으로 밀린 경매를 최초 예정 시각 기준으로 조기 종료하지 않는다. 스케줄러는
+  candidate id만 넘기고 시각값 자체는 넘기지 않는다.
+- **RESERVED 활성화**: 시작 시 `ProxyPriceEngine.resolve(trigger=ProxyTrigger.None)`을
+  그대로 호출한다(`#42`가 미리 만들어 둔 계산, 새 scheduler 전용 bidding rule 없음) -
+  유효한 cap은 ACTIVE, finalPrice에 못 미치면 CAP_REACHED, 동일 cap은 기존 FIRST-IN
+  WINS(§0.12).
+- **설정**: `auction.lifecycle.batch-size`(두 scheduler 공유) /
+  `auction.lifecycle.start.cron`·`.enabled` / `auction.lifecycle.end.cron`·`.enabled`.
+  base 기본값은 `false`(`#57-2`와 동일한 이유 - MySqlIT가 `local` profile을 빌려 쓰는데
+  기본 활성화하면 간섭한다, `#58-3`에서 실측), `dev` profile에서만 명시적으로 `true`. 새
+  worker profile은 만들지 않았다.
+- **운영 한계**: 리더 선출/분산 조정이 없는 단일 application scheduler 가정이다 - 여러
+  인스턴스가 뜨면 각자 독립적으로 polling한다. MySQL `PESSIMISTIC_WRITE`가 실제 상태
+  중복 반영은 막지만(동시 invocation을 실제 MySQL로 검증함), 인스턴스 수만큼 같은
+  candidate를 중복 조회/lock 경합하는 비효율은 남는다 - leader election은 이번 범위 밖.
+- **Result는 여전히 derived다**: 이번에도 별도 Result entity/row를 만들지 않았다 - `GET
+  /result`는 Auction/Order 상태를 매 조회마다 계산하는 기존 구조(`#56`) 그대로다.
+- 상세 구현/lock 순서/MySQL IT 목록:
+  [`docs/api/auction-api-contract-gap.md`](docs/api/auction-api-contract-gap.md)의
+  `#73 Implementation Notes` 참고.
 
 ## Auction API Contract
 
