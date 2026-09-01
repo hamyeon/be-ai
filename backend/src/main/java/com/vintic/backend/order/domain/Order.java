@@ -138,6 +138,34 @@ public class Order {
         this.status = OrderStatus.CANCELED;
     }
 
+    // FINAL contract §12: PAYMENT_PENDING -> PAYMENT_EXPIRED(scheduler, 기한 초과)만 허용된다.
+    // #57-2의 OrderExpirationService가 paymentDeadline < now && status == PAYMENT_PENDING을
+    // 먼저 확인한 뒤에만 호출한다 - cancel()/pay()와 동일하게 여기 도달했다는 것 자체가 서비스가
+    // 이미 걸렀다는 뜻이라 프로그래밍 오류 가드로만 예외를 던진다.
+    public void expire() {
+        if (status != OrderStatus.PAYMENT_PENDING) {
+            throw new InvalidOrderStatusException(
+                    "PAYMENT_PENDING 상태에서만 만료 처리할 수 있습니다. orderId: " + id + ", 현재 상태: " + status
+            );
+        }
+        this.status = OrderStatus.PAYMENT_EXPIRED;
+    }
+
+    // FINAL contract §13: PAYMENT_PENDING -> PAID만 여기서 허용한다. PAID 재호출(상태 멱등),
+    // PAYMENT_EXPIRED/CANCELED에서의 pay 시도(409/40910·40915)는 서비스가 상태를 먼저 switch로
+    // 걸러 도메인 메서드를 아예 호출하지 않는다(OrderCommandService.pay(), AuctionForfeitService의
+    // switch 패턴과 동일) - 여기 도달했다는 것 자체가 서비스가 이미 PAYMENT_PENDING임을 확인했다는
+    // 뜻이므로, cancel()과 동일하게 프로그래밍 오류 가드로만 InvalidOrderStatusException을 던진다.
+    public void pay(LocalDateTime paidAt) {
+        if (status != OrderStatus.PAYMENT_PENDING) {
+            throw new InvalidOrderStatusException(
+                    "PAYMENT_PENDING 상태에서만 결제할 수 있습니다. orderId: " + id + ", 현재 상태: " + status
+            );
+        }
+        this.status = OrderStatus.PAID;
+        this.paidAt = paidAt;
+    }
+
     public Long getId() {
         return id;
     }
