@@ -98,19 +98,41 @@ point는 단일 MySQL row(`Auction`)이고, 모든 write 경로가 이미 같은
                                              + BackupOffer(rank 3): WAITING (있으면)
 
 [rank 3] --accept/decline--> 위와 동일, 단 decline 시 추가 제안 없음(#56-0: rank 4는 후보 아님)
+
+[PAYMENT_PENDING] --GET /orders/{id}--> 조회(§12 전체 shape)
+                  --POST /orders/{id}/pay--> Order: PAID(Mock, 재호출은 상태 멱등 200)
+                  --scheduler, deadline 초과--> Order: PAYMENT_EXPIRED
+                                                 + PAYMENT_EXPIRED penalty 1건
+                                                 + User.noShowCount++/bidRestrictedUntil 갱신
+                                                 + 다음 순위 BackupOffer(있으면)
+[WAITING BackupOffer] --scheduler, deadline 초과--> BackupOffer: EXPIRED
+                                                     + 다음 순위 BackupOffer(있으면)
 ```
 
 - **settlement 호출부 자체는 없다**: `AuctionSettlementService.settle()`은 테스트/향후
   lifecycle scheduler가 호출하는 명시적 command다 - `LIVE→ENDED` 전환을 감지해 자동으로
   부르는 production 코드가 아직 없다(Proxy Bidding의 `ProxyTrigger.None`과 동일한
-  DEFERRED 상태).
-- **rank 2/3까지만 후보다**: `BackupCandidateSelector`가 forfeit(최초 rank 2 생성)과
-  decline(다음 순위 생성)이 공유하는 단일 선정 로직이다.
-- **결제(Order 조회/Mock 결제) endpoint 자체가 없다**: `GET /orders/{id}`, `POST
-  /orders/{id}/pay`는 아직 구현되지 않았다 - Order는 지금 이 흐름 내부에서만 생성/전이된다.
+  DEFERRED 상태). 이 gap은 #57에서도 해소하지 않았다 - 아래 두 scheduler는 이미 ENDED이고
+  Order/BackupOffer가 존재하는 이후 단계(결제 기한 만료, 차순위 제안 만료)만 다룬다.
+- **rank 2/3까지만 후보다**: `BackupCandidateSelector`가 forfeit/decline/두 만료 scheduler
+  전부가 공유하는 단일 선정 로직이다(#56, #57-2에서 재사용만 하고 새 순위 정책을 만들지
+  않았다).
+- **Order 조회/Mock 결제(§12/§13)와 결제 기한 만료 scheduler(#57-1/#57-2)**: `GET
+  /orders/{id}`, `POST /orders/{id}/pay`, `OrderExpirationScheduler`. Mock 결제라
+  실제 PG 연동은 없다 - `Order.status`만 바꾸고 `Auction.status`는 건드리지 않는다. 두
+  scheduler(`payment.expiration`/`backup-offer.expiration`)는 기본 비활성이고(테스트
+  간섭 방지), 실제 API가 뜨는 `dev` profile에서만 명시적으로 켜져 있다.
+- **UserPenalty 완성(#57-2)**: `GET /me/penalties`가 `noShowCount`/`bidRestricted`/
+  `bidRestrictedUntil`/이력의 single source of truth다. `noShowCount`는 `PAYMENT_EXPIRED`
+  penalty만 세고 `FORFEITED`는 세지 않는다(사용자 확정 정책) - `bidRestrictedUntil`은 고정
+  기간(설정값, 기본 7일)이며 회차별 escalating은 적용하지 않는다.
+- **v1 제외 범위(계약 명시)**: 실제 PG 연동, 결제수단 선택 API, 환불/webhook, 배송, 강제
+  만료용 production API는 FINAL contract §13이 v1 범위에 넣지 않은 항목이라 구현하지
+  않았다.
 - 상세 트랜잭션 순서(lock ordering)/DB invariant/알려진 gap(특히 accept/decline의 소유자
-  검증 부재): [`docs/api/auction-api-contract-gap.md`](docs/api/auction-api-contract-gap.md)의
-  `#56-1`~`#56-3 Implementation Notes` 참고.
+  검증 부재, FORFEITED의 bidRestrictedUntil 미반영):
+  [`docs/api/auction-api-contract-gap.md`](docs/api/auction-api-contract-gap.md)의
+  `#56-1`~`#57 Implementation Notes` 참고.
 
 ## Auction API Contract
 

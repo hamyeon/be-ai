@@ -149,12 +149,36 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail(40914, e.getMessage()));
     }
 
-    // 결제 기한 만료 (409 Conflict) - Order를 PAYMENT_EXPIRED로 전이시키는 scheduler(#57)가
-    // 아직 없어 이 핸들러는 현재 production 경로로는 도달하지 않는다(PaymentExpiredException 참고).
+    // 결제 기한 만료 (409 Conflict). #57-1부터 POST /orders/{id}/pay가 Order.status ==
+    // PAYMENT_EXPIRED일 때 이 예외를 재사용한다(AuctionForfeitService의 forfeit 경로와 공유) -
+    // 다만 Order를 PAYMENT_PENDING -> PAYMENT_EXPIRED로 실제 전이시키는 scheduler(#57-2)가 아직
+    // 없어, seed 데이터로 미리 PAYMENT_EXPIRED를 심어두지 않는 한 이 분기는 여전히 production
+    // 경로로 자연 도달하지 않는다(PaymentExpiredException 클래스 주석 참고).
     @ExceptionHandler(PaymentExpiredException.class)
     public ResponseEntity<ApiResponse<Void>> handlePaymentExpiredException(PaymentExpiredException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiResponse.fail(40910, e.getMessage()));
+    }
+
+    // 존재하지 않는 주문 조회/결제 (404 Not Found)
+    @ExceptionHandler(OrderNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleOrderNotFoundException(OrderNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40402, e.getMessage()));
+    }
+
+    // 주문 소유자가 아닌 사용자의 조회/결제 시도 (403 Forbidden)
+    @ExceptionHandler(OrderAccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleOrderAccessDeniedException(OrderAccessDeniedException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.fail(40304, e.getMessage()));
+    }
+
+    // 낙찰 포기로 취소된 주문에 결제 시도 (409 Conflict)
+    @ExceptionHandler(OrderCanceledException.class)
+    public ResponseEntity<ApiResponse<Void>> handleOrderCanceledException(OrderCanceledException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40915, e.getMessage()));
     }
 
     // 판매자 본인 입찰 시도 (403 Forbidden)

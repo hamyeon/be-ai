@@ -74,6 +74,26 @@ public class Penalty {
         return penalty;
     }
 
+    // #57-2: 결제 기한 만료 penalty. forfeited()와 필드 구성이 동일하고 type만 다르다 -
+    // noShowCount/bidRestrictedUntil 갱신은 이 엔티티가 아니라 호출자(OrderExpirationService)가
+    // User.recordPaymentExpiredPenalty()로 별도 처리한다(사용자 확정: FORFEITED는 noShowCount에
+    // 반영하지 않는다 - forfeited()는 User를 여전히 건드리지 않는다).
+    public static Penalty paymentExpired(User user, Auction auction) {
+        if (user == null) {
+            throw new IllegalArgumentException("사용자는 필수입니다.");
+        }
+        if (auction == null) {
+            throw new IllegalArgumentException("경매는 필수입니다.");
+        }
+
+        Penalty penalty = new Penalty();
+        penalty.user = user;
+        penalty.auction = auction;
+        penalty.type = PenaltyType.PAYMENT_EXPIRED;
+        penalty.createdAt = LocalDateTime.now();
+        return penalty;
+    }
+
     public Long getId() {
         return id;
     }
