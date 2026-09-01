@@ -27,7 +27,8 @@ public class PenaltyController {
                     + "noShowCount는 PAYMENT_EXPIRED penalty만 센다."
     )
     @ApiResponses({
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공")
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)")
     })
     @GetMapping("/penalties")
     public ResponseEntity<ApiResponse<MyPenaltyResponse>> getMyPenalties(

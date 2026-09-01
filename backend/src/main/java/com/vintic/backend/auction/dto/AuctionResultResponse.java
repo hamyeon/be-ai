@@ -6,7 +6,7 @@ import java.time.OffsetDateTime;
 
 // FINAL contract §10 shape. rank/finalPrice/myLastBidAmount/shippingFee/totalAmount/
 // paymentDeadline/orderId/backupOfferId는 계약상 optional(X) - result에 따라 null이다.
-// backupOfferId는 #56-1 범위에 BackupOffer 도메인이 없어 항상 null이다(#56-2에서 채워진다).
+// backupOfferId는 result==BACKUP_WAITING일 때만 값을 갖는다(AuctionResultQueryService 참고).
 public record AuctionResultResponse(
         Long auctionId,
         AuctionResult result,

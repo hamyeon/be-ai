@@ -37,6 +37,7 @@ public class BackupOfferController {
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 차순위 제안(40403)")
     })
     // 응답 자체는 요청자별로 달라지지 않지만(§15엔 소유자 검증이 없다), 계약상 인증이 필수이므로
@@ -60,6 +61,7 @@ public class BackupOfferController {
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "수락 성공 또는 동일 요청 replay"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 차순위 제안(40403)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "차순위 구매 기한 만료(40911) / 이미 처리된 제안(40912) / Idempotency payload mismatch(40905)")
     })
@@ -80,6 +82,7 @@ public class BackupOfferController {
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "거절 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 차순위 제안(40403)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "이미 처리된 제안(40912)")
     })

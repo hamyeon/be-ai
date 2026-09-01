@@ -33,6 +33,7 @@ public class OrderController {
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "주문 소유자 아님(40304)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 주문(40402)")
     })
@@ -53,6 +54,7 @@ public class OrderController {
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "결제 성공 또는 이미 PAID인 주문의 재호출"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "주문 소유자 아님(40304)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 주문(40402)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "결제 기한 만료(40910) / 취소된 주문(40915)")
