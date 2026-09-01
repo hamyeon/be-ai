@@ -1,12 +1,15 @@
 package com.vintic.backend.backupoffer.repository;
 
 import com.vintic.backend.backupoffer.domain.BackupOffer;
+import com.vintic.backend.backupoffer.domain.BackupOfferStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 public interface BackupOfferRepository extends JpaRepository<BackupOffer, Long> {
@@ -46,4 +49,11 @@ public interface BackupOfferRepository extends JpaRepository<BackupOffer, Long> 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select bo from BackupOffer bo where bo.id = :backupOfferId")
     Optional<BackupOffer> findByIdForUpdate(@Param("backupOfferId") Long backupOfferId);
+
+    // #57-2: BackupOfferExpirationScheduler가 이번 회차에 처리할 후보를 고르는 non-locking
+    // 조회다. id만 스칼라로 뽑는다 - OrderRepository.findExpiredPendingOrderIds와 동일한 원칙으로
+    // BackupOfferExpirationService.expireIfDue()가 이 id로 다시 locking read를 해 authoritative
+    // 하게 재확인한다.
+    @Query("select bo.id from BackupOffer bo where bo.status = :status and bo.deadline < :now")
+    List<Long> findExpiredWaitingOfferIds(@Param("status") BackupOfferStatus status, @Param("now") LocalDateTime now);
 }

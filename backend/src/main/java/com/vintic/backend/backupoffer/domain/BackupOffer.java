@@ -117,6 +117,19 @@ public class BackupOffer {
         this.status = BackupOfferStatus.DECLINED;
     }
 
+    // FINAL contract §15: WAITING -> EXPIRED(scheduler, deadline 초과)만 허용된다. #57-2의
+    // BackupOfferExpirationService가 status == WAITING && isExpired(now)를 먼저 확인한 뒤에만
+    // 호출한다 - accept()/decline()과 동일하게 여기 도달했다는 것 자체가 서비스가 이미 걸렀다는
+    // 뜻이라 프로그래밍 오류 가드로만 예외를 던진다.
+    public void expire() {
+        if (status != BackupOfferStatus.WAITING) {
+            throw new InvalidBackupOfferStatusException(
+                    "WAITING 상태에서만 만료 처리할 수 있습니다. backupOfferId: " + id + ", 현재 상태: " + status
+            );
+        }
+        this.status = BackupOfferStatus.EXPIRED;
+    }
+
     // §0.10 "차순위 제안 응답 기한" 판정. scheduler 없이도(#57 이전) accept가 lazy하게 만료를
     // 감지할 수 있어야 하므로 status가 아니라 deadline을 직접 비교한다 - status는 이 판정만으로
     // EXPIRED로 바뀌지 않는다(실제 상태 전이는 #57 scheduler의 책임, 여기선 판정만 한다).
