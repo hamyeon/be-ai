@@ -22,6 +22,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -45,9 +46,14 @@ class RecommendationServiceTest {
     @Mock
     private AuctionRepository auctionRepository;
 
+    // Fallback 생성은 FallbackRecommendationProviderTest가 검증한다.
+    // 여기서는 개인화/Fallback 분기만 본다.
+    @Mock
+    private FallbackRecommendationProvider fallbackProvider;
+
     private RecommendationService newService() {
-        return new RecommendationService(
-                activityLogRepository, userVectorService, productVectorRepository, auctionRepository);
+        return new RecommendationService(activityLogRepository, userVectorService,
+                productVectorRepository, auctionRepository, fallbackProvider);
     }
 
     private static final float[] NIKE_LIKE = {1.0f, 0.0f};
@@ -63,13 +69,22 @@ class RecommendationServiceTest {
         return auction;
     }
 
+    // Fallback 내용 검증은 FallbackRecommendationProviderTest의 몫이다.
+    //
+    // Auction 목을 받지 않고 id만 받는다. 목의 getter를 when(...) 안에서 부르면
+    // Mockito가 스터빙 중인 것으로 오해해 UnfinishedStubbingException을 던진다.
+    private RecommendationResponse fallbackWith(long auctionId, long productId) {
+        return new RecommendationResponse(false, "Fallback",
+                List.of(new RecommendationResponse.RecommendedAuction(
+                        auctionId, productId, "Nike", "Model", "Color", 270, 100_000L, null, null)));
+    }
+
     @Test
     void 행동이_3건_미만이면_개인화하지_않는다() {
         // 1~2건은 우연일 수 있어 취향이라 보기 어렵다
         Auction a10 = auction(10L, 100L);
         when(activityLogRepository.countByUserId(1L)).thenReturn(2L);
-        when(auctionRepository.findEndingSoon(any(), any(), any(Pageable.class))).thenReturn(List.of(a10));
-        when(auctionRepository.findPopular(anyList(), any(Pageable.class))).thenReturn(List.of());
+        when(fallbackProvider.recommend(anyInt())).thenReturn(fallbackWith(10L, 100L));
 
         RecommendationResponse response = newService().recommend(1L, 10);
 
@@ -99,43 +114,13 @@ class RecommendationServiceTest {
     @Test
     void 비로그인이면_Fallback을_준다() {
         Auction a10 = auction(10L, 100L);
-        when(auctionRepository.findEndingSoon(any(), any(), any(Pageable.class))).thenReturn(List.of(a10));
-        when(auctionRepository.findPopular(anyList(), any(Pageable.class))).thenReturn(List.of());
+        when(fallbackProvider.recommend(anyInt())).thenReturn(fallbackWith(10L, 100L));
 
         RecommendationResponse response = newService().recommend(null, 10);
 
         assertThat(response.personalized()).isFalse();
         assertThat(response.items()).hasSize(1);
         assertThat(response.items().get(0).similarity()).isNull();
-    }
-
-    @Test
-    void Fallback은_마감임박과_인기를_번갈아_섞는다() {
-        Auction a10 = auction(10L, 100L);
-        Auction a11 = auction(11L, 110L);
-        Auction a20 = auction(20L, 200L);
-        Auction a21 = auction(21L, 210L);
-        when(auctionRepository.findEndingSoon(any(), any(), any(Pageable.class))).thenReturn(List.of(a10, a11));
-        when(auctionRepository.findPopular(anyList(), any(Pageable.class))).thenReturn(List.of(a20, a21));
-
-        RecommendationResponse response = newService().recommend(null, 4);
-
-        assertThat(response.items()).extracting(RecommendationResponse.RecommendedAuction::auctionId)
-                .containsExactly(10L, 20L, 11L, 21L);
-    }
-
-    @Test
-    void 양쪽에_같은_경매가_있어도_중복되지_않는다() {
-        Auction a10 = auction(10L, 100L);
-        Auction a10Again = auction(10L, 100L);
-        Auction a20 = auction(20L, 200L);
-        when(auctionRepository.findEndingSoon(any(), any(), any(Pageable.class))).thenReturn(List.of(a10));
-        when(auctionRepository.findPopular(anyList(), any(Pageable.class))).thenReturn(List.of(a10Again, a20));
-
-        RecommendationResponse response = newService().recommend(null, 10);
-
-        assertThat(response.items()).extracting(RecommendationResponse.RecommendedAuction::auctionId)
-                .containsExactly(10L, 20L);
     }
 
     @Test
@@ -147,8 +132,7 @@ class RecommendationServiceTest {
         when(userVectorService.buildUserVector(1L)).thenReturn(Optional.of(NIKE_LIKE));
         when(auctionRepository.findOpenAuctions(anyList())).thenReturn(List.of(a10));
         when(productVectorRepository.findAllById(anyList())).thenReturn(List.of());
-        when(auctionRepository.findEndingSoon(any(), any(), any(Pageable.class))).thenReturn(List.of(a10Fallback));
-        when(auctionRepository.findPopular(anyList(), any(Pageable.class))).thenReturn(List.of());
+        when(fallbackProvider.recommend(anyInt())).thenReturn(fallbackWith(10L, 100L));
 
         RecommendationResponse response = newService().recommend(1L, 10);
 
@@ -157,14 +141,13 @@ class RecommendationServiceTest {
     }
 
     @Test
-    void limit만큼만_돌려준다() {
-        Auction a10 = auction(10L, 100L);
-        Auction a11 = auction(11L, 110L);
-        Auction a12 = auction(12L, 120L);
-        when(auctionRepository.findEndingSoon(any(), any(), any(Pageable.class)))
-                .thenReturn(List.of(a10, a11, a12));
-        when(auctionRepository.findPopular(anyList(), any(Pageable.class))).thenReturn(List.of());
+    void limit을_Fallback에_그대로_넘긴다() {
+        // 개수를 실제로 잘라내는 건 FallbackRecommendationProviderTest가 검증한다.
+        // 여기서 볼 것은 요청받은 limit이 손실 없이 전달되는지다.
+        when(fallbackProvider.recommend(anyInt())).thenReturn(fallbackWith(10L, 100L));
 
-        assertThat(newService().recommend(null, 2).items()).hasSize(2);
+        newService().recommend(null, 7);
+
+        verify(fallbackProvider).recommend(7);
     }
 }

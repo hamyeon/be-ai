@@ -25,10 +25,22 @@ public class CacheConfig {
 
     public static final String PRICING_CACHE = "pricing-result";
 
+    // 취향 데이터가 없는 사용자에게 보여주는 경매 목록(마감 임박 + 인기).
+    // 비로그인과 신규 유저 전부가 같은 값을 받으므로 한 번 계산해 공유한다.
+    public static final String RECOMMENDATION_FALLBACK_CACHE = "recommendation-fallback";
+
     // 가격 계산의 원천(KREAM/eBay CSV)은 배포 시에만 바뀐다. 다만 Redis는 배포를 넘어 살아남으므로
     // TTL 없이 두면 CSV를 갈아끼워도 옛 가격이 계속 나온다. TTL이 사실상의 데이터 갱신 주기다.
     @Value("${cache.pricing.ttl-minutes:60}")
     private long pricingTtlMinutes;
+
+    // 추천 Fallback은 TTL을 짧게 둔다.
+    //
+    // 목록에 "마감 임박"이 섞여 있어 시간이 지나면 순서가 바뀌고, 길게 잡으면 이미 끝난
+    // 경매가 남는다. 입찰이 들어오면 @CacheEvict로 즉시 비우지만, 경매 종료처럼 아무도
+    // 무효화해주지 않는 변화가 있어 TTL이 마지막 안전장치 역할을 한다.
+    @Value("${cache.recommendation-fallback.ttl-seconds:60}")
+    private long recommendationFallbackTtlSeconds;
 
     @Bean
     public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory, ObjectMapper objectMapper) {
@@ -45,6 +57,9 @@ public class CacheConfig {
 
         return RedisCacheManager.builder(connectionFactory)
                 .cacheDefaults(defaults)
+                .withCacheConfiguration(
+                        RECOMMENDATION_FALLBACK_CACHE,
+                        defaults.entryTtl(Duration.ofSeconds(recommendationFallbackTtlSeconds)))
                 .build();
     }
 }

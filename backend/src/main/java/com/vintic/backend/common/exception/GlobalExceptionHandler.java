@@ -68,10 +68,17 @@ public class GlobalExceptionHandler {
     }
 
     // 존재하지 않는 분석 세션 (404 Not Found)
+    //
+    // 원래 40401을 쓰다가 40402로 옮겼다. #46에서 AuctionNotFoundException이 40402에서
+    // 40401로 이동하면서 이 예외와 같은 번호를 쓰게 됐는데, 그러면 프론트가 40401만으로는
+    // "분석 세션이 없다"와 "경매가 없다"를 구분할 수 없다.
+    //
+    // 옮기는 쪽을 이 예외로 정한 이유는 #46 FINAL contract가 40401=AUCTION_NOT_FOUND를
+    // 확정했기 때문이다. 경매 쪽을 되돌리면 그 계약을 깨게 된다.
     @ExceptionHandler(AnalysisSessionNotFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleAnalysisSessionNotFoundException(AnalysisSessionNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(ApiResponse.fail(40401, e.getMessage()));
+                .body(ApiResponse.fail(40402, e.getMessage()));
     }
 
     // 잘못된 분석 상태에서의 요청 (400 Bad Request)

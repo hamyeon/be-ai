@@ -246,6 +246,9 @@ public class AuctionController {
             @RequestAttribute("currentUserId") Long userId
     ) {
         LikeResponse response = auctionLikeService.like(auctionId, userId);
+        // 찜은 조회보다 강한 취향 신호다(가중치 2.0). productId는 입찰 경로와 마찬가지로
+        // null로 두고, 유저 벡터를 만들 때 auctionId로 한 번에 찾는다.
+        activityLogService.recordLike(userId, auctionId, null);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -261,6 +264,9 @@ public class AuctionController {
             @RequestAttribute("currentUserId") Long userId
     ) {
         LikeResponse response = auctionLikeService.unlike(auctionId, userId);
+        // 찜은 상태라서 해제하면 기록도 지운다. 남겨두면 이미 관심을 거둔 상품 쪽으로
+        // 취향 벡터가 계속 기운다.
+        activityLogService.removeLike(userId, auctionId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
