@@ -43,6 +43,7 @@ public class RecommendationService {
     private final UserVectorService userVectorService;
     private final ProductVectorRepository productVectorRepository;
     private final AuctionRepository auctionRepository;
+    private final FallbackRecommendationProvider fallbackProvider;
 
     @Transactional(readOnly = true)
     public RecommendationResponse recommend(Long userId, int limit) {
@@ -103,34 +104,10 @@ public class RecommendationService {
                 .collect(Collectors.toMap(ProductVector::getProductId, ProductVector::toVector));
     }
 
-    /**
-     * 취향 데이터가 없을 때. 마감 임박과 인기를 번갈아 섞는다.
-     *
-     * 마감 임박만 쓰면 지금 참여할 것은 보이지만 품질이 들쭉날쭉하고, 인기만 쓰면 항상 같은
-     * 경매가 위에 남는다. 섞으면 "지금 참여할 것"과 "검증된 것"이 같이 보인다.
-     */
+    // Fallback은 FallbackRecommendationProvider가 만든다. 결과가 요청자와 무관해
+    // 캐싱 대상이고, 캐시 프록시를 지나려면 다른 빈이어야 한다.
     private RecommendationResponse fallback(int limit) {
-        List<Auction> endingSoon = auctionRepository.findEndingSoon(
-                AuctionStatus.LIVE, LocalDateTime.now(), PageRequest.of(0, limit));
-        List<Auction> popular = auctionRepository.findPopular(OPEN_STATUSES, PageRequest.of(0, limit));
-
-        // 같은 경매가 양쪽에 들어올 수 있어 순서를 지키며 중복을 제거한다
-        Map<Long, Auction> merged = new LinkedHashMap<>();
-        int maxSize = Math.max(endingSoon.size(), popular.size());
-        for (int i = 0; i < maxSize && merged.size() < limit; i++) {
-            if (i < endingSoon.size()) {
-                merged.putIfAbsent(endingSoon.get(i).getId(), endingSoon.get(i));
-            }
-            if (merged.size() < limit && i < popular.size()) {
-                merged.putIfAbsent(popular.get(i).getId(), popular.get(i));
-            }
-        }
-
-        List<RecommendationResponse.RecommendedAuction> items = new ArrayList<>();
-        merged.values().forEach(auction -> items.add(toItem(auction, null)));
-
-        return new RecommendationResponse(false,
-                "아직 취향을 파악할 정보가 부족해 마감 임박·인기 경매를 보여드립니다.", items);
+        return fallbackProvider.recommend(limit);
     }
 
     private RecommendationResponse.RecommendedAuction toItem(Auction auction, Double similarity) {

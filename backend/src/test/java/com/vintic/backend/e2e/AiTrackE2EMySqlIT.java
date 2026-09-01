@@ -111,6 +111,9 @@ class AiTrackE2EMySqlIT {
     @Autowired
     private ProductAnalysisSessionRepository sessionRepository;
 
+    @Autowired
+    private org.springframework.data.redis.core.StringRedisTemplate redisTemplate;
+
     // --- 외부 경계는 목으로 둔다 ---
 
     @MockitoBean
@@ -131,6 +134,10 @@ class AiTrackE2EMySqlIT {
     @BeforeEach
     void setUp() {
         // FK를 참조하는 쪽부터 지운다.
+        // 캐시가 테스트 간에 새지 않도록 비운다. 앞 테스트의 목록이 남아 있으면
+        // 다음 테스트가 DB가 아니라 캐시를 읽는다.
+        redisTemplate.keys("cache:recommendation-fallback*").forEach(redisTemplate::delete);
+
         activityLogRepository.deleteAll();
         productVectorRepository.deleteAll();
         auctionRepository.deleteAll();
@@ -255,6 +262,36 @@ class AiTrackE2EMySqlIT {
                 // Fallback도 정상 응답이다. 데이터가 부족하다고 에러를 내지 않는다.
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.items[0].similarity").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("Fallback 목록은 캐시되고, 입찰이 들어오면 비워진다")
+    void Fallback_캐시가_입찰에_무효화된다() throws Exception {
+        Long productId = registerProduct("Nike", "Dunk Low", "Panda");
+        Long auctionId = openAuction(productId);
+
+        // 1) 첫 호출 - DB를 읽고 캐시에 넣는다
+        mockMvc.perform(get("/api/recommendations/auctions?limit=10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].currentPrice").value(100000));
+
+        // 2) 캐시에 값이 들어갔는지 확인한다. 키는 "cache:" 네임스페이스 아래에 있다.
+        assertThat(redisTemplate.keys("cache:recommendation-fallback*")).isNotEmpty();
+
+        // 3) 입찰이 들어오면 현재가가 바뀌므로 캐시가 낡는다
+        mockMvc.perform(post("/api/auctions/{id}/bids", auctionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("X-User-Id", buyerId)
+                        .header("Idempotency-Key", "e2e-cache-evict")
+                        .content("{\"amount\": 105000}"))
+                .andExpect(status().isCreated());
+
+        assertThat(redisTemplate.keys("cache:recommendation-fallback*")).isEmpty();
+
+        // 4) 다시 부르면 갱신된 현재가가 나온다. 캐시가 안 비워졌다면 100000이 그대로 나온다.
+        mockMvc.perform(get("/api/recommendations/auctions?limit=10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].currentPrice").value(105000));
     }
 
     @Test
