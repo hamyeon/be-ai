@@ -1,6 +1,7 @@
 package com.vintic.backend.auction.service;
 
 import com.vintic.backend.auction.domain.Auction;
+import com.vintic.backend.auction.domain.AuctionStatus;
 import com.vintic.backend.auction.domain.CannotBidReason;
 import com.vintic.backend.auction.dto.AuctionDetailResponse;
 import com.vintic.backend.auction.dto.AuctionLiveResponse;
@@ -15,6 +16,7 @@ import com.vintic.backend.bid.domain.BidType;
 import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.common.exception.AuctionNotFoundException;
 import com.vintic.backend.common.util.TimePolicy;
+import com.vintic.backend.config.ClockConfig;
 import com.vintic.backend.like.domain.AuctionLike;
 import com.vintic.backend.like.repository.AuctionLikeRepository;
 import com.vintic.backend.product.domain.Product;
@@ -86,6 +88,19 @@ class AuctionQueryServiceTest {
         Auction auction = Auction.schedule(
                 product, 10000L, 5000L, LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2)
         );
+        auction.start();
+        entityManager.persist(auction);
+        return auction;
+    }
+
+    // AuctionQueryService에 주입되는 Clock은 TestClockConfig.FIXED_INSTANT로 고정돼 있다 - endAt
+    // 경계값 테스트는 이 고정 시각 기준 상대값으로 만들어야 결정적으로 검증할 수 있다.
+    private LocalDateTime fixedNow() {
+        return LocalDateTime.ofInstant(TestClockConfig.FIXED_INSTANT, ClockConfig.APP_ZONE);
+    }
+
+    private Auction persistLiveAuctionEndingAt(Product product, LocalDateTime endAt) {
+        Auction auction = Auction.schedule(product, 10000L, 5000L, endAt.minusHours(1), endAt);
         auction.start();
         entityManager.persist(auction);
         return auction;
@@ -613,6 +628,40 @@ class AuctionQueryServiceTest {
 
         AuctionLiveResponse response = auctionQueryService.getLiveView(auction.getId(), bidder.getId());
 
+        assertThat(response.canBid()).isFalse();
+        assertThat(response.cannotBidReason()).isEqualTo(CannotBidReason.AUCTION_CLOSED);
+    }
+
+    @Test
+    void live_조회시_endAt_직전이면_아직_canBid가_true다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuctionEndingAt(product, fixedNow().plusSeconds(1));
+        flushAndClear();
+
+        AuctionLiveResponse response = auctionQueryService.getLiveView(auction.getId(), bidder.getId());
+
+        assertThat(response.canBid()).isTrue();
+        assertThat(response.cannotBidReason()).isNull();
+    }
+
+    // #73 종료 전 확인된 gap: BidCommandService/AutoBidCommandService는 이제 Auction.
+    // hasReachedDeadline()로 "status=LIVE지만 endAt은 이미 지난" 입찰을 AUCTION_CLOSED(40903)로
+    // 거절한다. status만 보던 determineCannotBidReason()이 이 조건을 함께 보지 않으면, scheduler
+    // polling 지연 구간(endIfDue()가 아직 안 돈 상태)에서 /live가 실제로는 거절될 입찰을
+    // canBid=true로 보여주는 read/write 불일치가 생긴다.
+    @Test
+    void live_조회시_endAt이_지났지만_status가_아직_LIVE면_AUCTION_CLOSED를_반환한다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuctionEndingAt(product, fixedNow().minusSeconds(1));
+        flushAndClear();
+
+        AuctionLiveResponse response = auctionQueryService.getLiveView(auction.getId(), bidder.getId());
+
+        assertThat(auction.getStatus()).isEqualTo(AuctionStatus.LIVE);
         assertThat(response.canBid()).isFalse();
         assertThat(response.cannotBidReason()).isEqualTo(CannotBidReason.AUCTION_CLOSED);
     }

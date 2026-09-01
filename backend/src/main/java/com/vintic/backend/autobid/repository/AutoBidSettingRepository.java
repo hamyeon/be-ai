@@ -78,4 +78,19 @@ public interface AutoBidSettingRepository extends JpaRepository<AutoBidSetting, 
             @Param("status") AutoBidSettingStatus status,
             @Param("userId") Long userId
     );
+
+    // #73-1: SCHEDULED -> LIVE lifecycle 전환 시점의 RESERVED 일괄 정산 전용. 이 시점엔 "트리거를
+    // 낸 사용자"가 없다 - RESERVED 전체가 곧 ProxyPriceEngine의 candidate pool이라 위
+    // findByAuctionIdAndStatusAndUserIdNot처럼 특정 사용자를 제외할 이유가 없다. 같은 이유
+    // (Auction row lock을 이미 잡은 뒤에만 호출, 그 시점엔 경쟁할 다른 살아있는 트랜잭션이 없음)로
+    // PESSIMISTIC_WRITE를 쓴다 - 데드락 위험 없음, stale candidate set 방지 목적도 동일하다.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select s from AutoBidSetting s
+            where s.auction.id = :auctionId and s.status = :status
+            """)
+    List<AutoBidSetting> findByAuctionIdAndStatusForUpdate(
+            @Param("auctionId") Long auctionId,
+            @Param("status") AutoBidSettingStatus status
+    );
 }

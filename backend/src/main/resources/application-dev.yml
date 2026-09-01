@@ -23,6 +23,16 @@ backup-offer:
   expiration:
     enabled: true
 
+# #73-3: 실제 API 실행 profile에서는 Auction lifecycle scheduler(SCHEDULED->LIVE/LIVE->ENDED)도
+# 위와 동일한 이유로 명시적으로 켠다. 새 worker profile을 만들지 않고 기존 dev profile을 그대로
+# 재사용한다.
+auction:
+  lifecycle:
+    start:
+      enabled: true
+    end:
+      enabled: true
+
 # 배포 환경 관리 엔드포인트.
 #
 # 관리 포트(기본 8081)는 보안그룹에서 외부 인바운드를 막는 것이 전제다.

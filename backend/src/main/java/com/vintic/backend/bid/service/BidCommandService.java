@@ -3,6 +3,7 @@ package com.vintic.backend.bid.service;
 import com.vintic.backend.auction.audit.AuctionPriceAuditRecorder;
 import com.vintic.backend.auction.audit.PriceAuditTrigger;
 import com.vintic.backend.auction.domain.Auction;
+import com.vintic.backend.auction.domain.AuctionStatus;
 import com.vintic.backend.auction.repository.AuctionRepository;
 import com.vintic.backend.autobid.domain.AutoBidSetting;
 import com.vintic.backend.autobid.domain.AutoBidSettingStatus;
@@ -18,6 +19,7 @@ import com.vintic.backend.bid.domain.Bid;
 import com.vintic.backend.bid.domain.BidType;
 import com.vintic.backend.bid.dto.PlaceBidResponse;
 import com.vintic.backend.bid.repository.BidRepository;
+import com.vintic.backend.common.exception.AuctionClosedException;
 import com.vintic.backend.common.exception.AuctionNotFoundException;
 import com.vintic.backend.common.exception.PenaltyRestrictedException;
 import com.vintic.backend.common.exception.UserNotFoundException;
@@ -81,6 +83,16 @@ public class BidCommandService {
 
         if (bidder.isBidRestricted(LocalDateTime.now(clock))) {
             throw new PenaltyRestrictedException("입찰 제한 기간 중인 사용자입니다. userId: " + userId);
+        }
+        // scheduler polling 지연 동안(마감 시각은 지났지만 endIfDue()가 아직 돌지 않아 status가
+        // 여전히 LIVE인 구간) 이 경로가 그대로 진행하면 maybeExtend()가 이미 지난 마감을 미래로
+        // 되돌릴 수 있다 - AuctionEndService.endIfDue()와 동일한 "endAt <= now" 조건으로 lock 직후
+        // 여기서 먼저 거절한다. SCHEDULED/ENDED/CANCELED는 아래 auction.placeManualBid()의 기존
+        // 상태 검증이 그대로 처리하므로 LIVE인 경우에만 이 조건을 추가로 본다.
+        if (auction.getStatus() == AuctionStatus.LIVE && auction.hasReachedDeadline(LocalDateTime.now(clock))) {
+            throw new AuctionClosedException(
+                    "이미 마감 시각이 지난 경매입니다. auctionId: " + auctionId
+            );
         }
 
         // audit의 beforePrice/beforeWinner 기준점이다 - 이 command가 Auction을 건드리기 전 상태를

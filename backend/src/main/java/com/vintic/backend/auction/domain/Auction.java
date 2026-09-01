@@ -231,6 +231,14 @@ public class Auction {
         return status == AuctionStatus.ENDED || status == AuctionStatus.CANCELED;
     }
 
+    // AuctionEndService.endIfDue()의 "LIVE && endAt <= now" 판정과 동일한 조건이다. scheduler
+    // polling 지연 동안(마감 시각은 지났지만 status는 아직 LIVE인 구간) authoritative write
+    // path(Bid/AutoBid)가 가격을 바꾸거나 maybeExtend()로 이미 지난 마감을 미래로 되돌리는 일이
+    // 없도록, 그 경로들이 lock 획득 직후 이 조건으로 직접 거절한다.
+    public boolean hasReachedDeadline(LocalDateTime now) {
+        return !endAt.isAfter(now);
+    }
+
     // /live의 canBid 판정 전용이다. placeManualBid()와 같은 순서(제재→미시작→종료→판매자→최고입찰자)를
     // 따르되 금액 검증(BID_AMOUNT_TOO_LOW/BID_NOT_ALIGNED)은 포함하지 않는다 - 계약상 canBid는
     // 금액을 입력하기 전에 버튼을 눌러도 되는지만 의미하기 때문이다.
@@ -242,6 +250,12 @@ public class Auction {
             return CannotBidReason.AUCTION_NOT_STARTED;
         }
         if (status != AuctionStatus.LIVE) {
+            return CannotBidReason.AUCTION_CLOSED;
+        }
+        // BidCommandService.placeManualBid()/AutoBidCommandService의 hasReachedDeadline() 거절과
+        // 같은 조건이다 - scheduler polling 지연 동안(마감 시각은 지났지만 status가 아직 LIVE인
+        // 구간) 이 조건이 없으면 /live는 실제로는 거절될 입찰을 canBid=true로 보여준다.
+        if (hasReachedDeadline(now)) {
             return CannotBidReason.AUCTION_CLOSED;
         }
         if (product.getSeller().isSameUser(user)) {
