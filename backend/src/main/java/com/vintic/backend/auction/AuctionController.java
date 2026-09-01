@@ -84,6 +84,15 @@ public class AuctionController {
     // 정책 변경이라 이번 범위에서 임의로 바꾸지 않았다(완료 보고 gap 참고). 헤더가 있으면
     // myState/isLiked를 개인화하고 추천용 행동 로그도 남긴다.
     // (인터셉터는 currentUserId를 파라미터로 받는 핸들러만 검증하므로 여기선 헤더를 직접 읽는다)
+    @Operation(
+            summary = "경매 상품 상세 조회",
+            description = "상품/판매자/AI 분석/myState를 포함한 상세 정보를 반환한다. 비로그인도 접근 가능하며, "
+                    + "X-User-Id 헤더가 있으면 myState/isLiked가 개인화된다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 경매(40401)")
+    })
     @GetMapping("/{auctionId}")
     public ResponseEntity<ApiResponse<AuctionDetailResponse>> getAuction(
             @PathVariable Long auctionId,
@@ -104,6 +113,7 @@ public class AuctionController {
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 경매(40401)")
     })
     @GetMapping("/{auctionId}/result")
@@ -128,6 +138,7 @@ public class AuctionController {
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "포기 성공(또는 이미 처리된 상태의 재확인)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "낙찰자가 아님(40303)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 경매(40401)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "결제 기한 만료(40910) / 이미 결제 완료(40914)")
@@ -142,6 +153,16 @@ public class AuctionController {
     }
 
     // 개인화 필드(isMine/canBid/myAutoBidStatus 등)가 있어 상세조회와 달리 인증을 필수로 건다.
+    @Operation(
+            summary = "실시간 경매 상태 조회",
+            description = "polling 대상 화면(라이브 입찰)에서 쓰는 실시간 상태다. canBid/cannotBidReason/"
+                    + "myAutoBidStatus 등 개인화 필드가 있어 인증이 필수다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 경매(40401)")
+    })
     @GetMapping("/{auctionId}/live")
     public ResponseEntity<ApiResponse<AuctionLiveResponse>> getLiveView(
             @PathVariable Long auctionId,
@@ -152,6 +173,16 @@ public class AuctionController {
     }
 
     // 응답 자체는 사용자별로 달라지지 않지만, 계약상 인증이 필수이므로 currentUserId 파라미터로 검증을 건다.
+    @Operation(
+            summary = "AI 자동입찰 추천",
+            description = "aiRecommendedCap은 항상 minCapAmount와 같다 - buyer 전용 AI 추천 소스가 도메인에 "
+                    + "없어 §4가 정의한 fallback 정책 그대로다(미구현이 아니라 계약이 그렇다)."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 경매(40401)")
+    })
     @GetMapping("/{auctionId}/auto-bid/recommendation")
     public ResponseEntity<ApiResponse<AutoBidRecommendationResponse>> getAutoBidRecommendation(
             @PathVariable Long auctionId,
@@ -162,6 +193,15 @@ public class AuctionController {
     }
 
     // #55: 상세조회와 동일하게 비로그인 접근을 허용한다 - 헤더가 있으면 isMine을 개인화한다.
+    @Operation(
+            summary = "입찰 내역 조회",
+            description = "페이지네이션(page/size)과 정렬(order=latest|oldest)을 지원한다. 비로그인도 접근 "
+                    + "가능하며, X-User-Id 헤더가 있으면 isMine이 개인화된다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 경매(40401)")
+    })
     @GetMapping("/{auctionId}/bids")
     public ResponseEntity<ApiResponse<BidHistoryResponse>> getBidHistory(
             @PathVariable Long auctionId,
@@ -197,6 +237,7 @@ public class AuctionController {
     @Operation(summary = "관심 상품 등록", description = "이미 등록돼 있으면 재등록 없이 현재 상태(liked=true)를 그대로 반환한다(멱등). Idempotency-Key를 요구하지 않는다.")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "등록 성공(또는 이미 등록된 상태)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 경매(40401)")
     })
     @PostMapping("/{auctionId}/likes")
@@ -211,6 +252,7 @@ public class AuctionController {
     @Operation(summary = "관심 상품 해제", description = "이미 해제돼 있거나 등록한 적이 없어도 에러 없이 현재 상태(liked=false)를 그대로 반환한다(멱등). Idempotency-Key를 요구하지 않는다.")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "해제 성공(또는 이미 해제된 상태)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 경매(40401)")
     })
     @DeleteMapping("/{auctionId}/likes")
@@ -225,6 +267,7 @@ public class AuctionController {
     @Operation(summary = "수동 입찰", description = "동일 Idempotency-Key로 재시도해도 새 입찰이 생성되지 않고 최초 성공 결과가 반환된다.")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "입찰 성공 또는 동일 요청 replay"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "판매자 본인 입찰(40301) 또는 입찰 제한 기간(40302)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "최고입찰자 재입찰(40901) / 미시작(40902) / 종료(40903) / 최소금액 미만(40904) / 배수 정렬 실패(40913) / Idempotency payload mismatch(40905) / 동시성 충돌(40909, 재시도 가능)")
     })
@@ -253,6 +296,7 @@ public class AuctionController {
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "등록 성공 또는 동일 요청 replay"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "판매자 본인(40301) 또는 입찰 제한 기간(40302)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "상한가 미달(40906) / 기존 설정 존재(40908) / 종료된 경매(40903) / Idempotency payload mismatch(40905) / 동시성 충돌(40909, 재시도 가능)")
     })
@@ -267,6 +311,15 @@ public class AuctionController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 
+    @Operation(
+            summary = "내 자동입찰 조회",
+            description = "이 경매에 등록한 자동입찰 설정을 조회한다. canModify/canCancel은 현재 status 기준으로 계산된다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "등록된 자동입찰 없음(40404)")
+    })
     @GetMapping("/{auctionId}/auto-bids/me")
     public ResponseEntity<ApiResponse<AutoBidMeResponse>> getMyAutoBid(
             @PathVariable Long auctionId,
@@ -286,6 +339,7 @@ public class AuctionController {
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "수정 성공 또는 동일 요청 replay"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "등록된 자동입찰 없음(40404)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "상한가 미달(40906) / 상향하지 않음(40907, ACTIVE/CAP_REACHED만) / 종료된 경매(40903) / Idempotency payload mismatch(40905) / 동시성 충돌(40909, 재시도 가능)")
     })
@@ -305,6 +359,7 @@ public class AuctionController {
     @Operation(summary = "자동입찰 중단 / 예약 취소", description = "row를 삭제하지 않고 상태를 CANCELED로 변경한다. 기존에 발생한 Bid는 삭제하지 않는다. Idempotency-Key를 요구하지 않는다.")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "취소 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "등록된 자동입찰 없음(40404)")
     })
     @DeleteMapping("/{auctionId}/auto-bids/me")
