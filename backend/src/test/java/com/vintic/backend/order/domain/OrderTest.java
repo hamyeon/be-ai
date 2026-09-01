@@ -46,4 +46,64 @@ class OrderTest {
 
         assertThatThrownBy(order::cancel).isInstanceOf(InvalidOrderStatusException.class);
     }
+
+    @Test
+    void PAYMENT_PENDING_주문은_결제하면_PAID가_되고_paidAt이_기록된다() {
+        Order order = pendingOrder();
+        LocalDateTime paidAt = LocalDateTime.now();
+
+        order.pay(paidAt);
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
+        assertThat(order.getPaidAt()).isEqualTo(paidAt);
+    }
+
+    @Test
+    void 이미_PAID된_주문을_다시_결제하면_예외가_발생한다() {
+        Order order = pendingOrder();
+        order.pay(LocalDateTime.now());
+
+        assertThatThrownBy(() -> order.pay(LocalDateTime.now())).isInstanceOf(InvalidOrderStatusException.class);
+    }
+
+    @Test
+    void CANCELED된_주문을_결제하면_예외가_발생한다() {
+        Order order = pendingOrder();
+        order.cancel();
+
+        assertThatThrownBy(() -> order.pay(LocalDateTime.now())).isInstanceOf(InvalidOrderStatusException.class);
+    }
+
+    @Test
+    void PAYMENT_PENDING_주문은_만료하면_PAYMENT_EXPIRED가_된다() {
+        Order order = pendingOrder();
+
+        order.expire();
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAYMENT_EXPIRED);
+    }
+
+    @Test
+    void 이미_PAYMENT_EXPIRED된_주문을_다시_만료하면_예외가_발생한다() {
+        Order order = pendingOrder();
+        order.expire();
+
+        assertThatThrownBy(order::expire).isInstanceOf(InvalidOrderStatusException.class);
+    }
+
+    @Test
+    void PAID된_주문을_만료하면_예외가_발생한다() {
+        Order order = pendingOrder();
+        order.pay(LocalDateTime.now());
+
+        assertThatThrownBy(order::expire).isInstanceOf(InvalidOrderStatusException.class);
+    }
+
+    @Test
+    void CANCELED된_주문을_만료하면_예외가_발생한다() {
+        Order order = pendingOrder();
+        order.cancel();
+
+        assertThatThrownBy(order::expire).isInstanceOf(InvalidOrderStatusException.class);
+    }
 }

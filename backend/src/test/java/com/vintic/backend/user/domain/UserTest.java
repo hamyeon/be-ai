@@ -7,8 +7,9 @@ import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// bidRestrictedUntil은 페널티 생성 정책(이번 범위 제외)에서만 채워질 값이라
-// User에 별도 setter/factory 파라미터를 추가하지 않고, 테스트에서만 리플렉션으로 채운다.
+// isBidRestricted() 자체를 검증하는 케이스는 recordPaymentExpiredPenalty()(#57-2) 없이도
+// 임의의 시각을 리플렉션으로 채워 확인한다 - recordPaymentExpiredPenalty()의 실제 동작은
+// 아래 별도 케이스에서 공개 API로 검증한다.
 class UserTest {
 
     @Test
@@ -32,5 +33,26 @@ class UserTest {
         ReflectionTestUtils.setField(user, "bidRestrictedUntil", LocalDateTime.now().plusMinutes(1));
 
         assertThat(user.isBidRestricted(LocalDateTime.now())).isTrue();
+    }
+
+    @Test
+    void PAYMENT_EXPIRED_페널티를_기록하면_noshowCount가_증가하고_bidRestrictedUntil이_설정된다() {
+        User user = User.register("user@vintic.local", "user", null);
+        LocalDateTime restrictedUntil = LocalDateTime.now().plusDays(7);
+
+        user.recordPaymentExpiredPenalty(restrictedUntil);
+
+        assertThat(user.getNoshowCount()).isEqualTo(1);
+        assertThat(user.getBidRestrictedUntil()).isEqualTo(restrictedUntil);
+    }
+
+    @Test
+    void PAYMENT_EXPIRED_페널티를_여러번_기록하면_noshowCount가_누적된다() {
+        User user = User.register("user@vintic.local", "user", null);
+
+        user.recordPaymentExpiredPenalty(LocalDateTime.now().plusDays(7));
+        user.recordPaymentExpiredPenalty(LocalDateTime.now().plusDays(14));
+
+        assertThat(user.getNoshowCount()).isEqualTo(2);
     }
 }
