@@ -154,3 +154,34 @@ logging:
   level:
     root: INFO
     com.vintic.backend: INFO
+
+# #75-4A: 자체 Access/Refresh JWT. secret은 여기 기본값을 두지 않는다 - JWT_SECRET이 없으면
+# 기동이 실패해야 한다(AWS_ACCESS_KEY_ID/OPENAI_API_KEY와 동일 원칙, application-secret.yml에도
+# 실제 값을 넣지 않는다). TTL 기본값(access 30분/refresh 14일)은 이번 개발 단계 기본값이다.
+jwt:
+  secret: ${JWT_SECRET}
+  access-ttl-seconds: ${JWT_ACCESS_TTL_SECONDS:1800}
+  refresh-ttl-seconds: ${JWT_REFRESH_TTL_SECONDS:1209600}
+
+---
+# #75-4B: local/test(그리고 profile을 지정하지 않는 대부분의 @WebMvcTest 슬라이스, on-profile
+# "!dev & !prod"에 해당)에서는 spring-boot-starter-security(#75-4A에서 JWT primitive용으로 추가)의
+# 기본 auto-configuration을 아예 배제한다. 그러지 않으면 이 profile들에는 SecurityFilterChain
+# 빈이 없어(JwtSecurityConfig는 dev/prod 전용) Boot가 모든 요청에 HTTP Basic 인증을 강제하는
+# 기본 필터체인을 자동 생성하고, 기존 MockAuthInterceptor 기반 요청과 기존 컨트롤러 테스트가
+# 전부 막힌다. dev/prod에서는 이 문서가 비활성화되어(on-profile 불일치) Security auto-configuration이
+# 그대로 살아있고, JwtSecurityConfig가 제공하는 SecurityFilterChain이 Boot의 기본값을 대체한다.
+spring:
+  config:
+    activate:
+      on-profile: "!dev & !prod"
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+      # #75-5B: SecurityAutoConfiguration을 빼면 HttpSecurity 빈이 없어지는데, actuator의
+      # ManagementWebSecurityAutoConfiguration은 여전히 활성화되어 그 빈을 요구한다 -
+      # spring-boot-starter-security를 추가하기 전(#75-4A 이전)에는 Security 클래스가
+      # classpath에 없어 이 auto-configuration 자체가 조건에 걸려 매치되지 않았으므로
+      # 드러나지 않았던 문제다. 이것도 함께 빼야 local/test @SpringBootTest context가 뜬다.
+      - org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration
