@@ -81,13 +81,18 @@ public class AuctionController {
 
     // #55: 상세조회는 기존부터 비로그인 접근을 허용해왔다(가입 전 상품을 볼 수 있어야 한다는
     // 기존 결정) - 계약상 Authorization은 필수지만 이 endpoint를 인증 필수로 바꾸는 것은 도메인
-    // 정책 변경이라 이번 범위에서 임의로 바꾸지 않았다(완료 보고 gap 참고). 헤더가 있으면
+    // 정책 변경이라 이번 범위에서 임의로 바꾸지 않았다(완료 보고 gap 참고). currentUserId가 있으면
     // myState/isLiked를 개인화하고 추천용 행동 로그도 남긴다.
-    // (인터셉터는 currentUserId를 파라미터로 받는 핸들러만 검증하므로 여기선 헤더를 직접 읽는다)
+    // #75-4B 보안 수정: X-User-Id 헤더를 직접 읽지 않는다 - dev/prod에서 identity source는
+    // SecurityContext/JWT여야 하므로, 외부에서 그대로 주입 가능한 헤더를 신뢰하면 안 된다.
+    // MockAuthInterceptor(local)/JwtAuthenticationFilter(dev/prod) 둘 다 이제 optional
+    // 핸들러에도 request attribute로 currentUserId를 채워준다(MockAuthInterceptor.
+    // requiresCurrentUser()가 required=false도 인식하도록 수정됨, JwtAuthenticationFilter는
+    // 유효한 토큰이면 항상 attribute를 채운다).
     @Operation(
             summary = "경매 상품 상세 조회",
             description = "상품/판매자/AI 분석/myState를 포함한 상세 정보를 반환한다. 비로그인도 접근 가능하며, "
-                    + "X-User-Id 헤더가 있으면 myState/isLiked가 개인화된다."
+                    + "인증된 사용자면 myState/isLiked가 개인화된다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
@@ -96,7 +101,7 @@ public class AuctionController {
     @GetMapping("/{auctionId}")
     public ResponseEntity<ApiResponse<AuctionDetailResponse>> getAuction(
             @PathVariable Long auctionId,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId
+            @RequestAttribute(value = "currentUserId", required = false) Long userId
     ) {
         AuctionDetailResponse response = auctionQueryService.getAuctionDetail(auctionId, userId);
         activityLogService.recordView(userId, auctionId, response.product().productId());
@@ -192,11 +197,12 @@ public class AuctionController {
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
-    // #55: 상세조회와 동일하게 비로그인 접근을 허용한다 - 헤더가 있으면 isMine을 개인화한다.
+    // #55: 상세조회와 동일하게 비로그인 접근을 허용한다 - 인증된 사용자면 isMine을 개인화한다.
+    // #75-4B: X-User-Id 헤더 대신 request attribute를 받는다(위 getAuction() 주석 참고).
     @Operation(
             summary = "입찰 내역 조회",
             description = "페이지네이션(page/size)과 정렬(order=latest|oldest)을 지원한다. 비로그인도 접근 "
-                    + "가능하며, X-User-Id 헤더가 있으면 isMine이 개인화된다."
+                    + "가능하며, 인증된 사용자면 isMine이 개인화된다."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
@@ -205,7 +211,7 @@ public class AuctionController {
     @GetMapping("/{auctionId}/bids")
     public ResponseEntity<ApiResponse<BidHistoryResponse>> getBidHistory(
             @PathVariable Long auctionId,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @RequestAttribute(value = "currentUserId", required = false) Long userId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "latest") String order
@@ -225,10 +231,11 @@ public class AuctionController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 경매(40401)")
     })
+    // #75-4B: X-User-Id 헤더 대신 request attribute를 받는다(위 getAuction() 주석 참고).
     @GetMapping("/{auctionId}/similar")
     public ResponseEntity<ApiResponse<SimilarAuctionsResponse>> getSimilarAuctions(
             @PathVariable Long auctionId,
-            @RequestHeader(value = "X-User-Id", required = false) Long userId
+            @RequestAttribute(value = "currentUserId", required = false) Long userId
     ) {
         SimilarAuctionsResponse response = auctionQueryService.getSimilarAuctions(auctionId, userId);
         return ResponseEntity.ok(ApiResponse.success(response));

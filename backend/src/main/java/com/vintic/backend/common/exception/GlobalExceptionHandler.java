@@ -37,6 +37,32 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail(40101, e.getMessage()));
     }
 
+    // Kakao가 access token을 invalid/expired로 판단(신원 확인 실패) - POST /api/auth/kakao 전용
+    // (401 Unauthorized, #75-4C)
+    @ExceptionHandler(KakaoTokenInvalidException.class)
+    public ResponseEntity<ApiResponse<Void>> handleKakaoTokenInvalidException(KakaoTokenInvalidException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.fail(40102, e.getMessage()));
+    }
+
+    // Kakao 5xx/timeout/network 등 예기치 않은 upstream 실패 - Kakao 원본 payload/예외 메시지를
+    // 그대로 노출하지 않고 고정 문구만 반환한다(502 Bad Gateway, #75-4C)
+    @ExceptionHandler(KakaoApiException.class)
+    public ResponseEntity<ApiResponse<Void>> handleKakaoApiException(KakaoApiException e) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(ApiResponse.fail(50201, "Kakao 사용자 정보 조회에 실패했습니다."));
+    }
+
+    // Refresh Token이 유효하지 않음 - malformed/서명 불일치/만료/Access token 오사용/Redis entry
+    // 없음(revoked)/Redis userId 불일치 전부 여기로 수렴한다. POST /api/auth/refresh 전용
+    // (401 Unauthorized, #75-4D). logout은 Redis entry가 없어도 이 예외를 던지지 않고 200으로
+    // 처리한다(RefreshTokenService.logout() 참고) - 이 핸들러가 다루는 대상이 아니다.
+    @ExceptionHandler(RefreshTokenInvalidException.class)
+    public ResponseEntity<ApiResponse<Void>> handleRefreshTokenInvalidException(RefreshTokenInvalidException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.fail(40103, e.getMessage()));
+    }
+
     // 필수 요청 헤더 누락 (400 Bad Request) — 없으면 catch-all Exception 핸들러가 500으로 잘못 응답한다.
     // 위 MockAuthException(401)과는 다른 경로다: 이쪽은 컨트롤러 @RequestHeader 바인딩
     // 단계에서 발생하므로 인증 실패가 아니라 요청 형식 문제로 본다.
@@ -126,6 +152,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBackupOfferNotFoundException(BackupOfferNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ApiResponse.fail(40403, e.getMessage()));
+    }
+
+    // 차순위 제안의 candidate 본인이 아닌 사용자의 조회/수락/거절 시도 (403 Forbidden, #75)
+    @ExceptionHandler(BackupOfferAccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBackupOfferAccessDeniedException(BackupOfferAccessDeniedException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.fail(40305, e.getMessage()));
     }
 
     // 차순위 구매 기한 만료 후 accept 시도 (409 Conflict)
@@ -249,6 +282,14 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleAutoBidNotFoundException(AutoBidNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ApiResponse.fail(40404, e.getMessage()));
+    }
+
+    // 존재하지 않거나 본인 소유가 아닌 알림 (404 Not Found, #75) - 두 경우를 구분해서 노출하지
+    // 않는다(findByIdAndRecipientId가 애초에 둘을 구분하지 않는 단일 조회이므로 자연히 통일된다).
+    @ExceptionHandler(NotificationNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotificationNotFoundException(NotificationNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40405, e.getMessage()));
     }
 
     // 자동입찰 상한가가 minCapAmount 미만 (409 Conflict)
