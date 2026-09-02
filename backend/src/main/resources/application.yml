@@ -49,11 +49,20 @@ analysis:
     group: ${ANALYSIS_STREAM_GROUP:ai-analysis-workers}
     consumer-prefix: ${ANALYSIS_STREAM_CONSUMER_PREFIX:worker}
 
-# 추천용 상품 벡터 설정.
-# 기동 시 백필은 벡터가 없는 상품 수만큼 임베딩을 호출하므로(유료) 기본은 꺼둔다.
-# 이미 만들어진 벡터는 건너뛰므로, 한 번 채운 뒤에는 켜둬도 추가 비용이 없다.
+# 추천용 상품 벡터 백필.
+#
+# 벡터가 없는 상품(#49 이전 등록분, 임베딩 실패분)은 개인화 추천에서 순위를 못 받는다.
+# 기동 시 한 번 + 주기 배치로 채운다. 한 번에 batch-size만큼만 처리해 임베딩 비용(유료)에
+# 상한을 두고, 남은 것은 다음 실행이 이어서 채운다.
+#
+# 기본은 꺼둔다 - 다른 스케줄러들과 같은 이유다(아래 payment.expiration 주석 참고:
+# MySqlIT들이 local 프로필을 재사용하므로 백그라운드 작업은 opt-in). 배포 프로필
+# (application-dev.yml)에서 켠다.
 recommendation:
   vector-backfill-on-startup: ${RECOMMENDATION_VECTOR_BACKFILL:false}
+  vector-backfill-scheduled: ${RECOMMENDATION_VECTOR_BACKFILL_SCHEDULED:false}
+  vector-backfill-cron: ${RECOMMENDATION_VECTOR_BACKFILL_CRON:0 30 4 * * *}
+  vector-backfill-batch-size: ${RECOMMENDATION_VECTOR_BACKFILL_BATCH_SIZE:200}
 
 # Auction lifecycle scheduler(#73-3). SCHEDULED->LIVE(startAt 도달)/LIVE->ENDED(endAt 도달)
 # 전환 + 시작 시 RESERVED AutoBid 정산(#73-1)/종료 시 #56 AuctionSettlementService 연결(#73-2)을

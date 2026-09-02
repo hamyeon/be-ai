@@ -69,20 +69,41 @@ public class RecommendationService {
 
         Map<Long, float[]> vectorByProductId = loadVectors(auctions);
 
-        return auctions.stream()
-                .map(auction -> {
-                    float[] productVector = vectorByProductId.get(auction.getProduct().getId());
-                    // 벡터가 아직 안 만들어진 상품은 유사도를 잴 수 없다
-                    if (productVector == null || productVector.length != userVector.length) {
-                        return null;
-                    }
-                    return toItem(auction, CosineSimilarity.between(userVector, productVector));
-                })
-                .filter(item -> item != null)
-                .sorted(Comparator.comparingDouble(
-                        (RecommendationResponse.RecommendedAuction item) -> item.similarity()).reversed())
-                .limit(limit)
-                .toList();
+        List<RecommendationResponse.RecommendedAuction> ranked = new ArrayList<>();
+        List<Auction> unranked = new ArrayList<>();
+        for (Auction auction : auctions) {
+            float[] productVector = vectorByProductId.get(auction.getProduct().getId());
+            if (productVector == null || productVector.length != userVector.length) {
+                // 벡터가 아직 안 만들어진 상품은 유사도를 잴 수 없다.
+                // 그렇다고 버리면 안 된다 - 유사도를 못 매기는 것과 보여줄 수 없는 것은 다르다.
+                // 버리면 같은 경매가 Fallback 사용자에게는 보이고 개인화 사용자에게는 안 보여서,
+                // 서비스를 열심히 쓴 사용자일수록 매물을 적게 보는 역전이 생긴다.
+                unranked.add(auction);
+                continue;
+            }
+            ranked.add(toItem(auction, CosineSimilarity.between(userVector, productVector)));
+        }
+
+        // 취향 순으로 매긴 것이 하나도 없으면 개인화라 부를 수 없다 - Fallback으로 보낸다.
+        // Fallback은 마감 임박과 인기를 섞어주므로 순위 근거 없는 나열보다 낫다.
+        if (ranked.isEmpty()) {
+            return List.of();
+        }
+
+        ranked.sort(Comparator.comparingDouble(
+                (RecommendationResponse.RecommendedAuction item) -> item.similarity()).reversed());
+
+        // 순위를 못 매긴 경매는 유사도 순 뒤에 마감 임박 순으로 붙인다.
+        // similarity는 null로 둔다 - 평균값 같은 걸 채우면 측정하지 않은 숫자를 측정한
+        // 것처럼 내보내는 셈이다. null 처리는 Fallback과 같아 프론트가 이미 다루고 있다.
+        unranked.sort(Comparator.comparing(Auction::getEndAt,
+                Comparator.nullsLast(Comparator.naturalOrder())));
+
+        List<RecommendationResponse.RecommendedAuction> items = new ArrayList<>(ranked);
+        for (Auction auction : unranked) {
+            items.add(toItem(auction, null));
+        }
+        return items.size() <= limit ? items : items.subList(0, limit);
     }
 
     // 진행 중인 경매의 벡터를 요청마다 DB에서 읽는다. 기동 시 전부 메모리에 올리는 방식과

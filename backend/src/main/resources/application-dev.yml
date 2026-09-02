@@ -43,3 +43,12 @@ management:
       # 포트 차단이 확인되기 전까지는 상세 정보를 열지 않는다.
       # 차단이 확인되면 MANAGEMENT_HEALTH_DETAILS=always로 올려도 된다.
       show-details: ${MANAGEMENT_HEALTH_DETAILS:never}
+
+# 배포 환경에서는 벡터 백필을 켠다.
+#
+# base(application.yml)에서 꺼둔 이유는 테스트 컨텍스트 오염 방지(payment.expiration 주석)라
+# 배포와는 무관하다. 정작 벡터 구멍이 생기고 메워져야 하는 곳은 배포 서버다 - 여기서 켜지
+# 않으면 "필요할 때 켠다"는 실제로는 "아무도 안 켠다"가 된다(#84에서 확인).
+recommendation:
+  vector-backfill-on-startup: ${RECOMMENDATION_VECTOR_BACKFILL:true}
+  vector-backfill-scheduled: ${RECOMMENDATION_VECTOR_BACKFILL_SCHEDULED:true}
