@@ -3,6 +3,7 @@ package com.vintic.backend.backupoffer.service;
 import com.vintic.backend.backupoffer.domain.BackupOffer;
 import com.vintic.backend.backupoffer.dto.BackupOfferResponse;
 import com.vintic.backend.backupoffer.repository.BackupOfferRepository;
+import com.vintic.backend.common.exception.BackupOfferAccessDeniedException;
 import com.vintic.backend.common.exception.BackupOfferNotFoundException;
 import com.vintic.backend.common.util.ProductDisplayName;
 import com.vintic.backend.common.util.ShippingPolicy;
@@ -14,9 +15,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.LocalDateTime;
 
-// FINAL contract §15. 소유자 검증(예: GET /orders/{id}의 40304 ORDER_ACCESS_DENIED)이 계약에
-// 없다 - backupOfferId를 아는 인증된 사용자라면 누구나 조회 가능하다(계약을 그대로 반영, 임의로
-// 권한 체크를 추가하지 않았다).
+// FINAL contract §15. #75부터 candidate 본인 여부를 검증한다(40305 BACKUP_OFFER_ACCESS_DENIED) -
+// 이전까지는 backupOfferId를 아는 인증된 사용자라면 누구나 조회 가능했던 계약 침묵 gap이었다.
 @Service
 public class BackupOfferQueryService {
 
@@ -29,11 +29,16 @@ public class BackupOfferQueryService {
     }
 
     @Transactional(readOnly = true)
-    public BackupOfferResponse getBackupOffer(Long backupOfferId) {
+    public BackupOfferResponse getBackupOffer(Long backupOfferId, Long userId) {
         BackupOffer offer = backupOfferRepository.findByIdWithAuctionAndProduct(backupOfferId)
                 .orElseThrow(() -> new BackupOfferNotFoundException(
                         "존재하지 않는 차순위 제안입니다. backupOfferId: " + backupOfferId
                 ));
+        if (!offer.isOwnedBy(userId)) {
+            throw new BackupOfferAccessDeniedException(
+                    "본인 명의의 차순위 제안이 아닙니다. backupOfferId: " + backupOfferId
+            );
+        }
         Product product = offer.getAuction().getProduct();
 
         Long totalAmount = offer.getPurchasePrice() + ShippingPolicy.FLAT_FEE;
