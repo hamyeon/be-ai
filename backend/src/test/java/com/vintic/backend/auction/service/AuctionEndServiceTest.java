@@ -9,6 +9,7 @@ import com.vintic.backend.bid.domain.Bid;
 import com.vintic.backend.bid.domain.BidType;
 import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.config.ClockConfig;
+import com.vintic.backend.notification.service.NotificationRecorder;
 import com.vintic.backend.order.domain.Order;
 import com.vintic.backend.order.repository.OrderRepository;
 import com.vintic.backend.order.service.AuctionSettlementService;
@@ -29,8 +30,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
 // #73-2: LIVE -> ENDED lifecycle 전환 + #56 AuctionSettlementService 연결.
+// #75: AuctionSettlementService가 NotificationRecorder를 의존하므로 함께 @Import한다.
 @DataJpaTest
-@Import({AuctionEndService.class, AuctionSettlementService.class, AuctionResultQueryService.class, TestClockConfig.class})
+@Import({AuctionEndService.class, AuctionSettlementService.class, AuctionResultQueryService.class, TestClockConfig.class, NotificationRecorder.class})
 class AuctionEndServiceTest {
 
     private static final LocalDateTime FIXED_NOW = LocalDateTime.ofInstant(TestClockConfig.FIXED_INSTANT, ClockConfig.APP_ZONE);

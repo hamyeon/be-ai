@@ -127,6 +127,29 @@ class MockAuthInterceptorTest {
                 .andExpect(jsonPath("$.success").value(true));
     }
 
+    // #75-4B: getAuction()이 @RequestAttribute(value="currentUserId", required=false)로
+    // 바뀌면서 MockAuthInterceptor가 required 플래그를 구분해야 하게 됐다 - 유효한 X-User-Id가
+    // 오면 이 optional 핸들러에도 currentUserId attribute가 채워져 개인화됨을 확인한다.
+    @Test
+    void currentUserId가_선택적인_API에_유효한_X_User_Id_헤더가_있으면_개인화된다() throws Exception {
+        when(userRepository.existsById(1L)).thenReturn(true);
+        when(auctionQueryService.getAuctionDetail(eq(1L), eq(1L))).thenReturn(AuctionDetailFixtures.sample());
+
+        mockMvc.perform(get("/api/auctions/1").header("X-User-Id", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+    }
+
+    // 잘못된 헤더는 optional 핸들러에서는 요청을 막지 않고 익명으로 흘려보낸다(§1 정책).
+    @Test
+    void currentUserId가_선택적인_API에_형식이_잘못된_X_User_Id_헤더가_있으면_익명으로_통과한다() throws Exception {
+        when(auctionQueryService.getAuctionDetail(eq(1L), any())).thenReturn(AuctionDetailFixtures.sample());
+
+        mockMvc.perform(get("/api/auctions/1").header("X-User-Id", "abc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+    }
+
     private MockHttpServletRequestBuilder placeBid() throws Exception {
         return post("/api/auctions/1/bids")
                 .contentType(MediaType.APPLICATION_JSON)

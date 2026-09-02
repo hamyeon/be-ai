@@ -4,6 +4,7 @@ import com.vintic.backend.auction.domain.Auction;
 import com.vintic.backend.backupoffer.domain.BackupOffer;
 import com.vintic.backend.backupoffer.dto.BackupOfferResponse;
 import com.vintic.backend.backupoffer.repository.BackupOfferRepository;
+import com.vintic.backend.common.exception.BackupOfferAccessDeniedException;
 import com.vintic.backend.common.exception.BackupOfferNotFoundException;
 import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.support.TestClockConfig;
@@ -73,7 +74,7 @@ class BackupOfferQueryServiceTest {
         entityManager.flush();
         entityManager.clear();
 
-        BackupOfferResponse response = backupOfferQueryService.getBackupOffer(offer.getId());
+        BackupOfferResponse response = backupOfferQueryService.getBackupOffer(offer.getId(), candidate.getId());
 
         assertThat(response.backupOfferId()).isEqualTo(offer.getId());
         assertThat(response.auctionId()).isEqualTo(auction.getId());
@@ -88,7 +89,22 @@ class BackupOfferQueryServiceTest {
 
     @Test
     void 존재하지_않는_backupOffer_조회는_예외가_발생한다() {
-        assertThatThrownBy(() -> backupOfferQueryService.getBackupOffer(9999L))
+        assertThatThrownBy(() -> backupOfferQueryService.getBackupOffer(9999L, 1L))
                 .isInstanceOf(BackupOfferNotFoundException.class);
+    }
+
+    @Test
+    void candidate가_아닌_사용자의_조회는_403_예외가_발생한다() {
+        User seller = persistUser("seller2@vintic.local");
+        User candidate = persistUser("candidate2@vintic.local");
+        User stranger = persistUser("stranger@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistEndedAuction(product);
+        BackupOffer offer = backupOfferRepository.save(BackupOffer.create(auction, candidate, 100000L));
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThatThrownBy(() -> backupOfferQueryService.getBackupOffer(offer.getId(), stranger.getId()))
+                .isInstanceOf(BackupOfferAccessDeniedException.class);
     }
 }

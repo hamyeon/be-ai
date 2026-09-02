@@ -7,6 +7,8 @@ import com.vintic.backend.backupoffer.repository.BackupOfferRepository;
 import com.vintic.backend.backupoffer.service.BackupCandidateSelector;
 import com.vintic.backend.bid.domain.Bid;
 import com.vintic.backend.bid.repository.BidRepository;
+import com.vintic.backend.notification.domain.NotificationType;
+import com.vintic.backend.notification.service.NotificationRecorder;
 import com.vintic.backend.order.domain.Order;
 import com.vintic.backend.order.domain.OrderStatus;
 import com.vintic.backend.order.repository.OrderRepository;
@@ -46,6 +48,7 @@ public class OrderExpirationService {
     private final BidRepository bidRepository;
     private final BidRestrictionPolicy bidRestrictionPolicy;
     private final Clock clock;
+    private final NotificationRecorder notificationRecorder;
 
     public OrderExpirationService(
             AuctionRepository auctionRepository,
@@ -55,7 +58,8 @@ public class OrderExpirationService {
             BackupOfferRepository backupOfferRepository,
             BidRepository bidRepository,
             BidRestrictionPolicy bidRestrictionPolicy,
-            Clock clock
+            Clock clock,
+            NotificationRecorder notificationRecorder
     ) {
         this.auctionRepository = auctionRepository;
         this.orderRepository = orderRepository;
@@ -65,6 +69,7 @@ public class OrderExpirationService {
         this.bidRepository = bidRepository;
         this.bidRestrictionPolicy = bidRestrictionPolicy;
         this.clock = clock;
+        this.notificationRecorder = notificationRecorder;
     }
 
     @Transactional
@@ -94,6 +99,10 @@ public class OrderExpirationService {
         order.expire();
 
         User buyer = order.getBuyer();
+        // #75: 위 guard를 통과해 실제 PAYMENT_PENDING -> PAYMENT_EXPIRED 전이가 일어난 경우에만
+        // 기록한다 - 재실행 시에는 guard가 먼저 걸려(status != PAYMENT_PENDING) 이 지점에 도달하지 않는다.
+        notificationRecorder.record(buyer, NotificationType.PAYMENT_EXPIRED, auctionId, order.getId());
+
         if (!penaltyRepository.existsByAuction_IdAndUser_IdAndType(auctionId, buyer.getId(), PenaltyType.PAYMENT_EXPIRED)) {
             User lockedBuyer = userRepository.findByIdForUpdate(buyer.getId()).orElseThrow();
             penaltyRepository.save(Penalty.paymentExpired(lockedBuyer, auction));
@@ -123,7 +132,10 @@ public class OrderExpirationService {
                 // (AuctionForfeitService/BackupOfferCommandService와 동일한 패턴).
                 return;
             }
-            backupOfferRepository.save(BackupOffer.create(auction, candidate, candidateBid.getAmount()));
+            BackupOffer saved = backupOfferRepository.save(BackupOffer.create(auction, candidate, candidateBid.getAmount()));
+            // #75: 신규 BackupOffer가 실제 저장된 경우에만 기록한다(네 번째 BackupOffer 생성 경로 - 위
+            // PAYMENT_EXPIRED 기록과는 별개의 이벤트다).
+            notificationRecorder.record(candidate, NotificationType.BACKUP_OFFER_CREATED, auction.getId(), saved.getId());
         });
     }
 }

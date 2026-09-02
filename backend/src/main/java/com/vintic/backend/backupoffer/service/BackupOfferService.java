@@ -37,7 +37,7 @@ public class BackupOfferService {
             return idempotencyClaimService.claimAndExecute(
                     userId, operationScope, idempotencyKey, requestHash,
                     BackupOfferAcceptResponse.class,
-                    idempotencyId -> backupOfferCommandService.accept(backupOfferId)
+                    idempotencyId -> backupOfferCommandService.accept(backupOfferId, userId)
             );
         } catch (IdempotencyClaimConflictException e) {
             return idempotencyClaimService.resolveAfterConflict(
@@ -47,7 +47,7 @@ public class BackupOfferService {
     }
 
     // Idempotency-Key를 요구하지 않는다(§0.11에 이 endpoint가 없다).
-    public BackupOfferDeclineResponse decline(Long backupOfferId) {
-        return backupOfferCommandService.decline(backupOfferId);
+    public BackupOfferDeclineResponse decline(Long backupOfferId, Long userId) {
+        return backupOfferCommandService.decline(backupOfferId, userId);
     }
 }

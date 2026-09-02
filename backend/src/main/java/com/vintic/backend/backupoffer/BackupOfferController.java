@@ -38,21 +38,20 @@ public class BackupOfferController {
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "본인 명의의 제안이 아님(40305)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 차순위 제안(40403)")
     })
-    // 응답 자체는 요청자별로 달라지지 않지만(§15엔 소유자 검증이 없다), 계약상 인증이 필수이므로
-    // AuctionController.getAutoBidRecommendation과 동일하게 currentUserId 파라미터로 검증만 건다.
+    // #75: candidate 본인 여부를 검증한다(40305).
     @GetMapping("/{backupOfferId}")
     public ResponseEntity<ApiResponse<BackupOfferResponse>> getBackupOffer(
             @PathVariable Long backupOfferId,
             @RequestAttribute("currentUserId") Long userId
     ) {
-        BackupOfferResponse response = backupOfferQueryService.getBackupOffer(backupOfferId);
+        BackupOfferResponse response = backupOfferQueryService.getBackupOffer(backupOfferId, userId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
-    // #56-3: 소유자(=candidate) 검증을 하지 않는다 - 계약이 별도 403을 정의하지 않는다
-    // (BackupOfferCommandService 클래스 주석 참고, 알려진 gap).
+    // #75: candidate 본인 여부를 검증한다(40305, BackupOfferCommandService 클래스 주석 참고).
     @Operation(
             summary = "차순위 구매 수락",
             description = "차순위 구매를 수락하고 주문을 생성한다. paymentDeadline은 수락 시각 + 24시간이다(원 경매의 "
@@ -62,6 +61,7 @@ public class BackupOfferController {
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "수락 성공 또는 동일 요청 replay"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "본인 명의의 제안이 아님(40305)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 차순위 제안(40403)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "차순위 구매 기한 만료(40911) / 이미 처리된 제안(40912) / Idempotency payload mismatch(40905)")
     })
@@ -83,15 +83,17 @@ public class BackupOfferController {
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "거절 성공"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "본인 명의의 제안이 아님(40305)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 차순위 제안(40403)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "이미 처리된 제안(40912)")
     })
+    // #75: candidate 본인 여부를 검증한다(40305).
     @PostMapping("/{backupOfferId}/decline")
     public ResponseEntity<ApiResponse<BackupOfferDeclineResponse>> decline(
             @PathVariable Long backupOfferId,
             @RequestAttribute("currentUserId") Long userId
     ) {
-        BackupOfferDeclineResponse response = backupOfferService.decline(backupOfferId);
+        BackupOfferDeclineResponse response = backupOfferService.decline(backupOfferId, userId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 }

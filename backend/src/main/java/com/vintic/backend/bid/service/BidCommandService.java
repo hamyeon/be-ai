@@ -78,6 +78,19 @@ public class BidCommandService {
     public PlaceBidResponse placeManualBid(Long auctionId, Long userId, Long amount, Long idempotencyId) {
         Auction auction = auctionRepository.findByIdForUpdate(auctionId)
                 .orElseThrow(() -> new AuctionNotFoundException("존재하지 않는 경매입니다. auctionId: " + auctionId));
+        return executeManualBidOnLoadedAuction(auction, userId, amount, idempotencyId);
+    }
+
+    // #74 실험 전용(experiment/#74-optimistic-lock-retry): findByIdForUpdate() 이후의 business
+    // logic 전체를 behavior-preserving하게 그대로 추출했을 뿐이다(실행 순서/validation/Proxy/
+    // 종료연장/audit/예외 semantics 무변경) - production placeManualBid()는 이 메서드를 호출하는
+    // 것 말고 달라진 게 없다. package-private으로 남겨 별도 @Transactional을 붙이지 않는다 -
+    // 트랜잭션 경계는 항상 호출자(production: 이 클래스의 placeManualBid(), 실험: Optimistic
+    // attempt service)가 갖는다. 이렇게 분리한 이유는 Optimistic 실험 경로가 findById()(non-locking)
+    // 로 얻은 Auction에 대해 동일한 business rule을 복제 없이 재사용하기 위함이다(§docs/experiments/
+    // concurrency/protocol.md의 no-lock/pessimistic 실험과 동일하게, 독립변수는 "최초 조회 방식"
+    // 하나로 제한한다).
+    PlaceBidResponse executeManualBidOnLoadedAuction(Auction auction, Long userId, Long amount, Long idempotencyId) {
         User bidder = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("존재하지 않는 사용자입니다. userId: " + userId));
 
@@ -91,7 +104,7 @@ public class BidCommandService {
         // 상태 검증이 그대로 처리하므로 LIVE인 경우에만 이 조건을 추가로 본다.
         if (auction.getStatus() == AuctionStatus.LIVE && auction.hasReachedDeadline(LocalDateTime.now(clock))) {
             throw new AuctionClosedException(
-                    "이미 마감 시각이 지난 경매입니다. auctionId: " + auctionId
+                    "이미 마감 시각이 지난 경매입니다. auctionId: " + auction.getId()
             );
         }
 
@@ -107,13 +120,13 @@ public class BidCommandService {
         auction.placeManualBid(bidder, amount);
         Bid bid = bidRepository.save(Bid.place(auction, bidder, amount, BidType.MANUAL));
 
-        boolean autoBidCanceled = cancelOwnActiveAutoBidIfPresent(auctionId, userId);
+        boolean autoBidCanceled = cancelOwnActiveAutoBidIfPresent(auction.getId(), userId);
 
         // Manual bid가 실제로 반영된 뒤(auction.currentPrice/currentWinner = 이 입찰), 다른
         // 사용자의 경쟁 AutoBid가 즉시 반격하는지 확인한다. 반격이 있으면 auction과 Bid가 그
         // 결과로 다시 갱신된다.
         List<AutoBidSetting> others = autoBidSettingRepository
-                .findByAuctionIdAndStatusAndUserIdNot(auctionId, AutoBidSettingStatus.ACTIVE, userId);
+                .findByAuctionIdAndStatusAndUserIdNot(auction.getId(), AutoBidSettingStatus.ACTIVE, userId);
         ProxyResolutionInput input = new ProxyResolutionInput(
                 auction.getCurrentPrice(),
                 auction.getBidIncrement(),

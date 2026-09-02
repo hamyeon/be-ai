@@ -137,6 +137,14 @@ public class BackupOffer {
         return now.isAfter(deadline);
     }
 
+    // #75: FINAL contract §15/§16/§17의 소유자(candidate) 검증. isExpired()와 동일하게
+    // 순수 판정만 하고 예외는 호출자(Service)가 던진다 - accept()/decline()의 상태 가드(즉시
+    // 예외를 던지는 방식)와 달리, 이건 엔티티 자신의 상태 불변식이 아니라 요청자 authorization
+    // 판단이라 boolean predicate로 둔다.
+    public boolean isOwnedBy(Long userId) {
+        return candidate.getId().equals(userId);
+    }
+
     public Long getId() {
         return id;
     }

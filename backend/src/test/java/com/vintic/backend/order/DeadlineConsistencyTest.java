@@ -11,6 +11,7 @@ import com.vintic.backend.bid.domain.Bid;
 import com.vintic.backend.bid.domain.BidType;
 import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.config.ClockConfig;
+import com.vintic.backend.notification.service.NotificationRecorder;
 import com.vintic.backend.order.domain.Order;
 import com.vintic.backend.order.repository.OrderRepository;
 import com.vintic.backend.order.service.AuctionSettlementService;
@@ -36,8 +37,10 @@ import static org.assertj.core.api.Assertions.within;
 // BackupOfferCommandService.accept()(#56-3)가 이미 구현한 공식을 감사(audit)만 한다. 각 공식
 // 자체는 AuctionSettlementServiceTest/BackupOfferCommandServiceTest에 이미 개별적으로 흩어져
 // 있지만, 이 클래스는 §0.10 4개 항목을 한 곳에 모아 "계약이 요구하는 형태 그대로" 고정한다.
+// #75: AuctionSettlementService/BackupOfferCommandService가 NotificationRecorder를 의존하므로
+// 함께 @Import한다(Notification 자체는 이 테스트의 관심사가 아니다).
 @DataJpaTest
-@Import({AuctionSettlementService.class, AuctionResultQueryService.class, BackupOfferCommandService.class, TestClockConfig.class})
+@Import({AuctionSettlementService.class, AuctionResultQueryService.class, BackupOfferCommandService.class, TestClockConfig.class, NotificationRecorder.class})
 class DeadlineConsistencyTest {
 
     private static final LocalDateTime FIXED_NOW = LocalDateTime.ofInstant(TestClockConfig.FIXED_INSTANT, ClockConfig.APP_ZONE);
@@ -155,7 +158,7 @@ class DeadlineConsistencyTest {
         BackupOffer offer = backupOfferRepository.save(BackupOffer.create(auction, candidate, 20000L));
         flushAndClear();
 
-        BackupOfferAcceptResponse response = backupOfferCommandService.accept(offer.getId());
+        BackupOfferAcceptResponse response = backupOfferCommandService.accept(offer.getId(), candidate.getId());
 
         Order order = orderRepository.findByAuctionIdAndBuyerId(auction.getId(), candidate.getId()).orElseThrow();
         // 계약: 차순위 수락 후 결제 기한 = backupOffer.acceptedAt + 24h (§0.10) - 원 경매 endsAt,

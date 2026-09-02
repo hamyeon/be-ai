@@ -6,6 +6,7 @@ import com.vintic.backend.backupoffer.dto.BackupOfferDeclineResponse;
 import com.vintic.backend.backupoffer.dto.BackupOfferResponse;
 import com.vintic.backend.backupoffer.service.BackupOfferQueryService;
 import com.vintic.backend.backupoffer.service.BackupOfferService;
+import com.vintic.backend.common.exception.BackupOfferAccessDeniedException;
 import com.vintic.backend.common.exception.BackupOfferAlreadyResolvedException;
 import com.vintic.backend.common.exception.BackupOfferExpiredException;
 import com.vintic.backend.common.exception.BackupOfferNotFoundException;
@@ -44,7 +45,7 @@ class BackupOfferControllerTest {
                 100000L, 3000L, 103000L,
                 now.plusHours(24), now
         );
-        when(backupOfferQueryService.getBackupOffer(90L)).thenReturn(response);
+        when(backupOfferQueryService.getBackupOffer(90L, 2L)).thenReturn(response);
 
         mockMvc.perform(get("/api/backup-offers/90").requestAttr("currentUserId", 2L))
                 .andExpect(status().isOk())
@@ -59,12 +60,22 @@ class BackupOfferControllerTest {
 
     @Test
     void 존재하지_않는_backupOffer_조회는_404와_40403을_반환한다() throws Exception {
-        when(backupOfferQueryService.getBackupOffer(999L))
+        when(backupOfferQueryService.getBackupOffer(999L, 2L))
                 .thenThrow(new BackupOfferNotFoundException("존재하지 않는 차순위 제안입니다. backupOfferId: 999"));
 
         mockMvc.perform(get("/api/backup-offers/999").requestAttr("currentUserId", 2L))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value(40403));
+    }
+
+    @Test
+    void 본인_명의가_아닌_제안_조회는_403과_40305를_반환한다() throws Exception {
+        when(backupOfferQueryService.getBackupOffer(90L, 2L))
+                .thenThrow(new BackupOfferAccessDeniedException("본인 명의의 차순위 제안이 아닙니다. backupOfferId: 90"));
+
+        mockMvc.perform(get("/api/backup-offers/90").requestAttr("currentUserId", 2L))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value(40305));
     }
 
     @Test
@@ -118,8 +129,20 @@ class BackupOfferControllerTest {
     }
 
     @Test
+    void 본인_명의가_아닌_제안_수락은_403과_40305를_반환한다() throws Exception {
+        when(backupOfferService.accept(90L, 2L, "key-1"))
+                .thenThrow(new BackupOfferAccessDeniedException("본인 명의의 차순위 제안이 아닙니다. backupOfferId: 90"));
+
+        mockMvc.perform(post("/api/backup-offers/90/accept")
+                        .requestAttr("currentUserId", 2L)
+                        .header("Idempotency-Key", "key-1"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value(40305));
+    }
+
+    @Test
     void 거절_성공시_200과_DECLINED를_반환한다() throws Exception {
-        when(backupOfferService.decline(90L)).thenReturn(new BackupOfferDeclineResponse(90L, BackupOfferStatus.DECLINED));
+        when(backupOfferService.decline(90L, 2L)).thenReturn(new BackupOfferDeclineResponse(90L, BackupOfferStatus.DECLINED));
 
         mockMvc.perform(post("/api/backup-offers/90/decline").requestAttr("currentUserId", 2L))
                 .andExpect(status().isOk())
@@ -129,11 +152,21 @@ class BackupOfferControllerTest {
 
     @Test
     void 이미_처리된_제안을_거절하면_409와_40912를_반환한다() throws Exception {
-        when(backupOfferService.decline(90L))
+        when(backupOfferService.decline(90L, 2L))
                 .thenThrow(new BackupOfferAlreadyResolvedException("이미 처리된 제안입니다. backupOfferId: 90"));
 
         mockMvc.perform(post("/api/backup-offers/90/decline").requestAttr("currentUserId", 2L))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value(40912));
+    }
+
+    @Test
+    void 본인_명의가_아닌_제안_거절은_403과_40305를_반환한다() throws Exception {
+        when(backupOfferService.decline(90L, 2L))
+                .thenThrow(new BackupOfferAccessDeniedException("본인 명의의 차순위 제안이 아닙니다. backupOfferId: 90"));
+
+        mockMvc.perform(post("/api/backup-offers/90/decline").requestAttr("currentUserId", 2L))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value(40305));
     }
 }

@@ -17,13 +17,24 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true)
+    // #75-4C: Kakao 사용자 중 일부는 이메일 동의를 하지 않았거나 계정 자체에 이메일이 없을 수
+    // 있다 - NOT NULL을 유지하면 그런 사용자는 가입 자체가 막힌다. UNIQUE는 유지한다(MySQL은
+    // NULL 여러 개를 UNIQUE 위반으로 보지 않으므로 이메일이 없는 사용자끼리는 서로 충돌하지
+    // 않는다). identity로 쓰지 않는다 - kakaoUserId가 identity다.
+    @Column(unique = true)
     private String email;
 
     @Column(nullable = false)
     private String nickname;
 
     private String profileImageUrl;
+
+    // #75-4C: Kakao 로그인 identity. email/nickname/profileImageUrl은 profile data일 뿐이라
+    // find-or-create 기준으로 쓰지 않는다 - 이 컬럼 하나만 UNIQUE 최종 방어선이다. 기존 mock/
+    // 시연용 User(LocalUserSeeder 등 비-Kakao 경로)는 null을 허용한다 - 그런 User끼리는 전부
+    // null이라 UNIQUE 제약과 충돌하지 않는다.
+    @Column(name = "kakao_user_id", unique = true)
+    private Long kakaoUserId;
 
     @Column(nullable = false)
     private int noshowCount;
@@ -46,12 +57,28 @@ public class User {
         return user;
     }
 
+    // #75-4C: Kakao 최초 로그인 시 신규 User를 만드는 유일한 진입점. register()를 그대로
+    // 재사용하고 kakaoUserId만 추가로 채운다 - register()의 시그니처는 바꾸지 않는다(기존
+    // 호출부/테스트 fixture 전부 영향 없음).
+    public static User registerFromKakao(Long kakaoUserId, String email, String nickname, String profileImageUrl) {
+        if (kakaoUserId == null) {
+            throw new IllegalArgumentException("kakaoUserId는 필수입니다.");
+        }
+        User user = register(email, nickname, profileImageUrl);
+        user.kakaoUserId = kakaoUserId;
+        return user;
+    }
+
     public Long getId() {
         return id;
     }
 
     public String getEmail() {
         return email;
+    }
+
+    public Long getKakaoUserId() {
+        return kakaoUserId;
     }
 
     public String getNickname() {

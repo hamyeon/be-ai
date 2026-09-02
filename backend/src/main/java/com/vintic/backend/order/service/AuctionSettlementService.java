@@ -6,6 +6,8 @@ import com.vintic.backend.auction.repository.AuctionRepository;
 import com.vintic.backend.common.exception.AuctionNotFoundException;
 import com.vintic.backend.common.exception.InvalidAuctionStatusException;
 import com.vintic.backend.common.util.ShippingPolicy;
+import com.vintic.backend.notification.domain.NotificationType;
+import com.vintic.backend.notification.service.NotificationRecorder;
 import com.vintic.backend.order.domain.Order;
 import com.vintic.backend.order.repository.OrderRepository;
 import com.vintic.backend.user.domain.User;
@@ -24,10 +26,14 @@ public class AuctionSettlementService {
 
     private final AuctionRepository auctionRepository;
     private final OrderRepository orderRepository;
+    private final NotificationRecorder notificationRecorder;
 
-    public AuctionSettlementService(AuctionRepository auctionRepository, OrderRepository orderRepository) {
+    public AuctionSettlementService(
+            AuctionRepository auctionRepository, OrderRepository orderRepository, NotificationRecorder notificationRecorder
+    ) {
         this.auctionRepository = auctionRepository;
         this.orderRepository = orderRepository;
+        this.notificationRecorder = notificationRecorder;
     }
 
     // Auction을 이 트랜잭션의 첫 번째(그리고 유일한 락 이전) 조회로 만들어 findByIdForUpdate를
@@ -67,6 +73,10 @@ public class AuctionSettlementService {
                 ShippingPolicy.FLAT_FEE,
                 auction.getEndAt().plusHours(24)
         );
-        return Optional.of(orderRepository.save(order));
+        Order saved = orderRepository.save(order);
+        // #75: 신규 winner Order가 실제 생성된 이 분기에서만 기록한다 - NO_BIDS(winner==null)와
+        // 이미 settle된 재실행(existing.isPresent()) 분기는 이 지점에 도달하지 않는다.
+        notificationRecorder.record(winner, NotificationType.AUCTION_WON, auction.getId(), saved.getId());
+        return Optional.of(saved);
     }
 }

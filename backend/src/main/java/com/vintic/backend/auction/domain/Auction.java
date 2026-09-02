@@ -21,6 +21,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -82,6 +83,14 @@ public class Auction {
 
     @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 0")
     private int extensionCount;
+
+    // #74 실험 전용(experiment/#74-optimistic-lock-retry): No-lock/Pessimistic Lock 실험(#34/#35)
+    // 이후 Optimistic Lock + Retry를 비교하기 위해 이 branch에서만 추가했다. production Pessimistic
+    // 경로(BidCommandService.placeManualBid → findByIdForUpdate)는 이 필드와 무관하게 그대로
+    // 유지되며, 이 필드를 읽거나 조건으로 쓰지 않는다 - Hibernate가 매 UPDATE의 WHERE 절에
+    // version을 자동으로 추가할 뿐이다.
+    @Version
+    private Long version;
 
     protected Auction() {
     }
@@ -309,5 +318,9 @@ public class Auction {
 
     public int getExtensionCount() {
         return extensionCount;
+    }
+
+    public Long getVersion() {
+        return version;
     }
 }
