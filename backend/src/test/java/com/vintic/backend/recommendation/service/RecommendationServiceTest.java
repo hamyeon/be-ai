@@ -60,12 +60,16 @@ class RecommendationServiceTest {
     private static final float[] ADIDAS_LIKE = {0.0f, 1.0f};
 
     private Auction auction(Long auctionId, Long productId) {
+        return auction(auctionId, productId, LocalDateTime.now().plusHours(1));
+    }
+
+    private Auction auction(Long auctionId, Long productId, LocalDateTime endAt) {
         Product product = mock(Product.class);
         when(product.getId()).thenReturn(productId);
         Auction auction = mock(Auction.class);
         when(auction.getId()).thenReturn(auctionId);
         when(auction.getProduct()).thenReturn(product);
-        when(auction.getEndAt()).thenReturn(LocalDateTime.now().plusHours(1));
+        when(auction.getEndAt()).thenReturn(endAt);
         return auction;
     }
 
@@ -138,6 +142,68 @@ class RecommendationServiceTest {
 
         assertThat(response.personalized()).isFalse();
         assertThat(response.items()).isNotEmpty();
+    }
+
+    @Test
+    void 벡터_없는_경매도_버리지_않고_유사도_순_뒤에_붙인다() {
+        // 유사도를 못 매기는 것과 보여줄 수 없는 것은 다르다. 버리면 같은 경매가
+        // Fallback 사용자에게는 보이고 개인화 사용자에게는 안 보이는 역전이 생긴다.
+        Auction adidasAuction = auction(10L, 100L);
+        Auction nikeAuction = auction(11L, 200L);
+        Auction vectorless = auction(12L, 300L);
+        when(activityLogRepository.countByUserId(1L)).thenReturn(3L);
+        when(userVectorService.buildUserVector(1L)).thenReturn(Optional.of(NIKE_LIKE));
+        when(auctionRepository.findOpenAuctions(anyList()))
+                .thenReturn(List.of(adidasAuction, nikeAuction, vectorless));
+        when(productVectorRepository.findAllById(anyList())).thenReturn(List.of(
+                ProductVector.of(100L, ADIDAS_LIKE, "adidas"),
+                ProductVector.of(200L, NIKE_LIKE, "nike")));
+
+        RecommendationResponse response = newService().recommend(1L, 10);
+
+        assertThat(response.personalized()).isTrue();
+        assertThat(response.items()).extracting(RecommendationResponse.RecommendedAuction::auctionId)
+                .containsExactly(11L, 10L, 12L);
+        // 순위를 못 매긴 항목은 similarity를 지어내지 않는다 - 측정하지 않은 숫자를
+        // 측정한 것처럼 내보내면 안 된다
+        assertThat(response.items().get(2).similarity()).isNull();
+    }
+
+    @Test
+    void 벡터_없는_경매끼리는_마감_임박_순으로_붙는다() {
+        Auction ranked = auction(10L, 100L);
+        Auction endsLater = auction(11L, 300L, LocalDateTime.now().plusHours(5));
+        Auction endsSoon = auction(12L, 400L, LocalDateTime.now().plusHours(1));
+        when(activityLogRepository.countByUserId(1L)).thenReturn(3L);
+        when(userVectorService.buildUserVector(1L)).thenReturn(Optional.of(NIKE_LIKE));
+        when(auctionRepository.findOpenAuctions(anyList()))
+                .thenReturn(List.of(ranked, endsLater, endsSoon));
+        when(productVectorRepository.findAllById(anyList())).thenReturn(List.of(
+                ProductVector.of(100L, NIKE_LIKE, "nike")));
+
+        RecommendationResponse response = newService().recommend(1L, 10);
+
+        // 순위 없는 구간에서는 지금 참여할 수 있는 것부터 보여준다
+        assertThat(response.items()).extracting(RecommendationResponse.RecommendedAuction::auctionId)
+                .containsExactly(10L, 12L, 11L);
+    }
+
+    @Test
+    void limit은_순위_있는_것과_없는_것을_합쳐_적용한다() {
+        Auction ranked = auction(10L, 100L);
+        Auction vectorless1 = auction(11L, 300L, LocalDateTime.now().plusHours(1));
+        Auction vectorless2 = auction(12L, 400L, LocalDateTime.now().plusHours(2));
+        when(activityLogRepository.countByUserId(1L)).thenReturn(3L);
+        when(userVectorService.buildUserVector(1L)).thenReturn(Optional.of(NIKE_LIKE));
+        when(auctionRepository.findOpenAuctions(anyList()))
+                .thenReturn(List.of(ranked, vectorless1, vectorless2));
+        when(productVectorRepository.findAllById(anyList())).thenReturn(List.of(
+                ProductVector.of(100L, NIKE_LIKE, "nike")));
+
+        RecommendationResponse response = newService().recommend(1L, 2);
+
+        assertThat(response.items()).extracting(RecommendationResponse.RecommendedAuction::auctionId)
+                .containsExactly(10L, 11L);
     }
 
     @Test

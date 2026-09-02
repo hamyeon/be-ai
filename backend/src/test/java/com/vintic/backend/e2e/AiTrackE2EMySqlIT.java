@@ -42,6 +42,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -110,6 +111,9 @@ class AiTrackE2EMySqlIT {
 
     @Autowired
     private ProductAnalysisSessionRepository sessionRepository;
+
+    @Autowired
+    private com.vintic.backend.recommendation.service.ProductVectorService productVectorService;
 
     @Autowired
     private org.springframework.data.redis.core.StringRedisTemplate redisTemplate;
@@ -249,6 +253,51 @@ class AiTrackE2EMySqlIT {
     // ------------------------------------------------------------------
     // 2. 실패·경계 케이스
     // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("벡터가 없는 상품도 개인화 추천에서 사라지지 않고, 백필 후에는 순위를 받는다")
+    void 벡터_없는_상품이_추천에서_사라지지_않는다() throws Exception {
+        Long nikeProduct = registerProduct("Nike", "Dunk Low", "Panda");
+        Long nikeAuction = openAuction(nikeProduct);
+
+        // 임베딩이 실패한 상품 - 벡터 없이 등록된다 (등록 자체는 성공해야 한다)
+        when(embeddingClient.embed(contains("Adidas"))).thenThrow(new RuntimeException("OpenAI 장애"));
+        Long adidasProduct = registerProduct("Adidas", "Samba OG", "Cloud White");
+        Long adidasAuction = openAuction(adidasProduct);
+        assertThat(productVectorRepository.findById(adidasProduct)).isEmpty();
+
+        for (int i = 0; i < 3; i++) {
+            mockMvc.perform(get("/api/auctions/{id}", nikeAuction).header("X-User-Id", buyerId))
+                    .andExpect(status().isOk());
+        }
+
+        // 벡터 없는 경매가 목록에서 사라지지 않는다. 순위만 뒤로 밀리고 similarity는 null이다.
+        mockMvc.perform(get("/api/recommendations/auctions?limit=10").header("X-User-Id", buyerId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.personalized").value(true))
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.items[0].auctionId").value(nikeAuction))
+                .andExpect(jsonPath("$.data.items[1].auctionId").value(adidasAuction))
+                .andExpect(jsonPath("$.data.items[1].similarity").doesNotExist());
+
+        // 임베딩이 복구된 뒤 백필이 구멍을 메운다
+        org.mockito.Mockito.reset(embeddingClient);
+        when(embeddingClient.embed(anyString())).thenAnswer(invocation -> {
+            String text = invocation.getArgument(0);
+            return text.contains("Nike") ? vectorOf(1.0f, 0.0f) : vectorOf(0.0f, 1.0f);
+        });
+
+        List<com.vintic.backend.product.domain.Product> targets = productVectorRepository
+                .findProductsWithoutVector(org.springframework.data.domain.PageRequest.of(0, 10));
+        assertThat(targets).extracting(com.vintic.backend.product.domain.Product::getId)
+                .containsExactly(adidasProduct);
+        productVectorService.refreshAll(targets);
+
+        // 이제 순위를 받는다
+        mockMvc.perform(get("/api/recommendations/auctions?limit=10").header("X-User-Id", buyerId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[1].similarity").isNumber());
+    }
 
     @Test
     @DisplayName("Cold Start: 행동이 없으면 Fallback으로 응답한다")
