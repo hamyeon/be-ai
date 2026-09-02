@@ -7,6 +7,10 @@ import com.vintic.backend.bid.domain.Bid;
 import com.vintic.backend.bid.domain.BidType;
 import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.config.ClockConfig;
+import com.vintic.backend.notification.domain.Notification;
+import com.vintic.backend.notification.domain.NotificationType;
+import com.vintic.backend.notification.repository.NotificationRepository;
+import com.vintic.backend.notification.service.NotificationRecorder;
 import com.vintic.backend.order.domain.Order;
 import com.vintic.backend.order.domain.OrderStatus;
 import com.vintic.backend.order.repository.OrderRepository;
@@ -32,8 +36,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
 // FINAL contract §12/§0.10, #57-2.
+// #75: PAYMENT_EXPIRED Notification 연결 - NotificationRecorder는 이 서비스의 트랜잭션에 참여한다.
 @DataJpaTest
-@Import({OrderExpirationService.class, TestClockConfig.class, BidRestrictionPolicy.class})
+@Import({OrderExpirationService.class, TestClockConfig.class, BidRestrictionPolicy.class, NotificationRecorder.class})
 class OrderExpirationServiceTest {
 
     private static final LocalDateTime FIXED_NOW = LocalDateTime.ofInstant(TestClockConfig.FIXED_INSTANT, ClockConfig.APP_ZONE);
@@ -55,6 +60,9 @@ class OrderExpirationServiceTest {
 
     @Autowired
     private BidRepository bidRepository;
+
+    @Autowired
+    private NotificationRepository notificationRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -115,6 +123,8 @@ class OrderExpirationServiceTest {
         assertThat(reloaded.getStatus()).isEqualTo(OrderStatus.PAYMENT_PENDING);
         assertThat(penaltyRepository.count()).isZero();
         assertThat(backupOfferRepository.count()).isZero();
+        // #75: 아직 due가 아니면 Notification도 기록되지 않는다.
+        assertThat(notificationRepository.count()).isZero();
     }
 
     @Test
@@ -130,6 +140,17 @@ class OrderExpirationServiceTest {
 
         Order reloaded = orderRepository.findById(order.getId()).orElseThrow();
         assertThat(reloaded.getStatus()).isEqualTo(OrderStatus.PAYMENT_EXPIRED);
+
+        // #75: 실제 전이가 일어난 이 경우에만 PAYMENT_EXPIRED Notification이 buyer에게 기록된다
+        // (rank2에게 가는 BACKUP_OFFER_CREATED Notification과 합쳐 총 2건).
+        assertThat(notificationRepository.count()).isEqualTo(2);
+        Notification paymentExpired = notificationRepository.findAll().stream()
+                .filter(n -> n.getType() == NotificationType.PAYMENT_EXPIRED)
+                .findFirst().orElseThrow();
+        assertThat(paymentExpired.getRecipient().getId()).isEqualTo(winner.getId());
+        assertThat(paymentExpired.getAuctionId()).isEqualTo(auction.getId());
+        assertThat(paymentExpired.getResourceId()).isEqualTo(order.getId());
+        assertThat(paymentExpired.getBusinessEventKey()).isEqualTo("PAYMENT_EXPIRED:" + order.getId());
     }
 
     @Test
@@ -149,6 +170,7 @@ class OrderExpirationServiceTest {
         assertThat(reloaded.getStatus()).isEqualTo(OrderStatus.PAID);
         assertThat(penaltyRepository.count()).isZero();
         assertThat(backupOfferRepository.count()).isZero();
+        assertThat(notificationRepository.count()).isZero();
     }
 
     @Test
@@ -168,6 +190,7 @@ class OrderExpirationServiceTest {
         assertThat(reloaded.getStatus()).isEqualTo(OrderStatus.CANCELED);
         assertThat(penaltyRepository.count()).isZero();
         assertThat(backupOfferRepository.count()).isZero();
+        assertThat(notificationRepository.count()).isZero();
     }
 
     @Test
@@ -211,6 +234,9 @@ class OrderExpirationServiceTest {
         assertThat(backupOfferRepository.count()).isEqualTo(1);
         User reloadedWinner = userRepository.findById(winner.getId()).orElseThrow();
         assertThat(reloadedWinner.getNoshowCount()).isEqualTo(1);
+        // #75: 재실행해도 최초 만료가 만든 PAYMENT_EXPIRED(winner) + BACKUP_OFFER_CREATED(rank2)
+        // 2건만 유지된다.
+        assertThat(notificationRepository.count()).isEqualTo(2);
     }
 
     @Test
@@ -227,6 +253,14 @@ class OrderExpirationServiceTest {
         assertThat(backupOfferRepository.count()).isEqualTo(1);
         BackupOffer offer = backupOfferRepository.findByAuctionIdAndCandidateId(auction.getId(), rank2.getId()).orElseThrow();
         assertThat(offer.getPurchasePrice()).isEqualTo(20000L);
+
+        // #75: PAYMENT_EXPIRED(winner) + BACKUP_OFFER_CREATED(rank2) 총 2건.
+        assertThat(notificationRepository.count()).isEqualTo(2);
+        Notification backupOfferCreated = notificationRepository.findAll().stream()
+                .filter(n -> n.getType() == NotificationType.BACKUP_OFFER_CREATED)
+                .findFirst().orElseThrow();
+        assertThat(backupOfferCreated.getRecipient().getId()).isEqualTo(rank2.getId());
+        assertThat(backupOfferCreated.getResourceId()).isEqualTo(offer.getId());
     }
 
     @Test
@@ -247,6 +281,9 @@ class OrderExpirationServiceTest {
         assertThat(backupOfferRepository.count()).isEqualTo(1);
         BackupOffer offer = backupOfferRepository.findByAuctionIdAndCandidateId(auction.getId(), rank3.getId()).orElseThrow();
         assertThat(offer.getPurchasePrice()).isEqualTo(15000L);
+
+        // #75: PAYMENT_EXPIRED(rank2) + BACKUP_OFFER_CREATED(rank3) 총 2건.
+        assertThat(notificationRepository.count()).isEqualTo(2);
     }
 
     @Test
@@ -265,6 +302,9 @@ class OrderExpirationServiceTest {
         Order reloaded = orderRepository.findById(backupOrder.getId()).orElseThrow();
         assertThat(reloaded.getStatus()).isEqualTo(OrderStatus.PAYMENT_EXPIRED);
         assertThat(backupOfferRepository.count()).isZero();
+        // #75: rank3(마지막 순위)는 BACKUP_OFFER_CREATED 없이 PAYMENT_EXPIRED 1건만 남는다.
+        assertThat(notificationRepository.count()).isEqualTo(1);
+        assertThat(notificationRepository.findAll().get(0).getType()).isEqualTo(NotificationType.PAYMENT_EXPIRED);
     }
 
     @Test
@@ -272,5 +312,6 @@ class OrderExpirationServiceTest {
         orderExpirationService.expireIfDue(9999L);
 
         assertThat(penaltyRepository.count()).isZero();
+        assertThat(notificationRepository.count()).isZero();
     }
 }

@@ -343,14 +343,18 @@ FIRST-IN WINS 등으로 resultingAutoBid가 실제 저장되는 경우(bidOccurr
 | 400 | 40001 | `INVALID_REQUEST` | 유효하지 않은 요청입니다. | 파라미터/바디 검증 실패 | 기존 |
 | 400 | 40004 | `IDEMPOTENCY_KEY_MISSING` | Idempotency-Key 헤더가 필요합니다. | 필수 헤더 누락 | 기존 |
 | 401 | 40101 | `UNAUTHORIZED` | 인증이 필요합니다. | 토큰 없음/만료 | 신규 |
+| 401 | 40102 | `KAKAO_TOKEN_INVALID` | Kakao access token이 유효하지 않습니다. | Kakao가 해당 access token을 invalid/expired로 판단(신원 확인 실패), `POST /api/auth/kakao` 전용(#75) | 신규 |
+| 401 | 40103 | `REFRESH_TOKEN_INVALID` | 유효하지 않은 Refresh Token입니다. | malformed/서명 불일치/만료/Access token 오사용/Redis entry 없음(revoked)/Redis userId 불일치. `POST /api/auth/refresh`·`POST /api/auth/logout` 전용(#75-4D). logout은 예외 - 토큰 자체가 유효한데 Redis entry만 없으면 이미 로그아웃된 것으로 보고 200 | 신규 |
 | 403 | 40301 | `SELLER_CANNOT_BID` | 본인이 등록한 경매에는 입찰할 수 없습니다. | 판매자 본인 경매 | 기존 |
 | 403 | 40302 | `PENALTY_RESTRICTED` | 경매 참여가 제한된 상태입니다. | 노쇼 페널티 | 기존 |
 | 403 | 40303 | `NOT_AWARDEE` | 낙찰자가 아닙니다. | **경매 낙찰 권한 없음** (낙찰 포기 전용) | 신규 |
 | 403 | 40304 | `ORDER_ACCESS_DENIED` | 접근 권한이 없는 주문입니다. | **주문 소유자 아님** (조회/결제 전용) | 신규 |
+| 403 | 40305 | `BACKUP_OFFER_ACCESS_DENIED` | 본인 명의의 차순위 제안이 아닙니다. | **BackupOffer 소유자(candidate) 아님** (조회/수락/거절 전용, #75) | 신규 |
 | 404 | 40401 | `AUCTION_NOT_FOUND` | 존재하지 않는 경매입니다. |  | 신규 |
 | 404 | 40402 | `ORDER_NOT_FOUND` | 존재하지 않는 주문입니다. |  | 신규 |
 | 404 | 40403 | `BACKUP_OFFER_NOT_FOUND` | 존재하지 않는 차순위 제안입니다. |  | 신규 |
 | 404 | 40404 | `AUTO_BID_NOT_FOUND` | 등록된 자동입찰이 없습니다. |  | 신규 |
+| 404 | 40405 | `NOTIFICATION_NOT_FOUND` | 존재하지 않는 알림입니다. | 존재하지 않거나 본인 소유가 아닌 알림(구분 노출 안 함, #75) | 신규 |
 | 409 | 40901 | `ALREADY_HIGHEST_BIDDER` | 이미 최고 입찰자입니다. | 최고 입찰자의 추가 직접입찰 | 기존 |
 | 409 | 40902 | `AUCTION_NOT_STARTED` | 아직 시작되지 않은 경매입니다. | 시작 전 직접입찰 | 기존 |
 | 409 | 40903 | `AUCTION_CLOSED` | 종료된 경매입니다. | 종료/취소된 경매 | 기존 |
@@ -366,8 +370,9 @@ FIRST-IN WINS 등으로 resultingAutoBid가 실제 저장되는 경우(bidOccurr
 | 409 | 40913 | `BID_NOT_ALIGNED` | 입찰 단위에 맞지 않는 금액입니다. | `(amount - currentPrice) % bidIncrement != 0` | 신규 |
 | 409 | 40914 | `ALREADY_PAID` | 이미 결제가 완료된 주문입니다. | 결제 완료 후 낙찰 포기 시도 | 신규 |
 | 409 | 40915 | `ORDER_CANCELED` | 취소된 주문입니다. | 포기로 취소된 주문에 결제 시도 | 신규 |
+| 502 | 50201 | `KAKAO_API_ERROR` | Kakao 사용자 정보 조회에 실패했습니다. | Kakao 5xx/timeout/network 등 upstream 실패(내부 payload 미노출), `POST /api/auth/kakao` 전용(#75) | 신규 |
 
-> **번호 배정 원칙** `40001`, `40004`, `403xx`, `409xx` 중 “기존” 표시 항목은 현재 서버 구현 번호를 그대로 유지한다. 특히 `40905 IDEMPOTENCY_PAYLOAD_MISMATCH`는 이미 구현되어 있으므로 변경하지 않고, 신규 코드를 `40906`부터 뒤로 배정했다.
+> **번호 배정 원칙** `40001`, `40004`, `403xx`, `409xx` 중 “기존” 표시 항목은 현재 서버 구현 번호를 그대로 유지한다. 특히 `40905 IDEMPOTENCY_PAYLOAD_MISMATCH`는 이미 구현되어 있으므로 변경하지 않고, 신규 코드를 `40906`부터 뒤로 배정했다. `502xx`는 이번(#75)에 처음 쓰인 HTTP status 계열이다 - 기존 계열(`400xx`~`409xx`)과 동일하게 HTTP status를 그대로 앞 3자리로 사용한다.
 >
 
 > `40909 CONCURRENT_CONFLICT`만 프론트에서 자동 재시도(최대 1회)를 허용한다. 나머지는 사용자에게 메시지를 노출한다.
@@ -2602,6 +2607,21 @@ Authorization: Bearer {accessToken}
 | — code | Int | 커스텀 코드 (분기처리용 / 오류 표 참고) | O |
 | — message | String | 에러 메시지 (개발자 확인용 / 오류 표 참고) | O |
 
+#### 403 Forbidden
+
+발생 가능: `40305 BACKUP_OFFER_ACCESS_DENIED`(#75, 본인 명의의 제안이 아님)
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": 40305,
+    "message": "본인 명의의 차순위 제안이 아닙니다."
+  }
+}
+```
+
 #### 404 Not Found
 
 ```json
@@ -2704,6 +2724,21 @@ Idempotency-Key: {uuid}
 | — code | Int | 커스텀 코드 (분기처리용 / 오류 표 참고) | O |
 | — message | String | 에러 메시지 (개발자 확인용 / 오류 표 참고) | O |
 
+#### 403 Forbidden
+
+발생 가능: `40305 BACKUP_OFFER_ACCESS_DENIED`(#75, 본인 명의의 제안이 아님)
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": 40305,
+    "message": "본인 명의의 차순위 제안이 아닙니다."
+  }
+}
+```
+
 #### 409 Conflict
 
 발생 가능: `40911 BACKUP_OFFER_EXPIRED`, `40912 BACKUP_OFFER_ALREADY_RESOLVED`, `40905 IDEMPOTENCY_PAYLOAD_MISMATCH`
@@ -2795,6 +2830,21 @@ Authorization: Bearer {accessToken}
 | error | Object | API 관련 에러 | O |
 | — code | Int | 커스텀 코드 (분기처리용 / 오류 표 참고) | O |
 | — message | String | 에러 메시지 (개발자 확인용 / 오류 표 참고) | O |
+
+#### 403 Forbidden
+
+발생 가능: `40305 BACKUP_OFFER_ACCESS_DENIED`(#75, 본인 명의의 제안이 아님)
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": 40305,
+    "message": "본인 명의의 차순위 제안이 아닙니다."
+  }
+}
+```
 
 #### 409 Conflict
 
@@ -3106,7 +3156,7 @@ Authorization: Bearer {accessToken}
 
 | 화면 | 진입 API | 액션 API | 주요 사용 필드 |
 | --- | --- | --- | --- |
-| **1-1** AI 큐레이션 푸시 알림 | — | — | **v1 미구현.** 알림 도메인은 후속 스코프 |
+| **1-1** AI 큐레이션 푸시 알림 | — | — | **v1 미구현.** 알림 도메인 자체는 #75에서 구현됐다(§26-28) - 여기서 미구현인 것은 "AI 큐레이션" 콘텐츠와 실제 기기 푸시 전송(FCM/APNs) 뿐이다. §22 참고 |
 | **1-2** 경매 상품 상세 | `GET /api/auctions/{auctionId}`<br>`GET /api/auctions/{auctionId}/similar` | `POST·DELETE /api/auctions/{auctionId}/likes` | `status=SCHEDULED`, `product.grade`, `startsAt`, `endsAt`, `startPrice`, `bidIncrement`, `aiEstimatedPrice`, `aiPriceReason`, `seller`, `likeCount` |
 | **1-3** 자동 입찰 상한가 설정 바텀시트 | `GET /api/auctions/{auctionId}/auto-bid/recommendation` | `POST /api/auctions/{auctionId}/auto-bids` | `aiRecommendedCap`, `minCapAmount`, `bidIncrement` → 응답 `status=RESERVED` |
 | **1-4** 자동 입찰 예약 완료 | `GET /api/auctions/{auctionId}`<br>`GET /api/auctions/{auctionId}/auto-bids/me` | — | `myState.autoBidStatus=RESERVED`, `autoBidCap`, `startsAt`, `serverTime` |
@@ -3163,7 +3213,10 @@ Authorization: Bearer {accessToken}
 # 22. v1 범위 제외
 
 ```
-알림 / 푸시 / 디바이스 토큰      — 후속 스코프
+알림(DB 저장 + REST 목록/읽음/안읽은수)  — #75에서 구현 완료(§26-28). 대상 타입은
+                                    AUCTION_WON / BACKUP_OFFER_CREATED / PAYMENT_EXPIRED
+                                    3종뿐 — AUCTION_STARTED/PAYMENT_COMPLETED 등은 후속 스코프
+푸시 / 디바이스 토큰 / FCM / APNs / SSE / WebSocket — 후속 스코프(REST 조회/polling만 지원)
 관심 상품 목록 API               — 미구현
 내 참여 경매 목록 API             — 미구현
 실제 PG 연동 / 결제수단 API      — 미구현
@@ -3175,6 +3228,567 @@ Authorization: Bearer {accessToken}
 /result.noShowCount              — 미채택 (/api/me/penalties로 일원화)
 /result.bidRestrictedUntil       — 미채택 (동일)
 Product.SOLD 상태                — 불필요
+```
+
+---
+
+# 23. Kakao 로그인 O
+
+```
+POST /api/auth/kakao
+```
+
+## API 상세 설명
+
+#75-4C에서 신규 도입. Kakao는 최초 신원 확인에만 사용한다 - 프론트가 Kakao SDK로 발급받은
+Kakao access token을 이 endpoint에 보내면, 서버가 Kakao 사용자 정보 API로 그 token을
+검증하고 내부 User를 find-or-create한 뒤 자체 Access/Refresh JWT를 발급한다. 이후 모든 API
+인증은 이 응답의 `accessToken`(Bearer)만 사용한다 - Kakao access token은 이 endpoint
+호출 이후 서버에 다시 제출되지 않는다.
+
+이 endpoint는 인증 없이 호출한다(로그인 자체이므로 anonymous).
+
+identity 기준은 Kakao의 안정적 회원번호(kakaoUserId)뿐이다 - email/nickname/프로필
+이미지는 매 로그인마다 최신값으로 갱신되지 않고(#75-4C 최초 가입 시점 값만 저장), 신규
+User 생성 여부 판단에도 관여하지 않는다. 같은 Kakao 계정으로 이메일이 바뀌어도 항상 같은
+내부 User로 연결된다.
+
+이 endpoint는 발급한 Refresh Token을 Redis(`refresh:{jti} -> userId`)에 등록하는 것까지
+성공해야 응답을 반환한다(#75-4D) - Redis 등록 이후의 조회/삭제는 `POST /api/auth/refresh`
+(§24), `POST /api/auth/logout`(§25) 참고.
+
+## Request ✔️
+
+### Request Header (0)
+
+없음 - anonymous.
+
+### Request Body (1)
+
+| 이름 | Type | Description | Required |
+| --- | --- | --- | --- |
+| accessToken | String | Kakao SDK가 발급한 access token | O |
+
+```json
+{
+  "accessToken": "kakao-access-token"
+}
+```
+
+## Response ✔️
+
+### Success ✅
+
+#### Response Body
+
+| 이름 | Type | Description | Required |
+| --- | --- | --- | --- |
+| success | Boolean | true | O |
+| error | Object | null | O |
+| data | Object | API 관련 데이터 | O |
+| — accessToken | String | 자체 발급 Access JWT | O |
+| — refreshToken | String | 자체 발급 Refresh JWT | O |
+| — accessTokenExpiresAt | String | Access JWT 만료 시각(ISO-8601 절대시각) | O |
+| — refreshTokenExpiresAt | String | Refresh JWT 만료 시각(ISO-8601 절대시각) | O |
+
+#### 200 Ok
+
+```json
+{
+  "success": true,
+  "data": {
+    "accessToken": "eyJhbGciOi...",
+    "refreshToken": "eyJhbGciOi...",
+    "accessTokenExpiresAt": "2026-09-02T21:00:00+09:00",
+    "refreshTokenExpiresAt": "2026-09-16T20:30:00+09:00"
+  },
+  "error": null
+}
+```
+
+### Failure ❌
+
+#### Response Body
+
+| 이름 | Type | Description | Required |
+| --- | --- | --- | --- |
+| success | Boolean | false | O |
+| data | Object | API 관련 데이터(여기선 무조건 null) | O |
+| error | Object | API 관련 에러 | O |
+| — code | Int | 커스텀 코드 (분기처리용 / 오류 표 참고) | O |
+| — message | String | 에러 메시지 (개발자 확인용 / 오류 표 참고) | O |
+
+#### 400 Bad Request
+
+`accessToken` 누락/공백 - `40001 INVALID_REQUEST`.
+
+#### 401 Unauthorized
+
+Kakao가 해당 access token을 invalid/expired로 판단(실제 신원 확인 실패로 한정 - Kakao의
+모든 4xx를 이 코드로 매핑하지 않는다).
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": 40102,
+    "message": "Kakao access token이 유효하지 않습니다."
+  }
+}
+```
+
+#### 502 Bad Gateway
+
+Kakao 5xx/timeout/network 등 예기치 않은 upstream 실패 - Kakao 응답 payload는 그대로
+노출하지 않는다.
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": 50201,
+    "message": "Kakao 사용자 정보 조회에 실패했습니다."
+  }
+}
+```
+
+---
+
+# 24. Access Token 재발급 O
+
+```
+POST /api/auth/refresh
+```
+
+## API 상세 설명
+
+#75-4D에서 신규 도입. 기존 Refresh Token을 검증하고 새 Access Token만 발급한다 - Refresh
+Token 자체는 재발급하지 않는다(rotation 없음, 이번 버전의 확정 정책). 기존 Refresh Token은
+그대로 유효하게 남는다.
+
+내부적으로 Refresh JWT의 서명/type/만료를 검증한 뒤, Redis에 등록된 `refresh:{jti}`의
+userId가 JWT subject와 일치하는지 추가로 확인한다 - 그중 하나라도 실패하면 40103.
+
+anonymous로 호출한다(로그인 상태를 증명하는 것이 이 요청 자체의 목적이므로 Authorization
+Bearer Access Token은 필요/사용하지 않는다).
+
+## Request ✔️
+
+### Request Header (0)
+
+없음 - anonymous.
+
+### Request Body (1)
+
+| 이름 | Type | Description | Required |
+| --- | --- | --- | --- |
+| refreshToken | String | 로그인 시 발급받은 Refresh JWT | O |
+
+```json
+{
+  "refreshToken": "eyJhbGciOi..."
+}
+```
+
+## Response ✔️
+
+### Success ✅
+
+#### Response Body
+
+| 이름 | Type | Description | Required |
+| --- | --- | --- | --- |
+| success | Boolean | true | O |
+| error | Object | null | O |
+| data | Object | API 관련 데이터 | O |
+| — accessToken | String | 신규 발급 Access JWT | O |
+| — accessTokenExpiresAt | String | Access JWT 만료 시각(ISO-8601 절대시각) | O |
+
+#### 200 Ok
+
+```json
+{
+  "success": true,
+  "data": {
+    "accessToken": "eyJhbGciOi...",
+    "accessTokenExpiresAt": "2026-09-02T21:30:00+09:00"
+  },
+  "error": null
+}
+```
+
+### Failure ❌
+
+#### 400 Bad Request
+
+`refreshToken` 누락/공백 - `40001 INVALID_REQUEST`.
+
+#### 401 Unauthorized
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": 40103,
+    "message": "유효하지 않은 Refresh Token입니다."
+  }
+}
+```
+
+---
+
+# 25. 로그아웃 O
+
+```
+POST /api/auth/logout
+```
+
+## API 상세 설명
+
+#75-4D에서 신규 도입. 제출한 Refresh Token의 Redis 등록(`refresh:{jti}`)을 삭제한다.
+
+**idempotent**: 암호학적으로 유효(서명/type/만료 정상)한 Refresh Token인데 Redis에 이미
+entry가 없는 경우(먼저 로그아웃했거나 TTL로 자연 만료) 실패로 취급하지 않고 200으로
+응답한다 - "이미 로그아웃된 상태"와 동치로 본다. 반대로 malformed/서명 불일치/만료/Access
+Token 오사용은 여전히 실패(40103)다.
+
+**limitation**: 이 endpoint는 Refresh Token만 무효화한다. 이미 발급된 Access Token은
+자체 만료(기본 30분)까지 계속 유효할 수 있다 - Access Token blacklist는 이번 버전 범위가
+아니다.
+
+anonymous로 호출한다(§24와 동일한 이유).
+
+## Request ✔️
+
+### Request Header (0)
+
+없음 - anonymous.
+
+### Request Body (1)
+
+| 이름 | Type | Description | Required |
+| --- | --- | --- | --- |
+| refreshToken | String | 로그아웃할 Refresh JWT | O |
+
+```json
+{
+  "refreshToken": "eyJhbGciOi..."
+}
+```
+
+## Response ✔️
+
+### Success ✅
+
+#### Response Body
+
+| 이름 | Type | Description | Required |
+| --- | --- | --- | --- |
+| success | Boolean | true | O |
+| error | Object | null | O |
+| data | Object | null(반환할 데이터 없음) | O |
+
+#### 200 Ok
+
+```json
+{
+  "success": true,
+  "data": null,
+  "error": null
+}
+```
+
+### Failure ❌
+
+#### 400 Bad Request
+
+`refreshToken` 누락/공백 - `40001 INVALID_REQUEST`.
+
+#### 401 Unauthorized
+
+malformed/서명 불일치/만료/Access Token 오사용만 - Redis entry 없음은 실패가 아니다(위
+idempotent 설명 참고).
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": 40103,
+    "message": "유효하지 않은 Refresh Token입니다."
+  }
+}
+```
+
+---
+
+# 26. 알림 목록 O
+
+```
+GET /api/notifications
+```
+
+## API 상세 설명
+
+#75에서 신규 도입. 인증된 본인의 Notification만 반환한다 - 개인정보성 데이터라 §3 입찰 내역과
+달리 anonymous를 허용하지 않는다(`Authorization` 필수).
+
+정렬은 `createdAt DESC, id DESC` 고정이다 - `id DESC`로 항상 안정적인(stable) 순서를 보장한다.
+
+## Request ✔️
+
+### Request Header
+
+| 이름 | Type | Description | Required |
+| --- | --- | --- | --- |
+| Authorization | String | Bearer {accessToken} | O |
+
+```
+Authorization: Bearer {accessToken}
+```
+
+### Request Parameter
+
+| 이름 | Type | Description | Required |
+| --- | --- | --- | --- |
+| page | Int | 페이지 번호 (기본 0) | X |
+| size | Int | 페이지 크기 (기본 20) | X |
+
+### Request Body
+
+없음
+
+## Response ✔️
+
+### Success ✅
+
+#### Response Body
+
+| 이름 | Type | Description | Required |
+| --- | --- | --- | --- |
+| success | Boolean | true | O |
+| error | Object | null | O |
+| data | Object | API 관련 데이터 | O |
+| — notifications | Array<Object> | 알림 목록 | O |
+| —— id | Long | 알림 ID | O |
+| —— type | String | `AUCTION_WON` / `BACKUP_OFFER_CREATED` / `PAYMENT_EXPIRED` | O |
+| —— auctionId | Long | 관련 경매 ID | O |
+| —— resourceId | Long | 이벤트를 발생시킨 소스 엔티티 ID(타입별로 `Order.id` 또는 `BackupOffer.id`) | O |
+| —— title | String | 고정 정적 문구(타입별, 상품명 등 미포함) | O |
+| —— body | String | 고정 정적 문구(타입별, 상품명 등 미포함) | O |
+| —— readAt | String | 읽은 시각(안 읽었으면 null) | X |
+| —— createdAt | String | 생성 시각 | O |
+| — page | Int | 현재 페이지 | O |
+| — size | Int | 페이지 크기 | O |
+| — hasNext | Boolean | 다음 페이지 존재 여부 | O |
+
+#### 200 Ok
+
+```json
+{
+  "success": true,
+  "data": {
+    "notifications": [
+      {
+        "id": 12,
+        "type": "AUCTION_WON",
+        "auctionId": 30,
+        "resourceId": 45,
+        "title": "낙찰되었습니다",
+        "body": "낙찰되었습니다. 결제를 진행해주세요.",
+        "readAt": null,
+        "createdAt": "2026-08-17T20:32:00+09:00"
+      }
+    ],
+    "page": 0,
+    "size": 20,
+    "hasNext": false
+  },
+  "error": null
+}
+```
+
+### Failure ❌
+
+#### 401 Unauthorized
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": 40101,
+    "message": "인증이 필요합니다."
+  }
+}
+```
+
+---
+
+# 27. 알림 읽음 처리 O
+
+```
+PATCH /api/notifications/{notificationId}/read
+```
+
+## API 상세 설명
+
+#75에서 신규 도입. 본인 알림만 읽음 처리할 수 있다 - 존재하지 않는 알림과 타인 소유 알림을
+구분해서 노출하지 않고 둘 다 `404 40405 NOTIFICATION_NOT_FOUND`로 통일한다(별도 403 없음,
+#75 사용자 확정).
+
+**idempotent**: 이미 읽은 알림에 다시 호출해도 실패하지 않고 200을 반환하며, `readAt`은 최초
+읽은 시각 그대로 유지된다(재호출 시각으로 덮어쓰지 않음).
+
+## Request ✔️
+
+### Path Variable
+
+| 이름 | Type | Description | Required |
+| --- | --- | --- | --- |
+| notificationId | Long | 알림 ID | O |
+
+### Request Header
+
+| 이름 | Type | Description | Required |
+| --- | --- | --- | --- |
+| Authorization | String | Bearer {accessToken} | O |
+
+```
+Authorization: Bearer {accessToken}
+```
+
+### Request Body
+
+없음
+
+## Response ✔️
+
+### Success ✅
+
+#### Response Body
+
+| 이름 | Type | Description | Required |
+| --- | --- | --- | --- |
+| success | Boolean | true | O |
+| error | Object | null | O |
+| data | Object | API 관련 데이터 | O |
+| — notificationId | Long | 알림 ID | O |
+| — readAt | String | 읽은 시각(최초 읽은 시각, 재호출해도 갱신 안 됨) | O |
+
+#### 200 Ok
+
+```json
+{
+  "success": true,
+  "data": {
+    "notificationId": 12,
+    "readAt": "2026-08-17T21:00:00+09:00"
+  },
+  "error": null
+}
+```
+
+### Failure ❌
+
+#### 404 Not Found
+
+존재하지 않는 알림과 타인 소유 알림을 구분하지 않는다.
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": 40405,
+    "message": "존재하지 않는 알림입니다."
+  }
+}
+```
+
+#### 401 Unauthorized
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": 40101,
+    "message": "인증이 필요합니다."
+  }
+}
+```
+
+---
+
+# 28. 안 읽은 알림 수 O
+
+```
+GET /api/notifications/unread-count
+```
+
+## API 상세 설명
+
+#75에서 신규 도입. 상단 벨 unread badge 전용 - `readAt IS NULL`인 본인 Notification 개수만
+반환한다.
+
+## Request ✔️
+
+### Request Header
+
+| 이름 | Type | Description | Required |
+| --- | --- | --- | --- |
+| Authorization | String | Bearer {accessToken} | O |
+
+```
+Authorization: Bearer {accessToken}
+```
+
+### Request Body
+
+없음
+
+## Response ✔️
+
+### Success ✅
+
+#### Response Body
+
+| 이름 | Type | Description | Required |
+| --- | --- | --- | --- |
+| success | Boolean | true | O |
+| error | Object | null | O |
+| data | Object | API 관련 데이터 | O |
+| — unreadCount | Long | 안 읽은 알림 수 | O |
+
+#### 200 Ok
+
+```json
+{
+  "success": true,
+  "data": {
+    "unreadCount": 3
+  },
+  "error": null
+}
+```
+
+### Failure ❌
+
+#### 401 Unauthorized
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": 40101,
+    "message": "인증이 필요합니다."
+  }
+}
 ```
 
 ---

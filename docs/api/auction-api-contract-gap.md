@@ -56,7 +56,7 @@ unchanged.
 | Numeric error mapping — `AuctionNotFoundException` | **RESOLVED (#46)** | `AuctionNotFoundException`을 40402→40401로 옮겼다. Order 도메인이 아직 없어 40402가 다른 예외에 점유되지 않은 상태를 확인한 뒤 단독으로 renumbering — 아래 `#46 Implementation Notes` 참고 | — |
 | Numeric error mapping — `UserNotFoundException` | Frozen (§0-A) | 스펙의 40403(BACKUP_OFFER_NOT_FOUND) 자리를 `UserNotFoundException`이 여전히 점유 중 — BackupOffer 도메인이 아직 없어 현재는 실제 충돌이 없다 | 후속 issue — BackupOffer 구현 전에 정리 필요(그때 가서 번호 충돌 발생) |
 | `40909 CONCURRENT_CONFLICT` mapping | Frozen (§0-A, HTTP 409 / code 40909 / 재시도 최대 1회) | 없음 — DB lock 예외(`CannotAcquireLockException`, #34 raw에서 135/160 관찰)가 catch-all `Exception` 핸들러로 떨어져 **500 / 50001**로 응답됨 | 후속 issue |
-| Auth: Bearer token | Frozen (§0.1) | Mock 인증(`X-User-Id` 헤더 + `MockAuthInterceptor`) | 후속 issue(인증 시스템 도입 시) |
+| Auth: Bearer token | Frozen (§0.1) | **RESOLVED (#75)** — dev/prod는 Kakao 로그인으로 발급한 자체 Access/Refresh JWT(`Authorization: Bearer`)를 실제 identity source로 쓴다. local/test는 여전히 Mock 인증(`X-User-Id` + `MockAuthInterceptor`)이며, profile로 완전히 격리된다 - 아래 `#75 Implementation Notes` 참고 | — |
 | Time 직렬화: ISO-8601 절대시각 (저장된 timestamp) | **RESOLVED** | 아래 `Time Policy (#41 후속)` 참고 — Asia/Seoul 고정 정책으로 `+09:00` 절대시각을 전 응답에 일관 적용 | — |
 | Endpoint #1 응답 shape (`myState`, `product`, `seller`, AI 필드, `isLiked`/`likeCount`, `finalPrice`, `serverTime`, `minNextBidAmount`/`minCapAmount`) | **RESOLVED (#55)** | `AuctionDetailResponse`를 FINAL contract 중첩 shape로 전면 재작성 — 아래 `#55 Implementation Notes` 참고. `product.subName`/`seller.completedSalesCount`는 남은 gap(바로 아래 두 행) | — |
 | `product.name` / `product.subName` | Frozen (§1, 둘 다 필수 O) | `Product` 엔티티에 전용 컬럼이 없다(`brand`/`model`/`colorway`만 구조화 필드로 존재) — `ProductDisplayName` 유틸로 `brand+model+colorway`를 합성해 `name`으로, `model`을 `subName`으로 임시 대체(#55) | 후속 issue — 전용 `name`/`subName`(또는 한국어/영문 구분) 컬럼 도입 여부 결정 필요(스키마 변경) |
@@ -1284,16 +1284,20 @@ accept가 실제로 두 번째 Order(원 낙찰자와 다른 buyer)를 만들기
    (AuctionResultQueryServiceTest#이미_DECLINED된_후보는_LOST여도_backupEligible이_false다).
 ```
 
-### 계약이 침묵하는 부분 - accept/decline 소유자 검증 없음
+### 계약이 침묵하는 부분 - accept/decline 소유자 검증 없음 — RESOLVED(#75)
 
 FINAL contract §16/§17은 accept/decline에 별도 403(예: "이 offer의 candidate가 아님")을
 정의하지 않는다 - "발생 가능" 목록에 40911/40912/40905만 있고 소유권 관련 코드가 없다. GET
 /backup-offers/{id}(§15)도 동일하게 소유자 검증이 없다(#56-2에서 이미 확인한 gap과 같은
-패턴). 이 구현은 계약을 그대로 따라 accept/decline 모두 candidate 본인 여부를 검증하지
-않는다 - **backupOfferId를 아는 인증된 사용자라면 누구든 다른 사람의 제안을 accept/decline할
-수 있다.** 계약이 임의로 확장하지 않는 범위에서 가장 보수적인 해석이지만, 실제 서비스라면
-반드시 짚어야 할 보안 gap이다 - #57 이전에 계약 자체를 수정할지(신규 403 코드 추가) 결정이
-필요하다.
+패턴). #57까지는 계약을 그대로 따라 accept/decline 모두 candidate 본인 여부를 검증하지
+않았다 - backupOfferId를 아는 인증된 사용자라면 누구든 다른 사람의 제안을 accept/decline할
+수 있는 상태였다.
+
+**#75에서 계약을 확장해 해소했다.** §0-A에 `403 40305 BACKUP_OFFER_ACCESS_DENIED`를 신규
+추가하고(40301~40304 확인 결과 40305가 비어 있었다), §15/§16/§17 각각에 "403 Forbidden"
+섹션을 추가했다. GET/accept/decline 모두 `currentUserId == BackupOffer.candidate.userId`가
+아니면 40305를 반환한다 - 검증 순서는 404(NotFound) → 403(ownership) → 기존 409(상태/기한)
+순이다. Auction → BackupOffer lock ordering(#56 확정)은 변경하지 않았다.
 
 ## #57 Implementation Notes
 
@@ -1528,3 +1532,127 @@ tie-break 정책 변경
 change가 아니다. 다만 §0-A 오류 코드 번호 재배정(예: `AuctionNotFoundException`을
 40402→40401로 옮기는 것)은 기존 클라이언트 분기 처리를 깨뜨릴 수 있어 contract-change
 취급을 권장한다.
+
+## #75 Implementation Notes
+
+Auth(Kakao 로그인 + 자체 JWT) + Notification(DB 저장 + REST 목록/읽음/안읽은수) 신규
+구현. #58 freeze 시점의 20개 endpoint는 하나도 변경하지 않았다(response field/타입/
+경로/상태코드 전부 그대로) — 이번은 기존 20개 위에 6개 endpoint를 **추가**한 것이고,
+기존 Auction/Bid/AutoBid/Order/BackupOffer/Penalty 어느 도메인의 계약도 건드리지
+않았다. `#75-5A`(최종 freeze audit) 기준 상태를 아래에 정리한다.
+
+### 신규 endpoint (6개, canonical spec §23-28)
+
+```text
+POST /api/auth/kakao                          §23
+POST /api/auth/refresh                        §24
+POST /api/auth/logout                         §25
+GET  /api/notifications                       §26
+PATCH /api/notifications/{notificationId}/read §27
+GET  /api/notifications/unread-count          §28
+```
+
+implemented: 6/6, not implemented: 0/6, contract conflicts: 0/6(`#75-5A` audit 기준 — 스펙과
+실제 DTO/에러코드를 대조해 field 단위로 확인했다. 상세 대조 결과는 `docs/auction-api-spec-final.md`
+§23-28을 canonical로 삼고 이 문서에는 요약만 남긴다).
+
+### Auth 구조
+
+```text
+[Kakao SDK 로그인]
+      | Kakao access token
+      v
+POST /api/auth/kakao  ── GET https://kapi.kakao.com/v2/user/me (KakaoUserInfoClient)
+      | kakaoUserId 기준 find-or-create (User.kakaoUserId UNIQUE)
+      v
+자체 Access JWT + Refresh JWT 발급, Refresh를 Redis(refresh:{jti} -> userId)에 등록
+      | (Redis 등록까지 성공해야 로그인 응답 반환)
+      v
+[프론트가 Access JWT를 이후 모든 API 호출에 Authorization: Bearer로 사용]
+      |
+      v
+일반 API 요청 -> JwtAuthenticationFilter(Access JWT parse/검증)
+             -> SecurityContext에 Authentication 설정
+             -> request.setAttribute("currentUserId", userId)  [기존 Controller 호환 bridge]
+             -> 기존 Service(Long userId 파라미터) 그대로 재사용, 시그니처 변경 없음
+
+POST /api/auth/refresh: Refresh JWT parse -> Redis refresh:{jti} 존재+userId 일치 확인
+                         -> 새 Access JWT만 재발급(Refresh는 그대로 유지, rotation 없음)
+POST /api/auth/logout:  Refresh JWT parse -> Redis refresh:{jti} 삭제(idempotent)
+```
+
+identity 소스는 dev/prod 전부 JWT/SecurityContext뿐이다. `X-User-Id` 헤더는
+`JwtAuthenticationFilter`가 읽지 않으며, local profile의 `MockAuthInterceptor`에서만
+의미를 갖는다(`@Profile("local")`로 격리). `#75-5A` 감사에서 이 두 filter 외에 identity를
+설정하는 지점이 하나 더 있음을 발견했다 — 아래 "남은 gap" 참고.
+
+### Notification 구조
+
+```text
+type: AUCTION_WON | BACKUP_OFFER_CREATED | PAYMENT_EXPIRED  (3종 고정, 미래 타입 선추가 안 함)
+businessEventKey: "{TYPE}:{resourceId}"  (resourceId = Order.id 또는 BackupOffer.id)
+dedupe: UNIQUE(business_event_key) — DB 제약이 최종 방어선, 별도 claim/retry 없음
+생성 시점: 기존 lifecycle @Transactional 메서드 안에서 NotificationRecorder.record()를
+          호출 — 새 트랜잭션을 열지 않고 호출자 트랜잭션에 참여한다. 즉 상태 전이(Order
+          생성/BackupOffer 생성/결제기한만료)와 Notification insert가 하나의 트랜잭션으로
+          함께 commit/rollback된다. 실제 호출 지점 5곳: AuctionSettlementService,
+          AuctionForfeitService, BackupOfferCommandService, BackupOfferExpirationService,
+          OrderExpirationService.
+조회/읽음: 본인 것만(recipient_id 기준 쿼리) — 존재하지 않는 알림과 타인 소유 알림을
+          구분 노출하지 않고 둘 다 404/40405로 통일(별도 403 없음, 사용자 확정). 목록은
+          createdAt DESC, id DESC 고정 정렬(stable). 읽음 처리는 idempotent(재호출해도
+          최초 readAt 유지).
+```
+
+push 전송(FCM/APNs/SSE/WebSocket)은 이번 범위가 아니다 — 프론트는 REST 조회/polling만
+사용 가능하다. `docs/auction-api-spec-final.md` §22 v1 범위 제외를 함께 갱신했다(기존
+"알림 전체 후속 스코프" 문구는 부정확했다 — 알림 도메인 자체는 구현됐고, push 전달
+메커니즘만 후속 스코프다).
+
+### 명시된 limitation
+
+```text
+1. logout은 Refresh Token만 revoke한다. 이미 발급된 Access Token은 자체 만료(기본
+   30분)까지 계속 유효하다 - Access Token blacklist는 이번 범위가 아니다.
+2. Kakao 로그인 시 User DB commit과 Redis Refresh 저장은 하나의 분산 트랜잭션이
+   아니다 - Redis 장애 시 User는 이미 생성됐지만 로그인 응답은 실패할 수 있다. 다음
+   로그인에서 같은 kakaoUserId로 기존 User를 재사용하므로 duplicate User는 생기지
+   않는다. 이 gap을 메우려고 outbox/분산 트랜잭션을 도입하지 않았다.
+3. Refresh Token rotation 없음 - refresh 성공 시 기존 Refresh Token을 그대로 유지하고
+   Access Token만 재발급한다.
+4. FCM/APNs/SSE/WebSocket 없음 - 프론트는 REST 조회/polling으로 대체한다.
+```
+
+### DB schema 배포 가능 여부(`#75-5A` 확인)
+
+이 프로젝트는 Flyway/Liquibase 등 별도 migration 도구가 전혀 없다 - 스키마는 전부
+Hibernate `ddl-auto`로 관리된다(#75 이전부터 동일한 방식, #75가 새로 도입한 관행이
+아니다). `#75`가 추가한 스키마(`users.email` nullable화, `users.kakao_user_id` +
+UNIQUE, `notifications` 테이블 + `business_event_key` UNIQUE + 2개 인덱스)는 전부
+JPA entity 어노테이션에 정확히 선언돼 있다.
+
+- **dev**: `application-dev.yml`의 `ddl-auto: update`가 실제 공유 dev MySQL을 향해
+  있으므로, 다음 dev 배포/재기동 시 위 스키마 변경이 자동으로 반영된다. gap 없음.
+- **prod**: `application-prod.yml`에 datasource 자체가 아직 설정돼 있지 않다(파일
+  자체 주석이 "실제 배포 인프라는 아직 이 파일의 범위가 아니다"라고 명시) - `ddl-auto`도
+  미설정이라 Hibernate 기본값(`none`)이 적용된다. 이것은 `#75`가 만든 gap이 아니라
+  prod 인프라 자체가 아직 프로비저닝되지 않은 기존 상태다. **다만 prod DB를 실제로
+  붙이는 시점에는, 이 프로젝트에 migration 도구가 전혀 없으므로 dev와 동일하게
+  `ddl-auto: update`를 쓸지 그때 가서 별도 migration 체계를 도입할지 결정이 필요하다**
+  - `#75-5A`는 이 결정을 내리지 않고 gap으로만 기록한다.
+
+### 남은 gap (여전히 열려 있음, `#75`/`#75-5A`에서 결정/구현하지 않음)
+
+```text
+- RecommendationController(GET /api/recommendations/auctions, #75 이전부터 존재)가
+  @RequestHeader(value="X-User-Id", required=false)를 profile 제약 없이 직접 읽는다 -
+  dev/prod에서도 살아있는 경로라 "production identity source는 JWT/SecurityContext뿐"
+  이라는 #75의 보안 원칙과 모순된다. #75 범위(Auth/Notification)가 만든 gap이 아니라
+  #75 이전부터 있던 별개 endpoint이므로 `#75-5A`에서 임의로 수정하지 않고 발견 사실만
+  기록한다 - 후속 issue로 넘긴다.
+- prod datasource/ddl-auto 미설정(위 "DB schema 배포 가능 여부" 참고) - prod 인프라
+  프로비저닝 시점에 결정 필요.
+- Spring Boot 기본 UserDetailsServiceAutoConfiguration이 dev/prod에서 제외되지 않고
+  살아있다(그러나 httpBasic/formLogin이 이미 명시적으로 disabled라 실제 인증 경로로
+  연결되지는 않는다 - exploitable하지 않은 hygiene 항목).
+```
