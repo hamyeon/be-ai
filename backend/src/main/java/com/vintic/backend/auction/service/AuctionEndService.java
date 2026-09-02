@@ -5,6 +5,8 @@ import com.vintic.backend.auction.domain.AuctionStatus;
 import com.vintic.backend.auction.repository.AuctionRepository;
 import com.vintic.backend.order.service.AuctionSettlementService;
 import org.springframework.stereotype.Service;
+import com.vintic.backend.config.CacheConfig;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -42,6 +44,12 @@ public class AuctionEndService {
         this.clock = clock;
     }
 
+    // 경매가 끝나면 추천 Fallback 목록에서도 빠져야 한다.
+    //
+    // 캐시 TTL(60초)이 마지막 안전장치이긴 하지만, 그동안은 이미 끝난 경매가 추천에
+    // 남아 사용자가 입찰할 수 없는 항목을 보게 된다. 입찰과 마찬가지로 목록을 낡게
+    // 만드는 변화이므로 여기서도 비운다.
+    @CacheEvict(cacheNames = CacheConfig.RECOMMENDATION_FALLBACK_CACHE, allEntries = true)
     @Transactional
     public void endIfDue(Long auctionId) {
         Auction auction = auctionRepository.findByIdForUpdate(auctionId).orElse(null);
