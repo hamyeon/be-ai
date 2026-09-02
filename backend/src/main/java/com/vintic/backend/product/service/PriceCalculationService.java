@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class PriceCalculationService {
@@ -18,16 +19,31 @@ public class PriceCalculationService {
 
     private final MarketPriceDataLoader marketPriceDataLoader;
     private final ConditionRateProvider conditionRateProvider;
+    private final UsedMarketPriceProvider usedMarketPriceProvider;
 
     public PriceCalculationService(
             MarketPriceDataLoader marketPriceDataLoader,
-            ConditionRateProvider conditionRateProvider
+            ConditionRateProvider conditionRateProvider,
+            UsedMarketPriceProvider usedMarketPriceProvider
     ) {
         this.marketPriceDataLoader = marketPriceDataLoader;
         this.conditionRateProvider = conditionRateProvider;
+        this.usedMarketPriceProvider = usedMarketPriceProvider;
     }
 
     public CalculatePriceResponse calculate(CalculatePriceRequest request) {
+        // 1순위: 같은 모델의 중고 실거래 시세 (#86).
+        //
+        // 우리 서비스는 중고 경매다. 중고 실거래가 있으면 "새제품가 x 상태계수"라는
+        // 추정을 거칠 이유가 없다. 매칭이 없을 때만 기존 KREAM/eBay 방식으로 넘어간다 -
+        // 기존에 "시세 정보 없음"이 나오던 요청 일부가 이 경로로 값을 받게 되고,
+        // 응답이 나빠지는 경로는 없다.
+        Optional<UsedMarketPriceProvider.UsedMarketPrice> usedMarket =
+                usedMarketPriceProvider.find(request.brand(), request.modelName());
+        if (usedMarket.isPresent()) {
+            return calculateFromUsedMarket(request, usedMarket.get());
+        }
+
         List<MarketPriceRow> kreamRows = marketPriceDataLoader.loadKreamRows();
         List<MarketPriceRow> ebayRows = marketPriceDataLoader.loadEbayRows();
 
@@ -92,6 +108,69 @@ public class PriceCalculationService {
                 reason,
                 toResponseMatches(kreamMatches),
                 toResponseMatches(ebayMatches)
+        );
+    }
+
+    /**
+     * 중고 실거래 시세로 계산한다.
+     *
+     * <p>매물 대부분이 "일반 중고(상태 미상)"이므로, 상태 반영은 절대 계수가 아니라
+     * "일반 중고 대비 비율"로 한다. DS면 실측 계수 기준 약 1.9배(0.778/0.415) 식이다.
+     * #61에서 측정한 값만 조합하고 새 숫자를 지어내지 않는다.
+     *
+     * <p>권장 범위는 ±5% 같은 임의 폭 대신 실거래 IQR(25~75% 구간)을 쓴다.
+     * 넓어 보일 수 있지만 그게 실제 분포다.
+     */
+    private CalculatePriceResponse calculateFromUsedMarket(
+            CalculatePriceRequest request, UsedMarketPriceProvider.UsedMarketPrice market) {
+
+        String normalizedConditionGrade = normalizeConditionGrade(request.conditionGrade());
+        ConditionRateProvider.ConditionRate gradeRate =
+                conditionRateProvider.resolve(request.modelName(), normalizedConditionGrade);
+        ConditionRateProvider.ConditionRate baselineRate =
+                conditionRateProvider.resolve(request.modelName(), UNKNOWN_CONDITION_GRADE);
+        double conditionRatio = gradeRate.rate() / baselineRate.rate();
+        double componentRate = getComponentRate(request.componentStatus());
+
+        int recommendedPrice =
+                roundToNearestThousand((int) Math.round(market.medianPrice() * conditionRatio * componentRate));
+        int minRecommendedPrice =
+                roundToNearestThousand((int) Math.round(market.q1Price() * conditionRatio * componentRate));
+        int maxRecommendedPrice =
+                roundToNearestThousand((int) Math.round(market.q3Price() * conditionRatio * componentRate));
+        String priceRange = makePriceRange(minRecommendedPrice, maxRecommendedPrice);
+
+        String reason = String.format(
+                "당근마켓·후르츠패밀리에 올라온 %s 중고 매물 %d건을 근거로 계산했습니다. "
+                        + "실거래가 중앙값은 %,d원이고, 매물의 절반이 %,d원 ~ %,d원 사이에 있습니다. "
+                        + "상품 상태 %s(%s)는 일반 중고 대비 %.0f%% 수준으로 반영했습니다. %s "
+                        + "이를 바탕으로 최종 추천가는 %,d원이며, 판매 권장 범위는 실거래 분포를 따라 %s입니다.",
+                market.modelDisplay(),
+                market.listingCount(),
+                market.medianPrice(),
+                market.q1Price(),
+                market.q3Price(),
+                normalizedConditionGrade,
+                getConditionDescription(normalizedConditionGrade),
+                conditionRatio * 100,
+                makeComponentText(request.componentStatus(), componentRate),
+                recommendedPrice,
+                priceRange
+        );
+
+        // KREAM/eBay 필드는 이 경로에서 쓰이지 않았음을 그대로 드러낸다(0 / 빈 목록).
+        // 어느 근거로 계산했는지는 reason이 밝힌다.
+        return new CalculatePriceResponse(
+                recommendedPrice,
+                market.medianPrice(),
+                0,
+                0,
+                minRecommendedPrice,
+                maxRecommendedPrice,
+                priceRange,
+                reason,
+                List.of(),
+                List.of()
         );
     }
 
