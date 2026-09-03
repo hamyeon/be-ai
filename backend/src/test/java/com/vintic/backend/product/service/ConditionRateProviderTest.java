@@ -51,7 +51,7 @@ class ConditionRateProviderTest {
 
     @Test
     void A와_B는_매물_설명에서_실측한_값을_쓴다() {
-        // #87: UNKNOWN으로 뭉개져 있던 매물의 설명("3번 착용", "사용감 있음")을
+        // #86: UNKNOWN으로 뭉개져 있던 매물의 설명("3번 착용", "사용감 있음")을
         // 재분류해 A/B를 실측했다. C는 표본 7건이라 아직 기본값이다.
         ConditionRate a = provider.resolve("Dunk Low", "A");
         ConditionRate b = provider.resolve("Dunk Low", "B");

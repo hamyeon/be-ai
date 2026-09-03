@@ -17,6 +17,10 @@ STANDARD = {
     "993":           "Gray - 993의 대표 상시 컬러",
     "990v4":         "Gray - 990 시리즈 대표 상시 컬러",
     "xt6":           "Black - 기본 컬러",
+    # 2026-09-04 크롤러 재수집분 (merge_kream_crawl.py)
+    "superstar":     "White Black - 오리지널 기본 컬러 (코어 블랙·슈퍼스타2는 제외했다)",
+    "530":           "Steel Grey - 530 대표 상시 컬러",
+    "cortez":        "White Varsity Red - 클래식 컬러. 참조가 W 버전이라는 한계는 있다",
 }
 
 LIMITED = {

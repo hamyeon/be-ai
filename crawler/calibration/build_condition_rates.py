@@ -205,6 +205,19 @@ MIN_SAMPLE_PER_MODEL = 10
 
 NOTE = "당근 실거래 중앙값 / KREAM 표준 컬러웨이 참조 중앙값"
 
+# 품질이 좋을수록 비싸야 한다. 이 서열이 뒤집힌 모델별 계수는 표본 노이즈로 보고
+# 등급 행 전체를 버린다(ALL 행은 집계라 유지). 실측 예: 슈퍼스타 참조가 사이즈당
+# 체결 1건뿐이라 분모가 널뛰어 B(0.42) > DS(0.40) 역전이 나왔다. 그대로 내보내면
+# 사용감 있는 신발이 새상품보다 비싸게 추천된다.
+GRADE_ORDER = ["DS", "S", "A", "B", "C"]
+
+
+def ordered_grades_ok(model_rates):
+    ladder = [(GRADE_ORDER.index(g), r) for g, r in model_rates.items() if g in GRADE_ORDER]
+    ladder.sort()
+    values = [r for _, r in ladder]
+    return all(a >= b for a, b in zip(values, values[1:]))
+
 
 def write_csv(standard_by_cond, standard_by_model_cond):
     """실측 계수를 CSV로 내보낸다.
@@ -226,12 +239,23 @@ def write_csv(standard_by_cond, standard_by_model_cond):
         print(f"    {grade:<9} {rate:.3f}  (n={len(vals)})")
 
     print("  [모델별]")
+    # 모델별로 모아 등급 서열을 검증한 뒤 쓴다
+    by_model = {}
     for (model, grade), vals in sorted(standard_by_model_cond.items()):
         if len(vals) < MIN_SAMPLE_PER_MODEL:
             continue
-        rate = round(statistics.median(vals), 3)
-        lines.append(f"{model},{grade},{rate},{len(vals)},{NOTE}")
-        print(f"    {model:<16} {grade:<9} {rate:.3f}  (n={len(vals)})")
+        by_model.setdefault(model, {})[grade] = (round(statistics.median(vals), 3), len(vals))
+
+    for model, grades in by_model.items():
+        rates_only = {g: r for g, (r, _) in grades.items()}
+        if not ordered_grades_ok(rates_only):
+            dropped = [g for g in grades if g != "ALL"]
+            print(f"    {model:<16} 등급 서열 역전으로 등급 행 제외: "
+                  + ", ".join(f"{g} {grades[g][0]:.3f}" for g in dropped))
+            grades = {g: v for g, v in grades.items() if g == "ALL"}
+        for grade, (rate, n) in grades.items():
+            lines.append(f"{model},{grade},{rate},{n},{NOTE}")
+            print(f"    {model:<16} {grade:<9} {rate:.3f}  (n={n})")
 
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

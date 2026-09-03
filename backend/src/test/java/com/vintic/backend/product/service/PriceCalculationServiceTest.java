@@ -101,7 +101,7 @@ class PriceCalculationServiceTest {
         when(usedMarketPriceProvider.find("Nike", "Dunk Low"))
                 .thenReturn(Optional.of(dunkLowMarket()));
 
-        // A는 매물 설명 재분류로 실측한 공통값(#87), S는 표본 부족으로 기본값
+        // A는 매물 설명 재분류로 실측한 공통값(#86), S는 표본 부족으로 기본값
         assertThat(newService().calculate(request("Nike", "Dunk Low", "A")).reason())
                 .contains("공통값");
         assertThat(newService().calculate(request("Nike", "Dunk Low", "S")).reason())
