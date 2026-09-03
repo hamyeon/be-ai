@@ -22,8 +22,8 @@ class ConditionRateProviderTest {
     void 감가가_느린_모델은_더_높은_계수를_받는다() {
         // 에어포스1은 상시 대량 생산이라 중고가 흔하고, 993은 물량이 적어 시세가 유지된다.
         // 통합 계수 하나로 뭉개면 993이 30% 가까이 낮게 추천된다.
-        ConditionRate airForce = provider.resolve("Air Force 1 Low", "UNKNOWN");
-        ConditionRate nb993 = provider.resolve("993", "UNKNOWN");
+        ConditionRate airForce = provider.resolve("Air Force 1 Low", "ALL");
+        ConditionRate nb993 = provider.resolve("993", "ALL");
 
         assertThat(nb993.basis()).isEqualTo(Basis.MEASURED_MODEL);
         assertThat(nb993.rate()).isGreaterThan(airForce.rate());
@@ -50,10 +50,28 @@ class ConditionRateProviderTest {
     }
 
     @Test
-    void 실측하지_않은_등급들은_그대로다() {
-        assertThat(provider.resolve("Dunk Low", "A").rate()).isEqualTo(0.60);
-        assertThat(provider.resolve("Dunk Low", "B").rate()).isEqualTo(0.40);
+    void A와_B는_매물_설명에서_실측한_값을_쓴다() {
+        // #87: UNKNOWN으로 뭉개져 있던 매물의 설명("3번 착용", "사용감 있음")을
+        // 재분류해 A/B를 실측했다. C는 표본 7건이라 아직 기본값이다.
+        ConditionRate a = provider.resolve("Dunk Low", "A");
+        ConditionRate b = provider.resolve("Dunk Low", "B");
+
+        assertThat(a.basis()).isEqualTo(Basis.MEASURED_COMMON);
+        assertThat(b.basis()).isEqualTo(Basis.MEASURED_COMMON);
+        assertThat(a.rate()).isGreaterThan(b.rate());
+        assertThat(provider.resolve("Dunk Low", "C").basis()).isEqualTo(Basis.DEFAULT);
         assertThat(provider.resolve("Dunk Low", "C").rate()).isEqualTo(0.20);
+    }
+
+    @Test
+    void 전체_매물_기준선을_제공한다() {
+        // 중고 시세 경로의 분모. 시세 중앙값과 같은 모집단(상태 불문 전체 매물)이다.
+        ConditionRate all = provider.resolve(null, "ALL");
+
+        assertThat(all.basis()).isEqualTo(Basis.MEASURED_COMMON);
+        assertThat(all.sampleSize()).isGreaterThan(100);
+        // 전체에는 새상품 매물이 포함되므로 UNKNOWN(상태 단서 없음)보다 높아야 한다
+        assertThat(all.rate()).isGreaterThan(provider.resolve(null, "UNKNOWN").rate());
     }
 
     @Test

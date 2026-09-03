@@ -62,16 +62,50 @@ class PriceCalculationServiceTest {
     }
 
     @Test
-    void 상태가_좋으면_일반_중고_대비_실측_비율만큼_오른다() {
+    void 상태가_좋으면_전체_매물_대비_실측_비율만큼_오른다() {
         when(usedMarketPriceProvider.find("Nike", "Dunk Low"))
                 .thenReturn(Optional.of(dunkLowMarket()));
 
         CalculatePriceResponse ds = newService().calculate(request("Nike", "Dunk Low", "DS"));
         CalculatePriceResponse unknown = newService().calculate(request("Nike", "Dunk Low", "UNKNOWN"));
 
-        // DS/UNKNOWN 실측 계수 비율(0.778/0.415 ≈ 1.87)로만 움직인다 - 지어낸 숫자가 없다
+        // DS 실측 계수 / 전체 매물 실측 계수(ALL)의 비율로만 움직인다 - 지어낸 숫자가 없다.
+        // 기대값을 CSV에서 직접 읽어, 재측정으로 계수가 바뀌어도 조합 방식만 검증한다.
+        double expected = conditionRateProvider.resolve("Dunk Low", "DS").rate()
+                / conditionRateProvider.resolve(null, "ALL").rate();
         double ratio = (double) ds.recommendedPrice() / unknown.recommendedPrice();
-        assertThat(ratio).isCloseTo(0.778 / 0.415, within(0.05));
+        assertThat(ratio).isCloseTo(expected, within(0.05));
+    }
+
+    @Test
+    void 등급_사다리는_실측값과_기본값이_섞여도_서열을_지킨다() {
+        when(usedMarketPriceProvider.find("Nike", "Dunk Low"))
+                .thenReturn(Optional.of(dunkLowMarket()));
+
+        PriceCalculationService service = newService();
+        int ds = service.calculate(request("Nike", "Dunk Low", "DS")).recommendedPrice();
+        int s = service.calculate(request("Nike", "Dunk Low", "S")).recommendedPrice();
+        int a = service.calculate(request("Nike", "Dunk Low", "A")).recommendedPrice();
+        int b = service.calculate(request("Nike", "Dunk Low", "B")).recommendedPrice();
+        int c = service.calculate(request("Nike", "Dunk Low", "C")).recommendedPrice();
+
+        // DS/A/B는 실측, S/C는 기본값인데도 가격 서열이 뒤집히면 안 된다
+        assertThat(ds).isGreaterThan(s);
+        assertThat(s).isGreaterThan(a);
+        assertThat(a).isGreaterThan(b);
+        assertThat(b).isGreaterThan(c);
+    }
+
+    @Test
+    void 실측_계수를_쓴_등급은_근거를_밝힌다() {
+        when(usedMarketPriceProvider.find("Nike", "Dunk Low"))
+                .thenReturn(Optional.of(dunkLowMarket()));
+
+        // A는 매물 설명 재분류로 실측한 공통값(#87), S는 표본 부족으로 기본값
+        assertThat(newService().calculate(request("Nike", "Dunk Low", "A")).reason())
+                .contains("공통값");
+        assertThat(newService().calculate(request("Nike", "Dunk Low", "S")).reason())
+                .contains("기본값");
     }
 
     @Test
