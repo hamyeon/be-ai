@@ -11,6 +11,7 @@ MODEL_ALIASES = {
     # Nike
     "에어포스1": "airforce1low", "에어포스 1": "airforce1low", "에어포스원": "airforce1low",
     "에어포스": "airforce1low", "air force 1": "airforce1low", "af1": "airforce1low",
+    "코르테즈": "cortez", "cortez": "cortez",
     "덩크로우": "dunklow", "덩크 로우": "dunklow", "덩크로": "dunklow",
     "dunk low": "dunklow", "덩크": "dunklow",
     "에어맥스95": "airmax95", "에어맥스 95": "airmax95", "air max 95": "airmax95", "am95": "airmax95",
@@ -20,6 +21,10 @@ MODEL_ALIASES = {
     "조던4": "airjordan4retro", "에어조던4": "airjordan4retro", "air jordan 4": "airjordan4retro",
     # Adidas
     "삼바og": "sambaog", "삼바 og": "sambaog", "samba og": "sambaog", "삼바": "sambaog",
+    # 슈퍼스타 2는 별개 저가 라인이다. 긴 표기가 먼저 검사되므로 "슈퍼스타 2"를
+    # 참조 없는 키로 보내 일반 슈퍼스타 참조에 붙는 것을 막는다.
+    "슈퍼스타 2": "superstar2", "슈퍼스타2": "superstar2", "superstar 2": "superstar2",
+    "슈퍼스타": "superstar", "superstar": "superstar", "슈퍼스타즈": "superstar",
     "가젤인도어": "gazelleindoor", "가젤 인도어": "gazelleindoor",
     "gazelle indoor": "gazelleindoor", "가젤": "gazelleindoor",
     "이지350": "yeezyboost350v2", "이지 350": "yeezyboost350v2", "yeezy 350": "yeezyboost350v2",
@@ -27,6 +32,9 @@ MODEL_ALIASES = {
     "2002r": "2002r", "2002 r": "2002r",
     "990v4": "990v4", "990 v4": "990v4",
     "993": "993",
+    # "530"만 쓰면 사이즈·가격 등 무관한 숫자에 붙는다. 브랜드가 함께 있는 표기만 인정.
+    "뉴발란스 530": "530", "뉴발란스530": "530", "뉴발 530": "530",
+    "뉴발530": "530", "nb530": "530", "new balance 530": "530", "nb 530": "530",
     # ASICS
     "젤카야노14": "gelkayano14", "젤 카야노 14": "gelkayano14",
     "카야노14": "gelkayano14", "카야노 14": "gelkayano14", "gel kayano 14": "gelkayano14",

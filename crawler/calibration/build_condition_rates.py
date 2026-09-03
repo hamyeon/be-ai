@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from model_aliases import find_model  # noqa: E402
 from reference_quality import quality, reason  # noqa: E402
 from listing_filters import exclusion_reason  # noqa: E402
+from fine_condition import classify  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 DAANGN = ROOT / "crawler" / "output" / "daangn_shoes_raw.jsonl"
@@ -130,30 +131,43 @@ def main():
             matched += 1
             ratio = price / reference
             grade = d.get("condition_grade_guess") or "UNKNOWN"
+            # 크롤링 시점 guess는 새상품 신호(DS/S)만 잡고 나머지를 UNKNOWN으로 뭉갠다.
+            # UNKNOWN 매물은 설명을 다시 읽어 A/B/C를 추정한다(fine_condition.py).
+            if grade == "UNKNOWN":
+                grade = classify(blob) or "UNKNOWN"
             ratios_by_cond[grade].append(ratio)
             ratios_by_model[model].append(ratio)
             if quality(model) == "STANDARD":
                 standard_by_cond[grade].append(ratio)
                 standard_by_model_cond[(model, grade)].append(ratio)
+                # ALL: 상태 불문 전체 매물의 비율. used_market_prices.csv의 중앙값과
+                # 같은 모집단이므로, 중고 시세 경로에서 상태 비율의 분모(기준선)가 된다.
+                # UNKNOWN(상태 단서 없는 매물)을 분모로 쓰면 분자·분모의 모집단이
+                # 어긋난다 - 새상품 매물이 빠져 있어 전체보다 낮게 나온다.
+                standard_by_cond["ALL"].append(ratio)
+                standard_by_model_cond[(model, "ALL")].append(ratio)
 
     print(f"\n매칭된 당근 매물: {matched}건 (사이즈까지 일치 {size_matched}건)")
     if excluded:
         print("  제외: " + ", ".join(f"{k} {v}건" for k, v in sorted(excluded.items())))
 
-    current = {"DS": 0.80, "S": 0.70, "UNKNOWN": 0.60}
+    current = {"DS": 0.80, "S": 0.70, "A": 0.60, "B": 0.40, "C": 0.20, "UNKNOWN": 0.60}
+    grades = ("DS", "S", "A", "B", "C", "UNKNOWN", "ALL")
 
     print(f"\n[전체 참조]   {'상태':<9}{'n':>6}{'중앙값':>10}{'현재 계수':>12}")
-    for cond in ("DS", "S", "UNKNOWN"):
+    for cond in grades:
         vals = ratios_by_cond.get(cond, [])
         if vals:
-            print(f"{'':<14}{cond:<9}{len(vals):>6}{statistics.median(vals):>10.2f}{current[cond]:>12}")
+            print(f"{'':<14}{cond:<9}{len(vals):>6}{statistics.median(vals):>10.2f}"
+                  f"{str(current.get(cond, '-')):>12}")
 
     # 한정 컬러 참조를 섞으면 S가 UNKNOWN보다 낮게 나오는 역전이 생긴다.
     print(f"\n[표준 참조만] {'상태':<9}{'n':>6}{'중앙값':>10}{'현재 계수':>12}")
-    for cond in ("DS", "S", "UNKNOWN"):
+    for cond in grades:
         vals = standard_by_cond.get(cond, [])
         if vals:
-            print(f"{'':<14}{cond:<9}{len(vals):>6}{statistics.median(vals):>10.2f}{current[cond]:>12}")
+            print(f"{'':<14}{cond:<9}{len(vals):>6}{statistics.median(vals):>10.2f}"
+                  f"{str(current.get(cond, '-')):>12}")
 
     print(f"\n{'모델':<24}{'n':>6}{'중앙값':>10}  {'참조품질':<9} 근거")
     trusted = []
@@ -191,6 +205,19 @@ MIN_SAMPLE_PER_MODEL = 10
 
 NOTE = "당근 실거래 중앙값 / KREAM 표준 컬러웨이 참조 중앙값"
 
+# 품질이 좋을수록 비싸야 한다. 이 서열이 뒤집힌 모델별 계수는 표본 노이즈로 보고
+# 등급 행 전체를 버린다(ALL 행은 집계라 유지). 실측 예: 슈퍼스타 참조가 사이즈당
+# 체결 1건뿐이라 분모가 널뛰어 B(0.42) > DS(0.40) 역전이 나왔다. 그대로 내보내면
+# 사용감 있는 신발이 새상품보다 비싸게 추천된다.
+GRADE_ORDER = ["DS", "S", "A", "B", "C"]
+
+
+def ordered_grades_ok(model_rates):
+    ladder = [(GRADE_ORDER.index(g), r) for g, r in model_rates.items() if g in GRADE_ORDER]
+    ladder.sort()
+    values = [r for _, r in ladder]
+    return all(a >= b for a, b in zip(values, values[1:]))
+
 
 def write_csv(standard_by_cond, standard_by_model_cond):
     """실측 계수를 CSV로 내보낸다.
@@ -212,12 +239,23 @@ def write_csv(standard_by_cond, standard_by_model_cond):
         print(f"    {grade:<9} {rate:.3f}  (n={len(vals)})")
 
     print("  [모델별]")
+    # 모델별로 모아 등급 서열을 검증한 뒤 쓴다
+    by_model = {}
     for (model, grade), vals in sorted(standard_by_model_cond.items()):
         if len(vals) < MIN_SAMPLE_PER_MODEL:
             continue
-        rate = round(statistics.median(vals), 3)
-        lines.append(f"{model},{grade},{rate},{len(vals)},{NOTE}")
-        print(f"    {model:<16} {grade:<9} {rate:.3f}  (n={len(vals)})")
+        by_model.setdefault(model, {})[grade] = (round(statistics.median(vals), 3), len(vals))
+
+    for model, grades in by_model.items():
+        rates_only = {g: r for g, (r, _) in grades.items()}
+        if not ordered_grades_ok(rates_only):
+            dropped = [g for g in grades if g != "ALL"]
+            print(f"    {model:<16} 등급 서열 역전으로 등급 행 제외: "
+                  + ", ".join(f"{g} {grades[g][0]:.3f}" for g in dropped))
+            grades = {g: v for g, v in grades.items() if g == "ALL"}
+        for grade, (rate, n) in grades.items():
+            lines.append(f"{model},{grade},{rate},{n},{NOTE}")
+            print(f"    {model:<16} {grade:<9} {rate:.3f}  (n={n})")
 
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

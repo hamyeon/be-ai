@@ -37,6 +37,26 @@ SHOE_CATEGORY = "신발"
 #   그래서 검색은 "조던"으로도 따로 하되, 저장 시 brand는 Nike가 된다.
 # - canonical은 backend 시세 CSV(kream/ebay_normalized)의 브랜드 표기와 맞춘다.
 SEARCH_KEYWORDS = [
+    # 참조 커버리지 보강용 모델 검색어 (#61 manual_reference_guide.md 우선순위).
+    # KREAM은 짧은 버스트만 허용하므로, 차단 전의 한정된 요청을 브랜드 대표 검색어보다
+    # 계수 산출에 바로 쓰이는 모델에 먼저 쓴다. 앞에 있을수록 먼저 수집된다.
+    {"keyword": "슈퍼스타", "canonical": "Adidas"},
+    {"keyword": "뉴발란스 530", "canonical": "New Balance"},
+    {"keyword": "코르테즈", "canonical": "Nike"},
+    {"keyword": "뉴발란스 574", "canonical": "New Balance"},
+    {"keyword": "닥터마틴 1461", "canonical": "Dr. Martens"},
+    {"keyword": "에어맥스 97", "canonical": "Nike"},
+    {"keyword": "뉴발란스 327", "canonical": "New Balance"},
+    {"keyword": "블레이저 미드", "canonical": "Nike"},
+    {"keyword": "보메로", "canonical": "Nike"},
+    {"keyword": "스페치알", "canonical": "Adidas"},
+    {"keyword": "뉴발란스 1906", "canonical": "New Balance"},
+    {"keyword": "페가수스", "canonical": "Nike"},
+    {"keyword": "덩크 하이", "canonical": "Nike"},
+    {"keyword": "에어맥스 90", "canonical": "Nike"},
+    {"keyword": "V2K", "canonical": "Nike"},
+    {"keyword": "스탠스미스", "canonical": "Adidas"},
+    {"keyword": "척 70", "canonical": "Converse"},
     {"keyword": "나이키", "canonical": "Nike"},
     {"keyword": "조던", "canonical": "Nike"},
     {"keyword": "아디다스", "canonical": "Adidas"},
@@ -67,4 +87,9 @@ BRAND_NORMALIZATION = {
     "PUMA": "Puma",
     "Salomon": "Salomon",
     "SALOMON": "Salomon",
+    # 참조 커버리지 보강(#61)에서 추가. 당근 매물 빈도 상위인데 참조가 없던 브랜드.
+    "Converse": "Converse",
+    "CONVERSE": "Converse",
+    "Dr. Martens": "Dr. Martens",
+    "Dr.Martens": "Dr. Martens",
 }

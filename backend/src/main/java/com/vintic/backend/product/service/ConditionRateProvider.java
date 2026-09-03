@@ -29,13 +29,18 @@ public class ConditionRateProvider {
     private static final String CSV_PATH = "data/condition_rates.csv";
 
     // 실측 이전부터 쓰던 값. 실측 데이터가 없는 등급은 이 값을 유지한다.
+    // S(표본 12건)와 C(표본 7건)는 표본이 부족해 아직 기본값이다. 부족한 표본의
+    // 중앙값으로 바꾸면 근거 없는 값을 근거 없는 값으로 바꾸는 것뿐이다.
+    // ALL은 상태 불문 전체 매물의 계수로, 중고 시세 경로의 기준선이다.
+    // CSV가 없을 때는 UNKNOWN 기본값과 같게 둬서 비율이 기존과 같이 동작한다.
     private static final Map<String, Double> DEFAULT_RATES = Map.of(
             "DS", 0.80,
             "S", 0.70,
             "A", 0.60,
             "B", 0.40,
             "C", 0.20,
-            "UNKNOWN", 0.60
+            "UNKNOWN", 0.60,
+            "ALL", 0.60
     );
 
     private static final double FALLBACK_RATE = 0.60;
