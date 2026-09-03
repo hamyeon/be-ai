@@ -59,6 +59,8 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -123,7 +125,7 @@ class AuctionControllerTest {
         );
         when(auctionQueryService.getAuctionDetail(eq(1L), any())).thenReturn(response);
 
-        mockMvc.perform(get("/api/auctions/1").header("X-User-Id", "2"))
+        mockMvc.perform(get("/api/auctions/1").requestAttr("currentUserId", 2L))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.auctionId").value(1))
@@ -149,6 +151,19 @@ class AuctionControllerTest {
                 .andExpect(jsonPath("$.data.myState.autoBidStatus").value("ACTIVE"))
                 .andExpect(jsonPath("$.data.myState.autoBidCap").value(120000))
                 .andExpect(jsonPath("$.data.finalPrice").doesNotExist());
+    }
+
+    // #75-4B: identity source는 request attribute(currentUserId)뿐이다 - X-User-Id 헤더는
+    // (누가 보냈든) 더 이상 이 endpoint의 개인화에 관여하지 않는다.
+    @Test
+    void X_User_Id_헤더만_보내면_무시되고_익명으로_처리된다() throws Exception {
+        when(auctionQueryService.getAuctionDetail(eq(1L), isNull())).thenReturn(AuctionDetailFixtures.sample());
+
+        mockMvc.perform(get("/api/auctions/1").header("X-User-Id", "999"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        verify(auctionQueryService).getAuctionDetail(1L, null);
     }
 
     @Test
@@ -188,7 +203,7 @@ class AuctionControllerTest {
         BidHistoryResponse response = new BidHistoryResponse(List.of(bid), 0, 20, false);
         when(bidQueryService.getBidHistory(eq(1L), any(), anyInt(), anyInt(), anyString())).thenReturn(response);
 
-        mockMvc.perform(get("/api/auctions/1/bids").header("X-User-Id", "2"))
+        mockMvc.perform(get("/api/auctions/1/bids").requestAttr("currentUserId", 2L))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.bids[0].bidderMasked").value("bid****"))

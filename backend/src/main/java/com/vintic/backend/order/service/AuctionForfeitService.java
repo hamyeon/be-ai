@@ -13,6 +13,8 @@ import com.vintic.backend.common.exception.AlreadyPaidException;
 import com.vintic.backend.common.exception.AuctionNotFoundException;
 import com.vintic.backend.common.exception.NotAwardeeException;
 import com.vintic.backend.common.exception.PaymentExpiredException;
+import com.vintic.backend.notification.domain.NotificationType;
+import com.vintic.backend.notification.service.NotificationRecorder;
 import com.vintic.backend.order.domain.Order;
 import com.vintic.backend.order.repository.OrderRepository;
 import com.vintic.backend.penalty.domain.Penalty;
@@ -37,19 +39,22 @@ public class AuctionForfeitService {
     private final PenaltyRepository penaltyRepository;
     private final BackupOfferRepository backupOfferRepository;
     private final BidRepository bidRepository;
+    private final NotificationRecorder notificationRecorder;
 
     public AuctionForfeitService(
             AuctionRepository auctionRepository,
             OrderRepository orderRepository,
             PenaltyRepository penaltyRepository,
             BackupOfferRepository backupOfferRepository,
-            BidRepository bidRepository
+            BidRepository bidRepository,
+            NotificationRecorder notificationRecorder
     ) {
         this.auctionRepository = auctionRepository;
         this.orderRepository = orderRepository;
         this.penaltyRepository = penaltyRepository;
         this.backupOfferRepository = backupOfferRepository;
         this.bidRepository = bidRepository;
+        this.notificationRecorder = notificationRecorder;
     }
 
     @Transactional
@@ -111,7 +116,9 @@ public class AuctionForfeitService {
                 // 도달하지 않는다. uk_backup_offer_auction_candidate가 최종 방어선이다.
                 return;
             }
-            backupOfferRepository.save(BackupOffer.create(auction, candidate, candidateBid.getAmount()));
+            BackupOffer saved = backupOfferRepository.save(BackupOffer.create(auction, candidate, candidateBid.getAmount()));
+            // #75: 신규 BackupOffer가 실제 저장된 경우에만 기록한다(위 dedup return에는 도달하지 않음).
+            notificationRecorder.record(candidate, NotificationType.BACKUP_OFFER_CREATED, auction.getId(), saved.getId());
         });
     }
 }

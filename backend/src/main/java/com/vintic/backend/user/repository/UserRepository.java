@@ -20,4 +20,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.id = :userId")
     Optional<User> findByIdForUpdate(@Param("userId") Long userId);
+
+    // #75-4C: Kakao 로그인 find-or-create의 유일한 identity 조회 - email/nickname으로는 절대
+    // 찾지 않는다.
+    Optional<User> findByKakaoUserId(Long kakaoUserId);
 }

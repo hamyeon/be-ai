@@ -38,6 +38,16 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
 	testImplementation 'org.testcontainers:junit-jupiter'
 	testImplementation 'org.testcontainers:mysql'
+
+	// #75-4A: 자체 Access/Refresh JWT 발급/검증. spring-security-oauth2-client/Kakao SDK는
+	// 추가하지 않는다 - Kakao는 REST 호출(#75-4B)로만 신원을 확인하고, 이후 인증은 이 JWT로 한다.
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+	// #75-4B: @WebMvcTest에 실제 SecurityFilterChain을 적용해 검증하기 위한 공식 테스트 전용
+	// companion(spring-boot-starter-security의 짝) - 새 인증 library가 아니다.
+	testImplementation 'org.springframework.security:spring-security-test'
 }
 
 tasks.named('test') {

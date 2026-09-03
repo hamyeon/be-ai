@@ -5,10 +5,15 @@ import com.vintic.backend.auction.domain.AuctionStatus;
 import com.vintic.backend.auction.repository.AuctionRepository;
 import com.vintic.backend.common.exception.AuctionNotFoundException;
 import com.vintic.backend.common.exception.InvalidAuctionStatusException;
+import com.vintic.backend.notification.domain.Notification;
+import com.vintic.backend.notification.domain.NotificationType;
+import com.vintic.backend.notification.repository.NotificationRepository;
+import com.vintic.backend.notification.service.NotificationRecorder;
 import com.vintic.backend.order.domain.Order;
 import com.vintic.backend.order.domain.OrderStatus;
 import com.vintic.backend.order.repository.OrderRepository;
 import com.vintic.backend.product.domain.Product;
+import com.vintic.backend.support.TestClockConfig;
 import com.vintic.backend.user.domain.User;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -26,8 +31,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
 // #56-1: AuctionSettlementService.settle() - 낙찰자 Order 생성 command.
+// #75: AUCTION_WON Notification 연결 - NotificationRecorder는 이 서비스의 트랜잭션에 참여한다.
 @DataJpaTest
-@Import(AuctionSettlementService.class)
+@Import({AuctionSettlementService.class, TestClockConfig.class, NotificationRecorder.class})
 class AuctionSettlementServiceTest {
 
     @Autowired
@@ -38,6 +44,9 @@ class AuctionSettlementServiceTest {
 
     @Autowired
     private OrderRepository orderRepository;
+
+    @Autowired
+    private NotificationRepository notificationRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -108,6 +117,15 @@ class AuctionSettlementServiceTest {
         // 전반에서 쓰는 패턴(AuctionQueryServiceTest의 endsAt/bidRestrictedUntil 비교와 동일).
         assertThat(order.getPaymentDeadline()).isCloseTo(auction.getEndAt().plusHours(24), within(1, ChronoUnit.SECONDS));
         assertThat(ChronoUnit.SECONDS.between(order.getCreatedAt(), LocalDateTime.now())).isLessThan(5);
+
+        // #75: 신규 winner Order 생성과 함께 AUCTION_WON Notification이 정확히 1건 기록된다.
+        assertThat(notificationRepository.count()).isEqualTo(1);
+        Notification notification = notificationRepository.findAll().get(0);
+        assertThat(notification.getType()).isEqualTo(NotificationType.AUCTION_WON);
+        assertThat(notification.getRecipient().getId()).isEqualTo(winner.getId());
+        assertThat(notification.getAuctionId()).isEqualTo(auction.getId());
+        assertThat(notification.getResourceId()).isEqualTo(order.getId());
+        assertThat(notification.getBusinessEventKey()).isEqualTo("AUCTION_WON:" + order.getId());
     }
 
     @Test
@@ -121,6 +139,8 @@ class AuctionSettlementServiceTest {
 
         assertThat(result).isEmpty();
         assertThat(orderRepository.count()).isZero();
+        // #75: NO_BIDS(winner==null)는 Notification도 남기지 않는다.
+        assertThat(notificationRepository.count()).isZero();
     }
 
     @Test
@@ -138,6 +158,8 @@ class AuctionSettlementServiceTest {
         assertThat(second).isPresent();
         assertThat(second.get().getId()).isEqualTo(first.get().getId());
         assertThat(orderRepository.count()).isEqualTo(1);
+        // #75: 재실행(existing.isPresent() 분기)은 recorder를 다시 호출하지 않으므로 여전히 1건이다.
+        assertThat(notificationRepository.count()).isEqualTo(1);
     }
 
     @Test

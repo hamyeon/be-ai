@@ -10,11 +10,14 @@ import com.vintic.backend.backupoffer.repository.BackupOfferRepository;
 import com.vintic.backend.bid.domain.Bid;
 import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.common.exception.AuctionNotFoundException;
+import com.vintic.backend.common.exception.BackupOfferAccessDeniedException;
 import com.vintic.backend.common.exception.BackupOfferAlreadyResolvedException;
 import com.vintic.backend.common.exception.BackupOfferExpiredException;
 import com.vintic.backend.common.exception.BackupOfferNotFoundException;
 import com.vintic.backend.common.util.ShippingPolicy;
 import com.vintic.backend.common.util.TimePolicy;
+import com.vintic.backend.notification.domain.NotificationType;
+import com.vintic.backend.notification.service.NotificationRecorder;
 import com.vintic.backend.order.domain.Order;
 import com.vintic.backend.order.repository.OrderRepository;
 import com.vintic.backend.user.domain.User;
@@ -40,10 +43,10 @@ import java.util.List;
 // 무관하게 항상 최신 커밋을 본다 - Auction lock 이후 재조회하는 BackupOffer만이 실제
 // authoritative 값이다(lockOfferViaAuctionFirst() 참고).
 //
-// accept는 소유자(=candidate) 검증을 하지 않는다 - 계약이 이 endpoint에 별도 403을 정의하지
-// 않는다(GET /backup-offers/{id}(§15)와 동일한 계약 침묵) - #56에서는 구현하지 않고 deferred
-// security gap으로 유지한다. userId는 순수하게 Idempotency claim(BackupOfferService)에만
-// 쓰이고 이 커맨드 자체는 필요로 하지 않는다.
+// #75: accept/decline 모두 candidate 본인 여부를 검증한다(40305 BACKUP_OFFER_ACCESS_DENIED) -
+// #56~#57까지는 계약 침묵을 이유로 검증하지 않았으나 이번에 계약을 확장해 해소했다. 검증 순서는
+// lockOfferViaAuctionFirst()의 404 → ownership(403) → 기존 상태/기한(409) 순으로 고정한다
+// (OrderQueryService의 404 → 403 순서와 동일 원칙).
 @Service
 public class BackupOfferCommandService {
 
@@ -52,24 +55,33 @@ public class BackupOfferCommandService {
     private final OrderRepository orderRepository;
     private final BidRepository bidRepository;
     private final Clock clock;
+    private final NotificationRecorder notificationRecorder;
 
     public BackupOfferCommandService(
             AuctionRepository auctionRepository,
             BackupOfferRepository backupOfferRepository,
             OrderRepository orderRepository,
             BidRepository bidRepository,
-            Clock clock
+            Clock clock,
+            NotificationRecorder notificationRecorder
     ) {
         this.auctionRepository = auctionRepository;
         this.backupOfferRepository = backupOfferRepository;
         this.orderRepository = orderRepository;
         this.bidRepository = bidRepository;
         this.clock = clock;
+        this.notificationRecorder = notificationRecorder;
     }
 
     @Transactional
-    public BackupOfferAcceptResponse accept(Long backupOfferId) {
+    public BackupOfferAcceptResponse accept(Long backupOfferId, Long userId) {
         BackupOffer offer = lockOfferViaAuctionFirst(backupOfferId);
+
+        if (!offer.isOwnedBy(userId)) {
+            throw new BackupOfferAccessDeniedException(
+                    "본인 명의의 차순위 제안이 아닙니다. backupOfferId: " + backupOfferId
+            );
+        }
 
         if (offer.getStatus() != BackupOfferStatus.WAITING) {
             throw new BackupOfferAlreadyResolvedException("이미 처리된 제안입니다. backupOfferId: " + backupOfferId);
@@ -105,8 +117,14 @@ public class BackupOfferCommandService {
     // Idempotency-Key를 요구하지 않는다(§0.11에 이 endpoint가 없다) - 동시성 방어는 lock
     // ordering(lockOfferViaAuctionFirst)만으로 한다.
     @Transactional
-    public BackupOfferDeclineResponse decline(Long backupOfferId) {
+    public BackupOfferDeclineResponse decline(Long backupOfferId, Long userId) {
         BackupOffer offer = lockOfferViaAuctionFirst(backupOfferId);
+
+        if (!offer.isOwnedBy(userId)) {
+            throw new BackupOfferAccessDeniedException(
+                    "본인 명의의 차순위 제안이 아닙니다. backupOfferId: " + backupOfferId
+            );
+        }
 
         if (offer.getStatus() != BackupOfferStatus.WAITING) {
             throw new BackupOfferAlreadyResolvedException("이미 처리된 제안입니다. backupOfferId: " + backupOfferId);
@@ -157,7 +175,9 @@ public class BackupOfferCommandService {
                 // 방어적 중복 방지 - uk_backup_offer_auction_candidate가 최종 방어선이다.
                 return;
             }
-            backupOfferRepository.save(BackupOffer.create(auction, nextCandidate, candidateBid.getAmount()));
+            BackupOffer saved = backupOfferRepository.save(BackupOffer.create(auction, nextCandidate, candidateBid.getAmount()));
+            // #75: 신규 BackupOffer가 실제 저장된 경우에만 기록한다.
+            notificationRecorder.record(nextCandidate, NotificationType.BACKUP_OFFER_CREATED, auction.getId(), saved.getId());
         });
     }
 }

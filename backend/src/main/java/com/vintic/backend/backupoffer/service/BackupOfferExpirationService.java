@@ -7,6 +7,8 @@ import com.vintic.backend.backupoffer.domain.BackupOfferStatus;
 import com.vintic.backend.backupoffer.repository.BackupOfferRepository;
 import com.vintic.backend.bid.domain.Bid;
 import com.vintic.backend.bid.repository.BidRepository;
+import com.vintic.backend.notification.domain.NotificationType;
+import com.vintic.backend.notification.service.NotificationRecorder;
 import com.vintic.backend.user.domain.User;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,17 +32,20 @@ public class BackupOfferExpirationService {
     private final BackupOfferRepository backupOfferRepository;
     private final BidRepository bidRepository;
     private final Clock clock;
+    private final NotificationRecorder notificationRecorder;
 
     public BackupOfferExpirationService(
             AuctionRepository auctionRepository,
             BackupOfferRepository backupOfferRepository,
             BidRepository bidRepository,
-            Clock clock
+            Clock clock,
+            NotificationRecorder notificationRecorder
     ) {
         this.auctionRepository = auctionRepository;
         this.backupOfferRepository = backupOfferRepository;
         this.bidRepository = bidRepository;
         this.clock = clock;
+        this.notificationRecorder = notificationRecorder;
     }
 
     @Transactional
@@ -90,7 +95,9 @@ public class BackupOfferExpirationService {
                 // 방어적 중복 방지 - uk_backup_offer_auction_candidate가 최종 방어선이다.
                 return;
             }
-            backupOfferRepository.save(BackupOffer.create(auction, nextCandidate, candidateBid.getAmount()));
+            BackupOffer saved = backupOfferRepository.save(BackupOffer.create(auction, nextCandidate, candidateBid.getAmount()));
+            // #75: 신규 BackupOffer가 실제 저장된 경우에만 기록한다.
+            notificationRecorder.record(nextCandidate, NotificationType.BACKUP_OFFER_CREATED, auction.getId(), saved.getId());
         });
     }
 }

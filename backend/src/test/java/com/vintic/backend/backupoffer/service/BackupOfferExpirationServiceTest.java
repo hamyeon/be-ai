@@ -8,6 +8,10 @@ import com.vintic.backend.bid.domain.Bid;
 import com.vintic.backend.bid.domain.BidType;
 import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.config.ClockConfig;
+import com.vintic.backend.notification.domain.Notification;
+import com.vintic.backend.notification.domain.NotificationType;
+import com.vintic.backend.notification.repository.NotificationRepository;
+import com.vintic.backend.notification.service.NotificationRecorder;
 import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.support.TestClockConfig;
 import com.vintic.backend.user.domain.User;
@@ -24,8 +28,10 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 // FINAL contract §15/§0.10, #57-2(#56 deferred).
+// #75: BACKUP_OFFER_CREATED Notification 연결(expire 경로) - NotificationRecorder는 이 서비스의
+// 트랜잭션에 참여한다.
 @DataJpaTest
-@Import({BackupOfferExpirationService.class, TestClockConfig.class})
+@Import({BackupOfferExpirationService.class, TestClockConfig.class, NotificationRecorder.class})
 class BackupOfferExpirationServiceTest {
 
     private static final LocalDateTime FIXED_NOW = LocalDateTime.ofInstant(TestClockConfig.FIXED_INSTANT, ClockConfig.APP_ZONE);
@@ -38,6 +44,9 @@ class BackupOfferExpirationServiceTest {
 
     @Autowired
     private BidRepository bidRepository;
+
+    @Autowired
+    private NotificationRepository notificationRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -133,6 +142,13 @@ class BackupOfferExpirationServiceTest {
                 .orElseThrow();
         assertThat(nextOffer.getStatus()).isEqualTo(BackupOfferStatus.WAITING);
         assertThat(nextOffer.getPurchasePrice()).isEqualTo(15000L);
+
+        // #75: rank3에게 새로 생성된 BackupOffer에 대해 BACKUP_OFFER_CREATED Notification이 정확히 1건이다.
+        assertThat(notificationRepository.count()).isEqualTo(1);
+        Notification notification = notificationRepository.findAll().get(0);
+        assertThat(notification.getType()).isEqualTo(NotificationType.BACKUP_OFFER_CREATED);
+        assertThat(notification.getRecipient().getId()).isEqualTo(rank3.getId());
+        assertThat(notification.getResourceId()).isEqualTo(nextOffer.getId());
     }
 
     @Test
@@ -149,6 +165,8 @@ class BackupOfferExpirationServiceTest {
         backupOfferExpirationService.expireIfDue(offer.getId());
 
         assertThat(backupOfferRepository.count()).isEqualTo(1);
+        // #75: rank3(마지막 순위) 만료는 다음 BackupOffer를 만들지 않으므로 Notification도 없다.
+        assertThat(notificationRepository.count()).isZero();
     }
 
     @Test
@@ -205,6 +223,8 @@ class BackupOfferExpirationServiceTest {
         backupOfferExpirationService.expireIfDue(offer.getId());
 
         assertThat(backupOfferRepository.count()).isEqualTo(2); // rank2(EXPIRED) + rank3(WAITING), 중복 없음.
+        // #75: 재실행해도 최초 만료가 만든 rank3 Notification 1건만 유지된다.
+        assertThat(notificationRepository.count()).isEqualTo(1);
     }
 
     @Test

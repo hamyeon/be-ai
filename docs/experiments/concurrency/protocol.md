@@ -465,3 +465,66 @@ request latency의 평균으로 계산하지 않는다. batch는 순차 실행�
 - 로컬 단일 인스턴스·단일 MySQL 결과를 production latency/throughput으로 일반화하지 않는다.
 - correctness(#34/#35)의 elapsed time(1000ms delay 포함)을 이 성능 결과와 비교하지 않는다
   — 서로 다른 실험이다.
+
+---
+
+# Optimistic Lock + Retry Experiment (#74)
+
+No-lock(#34)/Pessimistic Lock(#35/#36-A) 이후 세 번째 concurrency-control strategy 비교다.
+Auction 최초 조회에 `@Version` 기반 optimistic locking + bounded retry(non-locking read)를
+적용했을 때의 correctness/performance를 §Frozen Main Experiment Conditions와 동일한 조건으로
+측정한다. 독립변수는 이전과 동일하게 **Auction 최초 조회 방식** 하나이며, 이번 값은
+"non-locking read + 실패 시 bounded retry"다.
+
+## Strategy
+
+- **repository**: `AuctionRepository.findById(Long)`(JpaRepository 기본, non-locking) — 신규
+  락 조회 메서드를 추가하지 않았다. production `findByIdForUpdate()`/`@Lock(PESSIMISTIC_WRITE)`는
+  이 실험과 무관하게 그대로 유지된다(§Pessimistic Lock Strategy 그대로).
+- **`@Version`**: `Auction.version`(experiment branch 전용 `src/main` 변경 — production
+  Pessimistic 경로는 이 필드를 읽거나 조건으로 쓰지 않는다). 실제 conflict 시 전파되는
+  exception을 실측으로 확인했다: `org.springframework.orm.ObjectOptimisticLockingFailureException`
+  (cause: `org.hibernate.StaleObjectStateException`) — 이 타입 하나만 retry 대상이다(broad
+  `DataAccessException` catch 없음).
+- **retry 구조**: `OptimisticBidRetryOrchestrator`(non-transactional) →
+  `OptimisticBidAttemptService.attempt()`(`@Transactional(REQUIRES_NEW)`, 매 attempt 새
+  물리 트랜잭션 + `findById()` 재조회 + `BidCommandService.executeManualBidOnLoadedAuction()`
+  전체 재실행). self-invocation 없음(별도 bean 경유).
+- **retry policy(고정, 결과를 본 뒤 변경하지 않음)**: `maxAttempts=5`(initial 1 + retry 4),
+  backoff 없음(즉시 재시도).
+- **exhaustion semantics**: `OptimisticRetryExhaustedException` — production 40909
+  (`CONCURRENT_CONFLICT`, `PessimisticLockingFailureException` 매핑)와 "충돌로 재시도가
+  필요하다"는 의미만 공유한다. 이 실험 경로는 production endpoint를 거치지 않으므로
+  `GlobalExceptionHandler`에 새 매핑을 추가하지 않았다.
+- **Idempotency 구성**: production `ManualBidService`와 동일한 얇은 진입점 +
+  `IdempotencyClaimService.claimAndExecute()` 위임 구조를 그대로 재사용하는
+  `OptimisticManualBidService`(ad-hoc 두 번째 idempotency 시스템 없음). claim insert + 최종
+  response snapshot 커밋은 `claimAndExecute()`의 단일 물리 트랜잭션(T0) 하나에서 이루어지고,
+  그 안에서 호출되는 orchestrator/attempt는 `REQUIRES_NEW`로 T0를 suspend한 채 독립적으로
+  커밋/롤백된다. 즉 "HTTP duplicate request"는 기존 claim UNIQUE 제약이, "요청 내부 optimistic
+  conflict"는 bounded retry가 각각 담당하고 서로 겹치지 않는다.
+- **알려진 한계(Idempotency crash window)**: 성공한 attempt의 Auction/Bid 변경은
+  `REQUIRES_NEW`라 T0(claim) 커밋보다 먼저 독립적으로 커밋된다. 따라서 "Bid는 이미 커밋됐는데
+  claim/snapshot 커밋 직전에 프로세스가 죽는" crash window가 이론상 존재하며(이 경우 같은
+  key로 재시도 시 claim이 없어 재실행되어 중복 Bid가 발생할 수 있다), production Pessimistic
+  경로는 command와 claim/snapshot이 하나의 물리 트랜잭션이라 이 window가 없다. 이 실험은
+  정상 종료 케이스만 검증했고 실제 crash를 재현하지 않았다(§summary.md Experiment C
+  Limitations 참고).
+- **test-only race window**: correctness(`delayMillis=1000`)는 #35가 delay 위치를
+  `findByIdForUpdate()`로 옮겼던 것과 동일한 원칙으로, 이번엔 실제 authoritative read인
+  `findById()`에 동일한 `RaceWindowDelay` 메커니즘/값을 그대로 부착했다. retry가 있는
+  전략이라 armed 상태인 동안은 매 attempt의 `findById()` 호출마다 delay가 적용된다(최초 1회로
+  제한하는 별도 로직을 추가하지 않았다 — 그런 특별 취급 자체가 "Optimistic에만 필요한 차이
+  (`@Version`/retry/instrumentation)" 3가지를 벗어나는 새 조건이 되기 때문). Performance
+  (#36-A와 동일하게 `delay=0`)에서는 이 delay 자체가 없다.
+
+## Correctness Main Experiment (#74-3)
+
+frozen 조건(§Frozen Main Experiment Conditions)으로 정확히 20회 반복했다(`raw/optimistic-correctness.csv`
++ `raw/logs/optimistic-run-01~20.log`). 해석은 `summary.md` §Experiment C 참고.
+
+## Performance Main Experiment (#74-4B)
+
+§Performance Experiment(#36-A)와 동일한 workload(concurrency=8, warm-up 5 batch 폐기 +
+measurement 50 batch, delay=0)로 정확히 1회 측정했다(`raw/optimistic-performance.csv`). 해석은
+`summary.md` §Experiment C 참고.

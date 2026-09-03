@@ -9,9 +9,14 @@ import com.vintic.backend.backupoffer.repository.BackupOfferRepository;
 import com.vintic.backend.bid.domain.Bid;
 import com.vintic.backend.bid.domain.BidType;
 import com.vintic.backend.bid.repository.BidRepository;
+import com.vintic.backend.common.exception.BackupOfferAccessDeniedException;
 import com.vintic.backend.common.exception.BackupOfferAlreadyResolvedException;
 import com.vintic.backend.common.exception.BackupOfferExpiredException;
 import com.vintic.backend.common.exception.BackupOfferNotFoundException;
+import com.vintic.backend.notification.domain.Notification;
+import com.vintic.backend.notification.domain.NotificationType;
+import com.vintic.backend.notification.repository.NotificationRepository;
+import com.vintic.backend.notification.service.NotificationRecorder;
 import com.vintic.backend.order.domain.Order;
 import com.vintic.backend.order.repository.OrderRepository;
 import com.vintic.backend.config.ClockConfig;
@@ -34,8 +39,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
 // FINAL contract §16-17.
+// #75: BACKUP_OFFER_CREATED Notification 연결(decline 경로) - NotificationRecorder는 이 서비스의
+// 트랜잭션에 참여한다.
 @DataJpaTest
-@Import({BackupOfferCommandService.class, TestClockConfig.class})
+@Import({BackupOfferCommandService.class, TestClockConfig.class, NotificationRecorder.class})
 class BackupOfferCommandServiceTest {
 
     // TestClockConfig가 주입하는 고정 시각 - BackupOfferCommandService의 LocalDateTime.now(clock)은
@@ -53,6 +60,9 @@ class BackupOfferCommandServiceTest {
 
     @Autowired
     private BidRepository bidRepository;
+
+    @Autowired
+    private NotificationRepository notificationRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -110,7 +120,7 @@ class BackupOfferCommandServiceTest {
         BackupOffer offer = backupOfferRepository.save(BackupOffer.create(auction, rank2, 20000L));
         flushAndClear();
 
-        BackupOfferAcceptResponse response = backupOfferCommandService.accept(offer.getId());
+        BackupOfferAcceptResponse response = backupOfferCommandService.accept(offer.getId(), rank2.getId());
 
         assertThat(response.status()).isEqualTo(BackupOfferStatus.ACCEPTED);
         assertThat(response.orderId()).isNotNull();
@@ -136,9 +146,9 @@ class BackupOfferCommandServiceTest {
         BackupOffer offer = backupOfferRepository.save(BackupOffer.create(auction, rank2, 20000L));
         flushAndClear();
 
-        backupOfferCommandService.accept(offer.getId());
+        backupOfferCommandService.accept(offer.getId(), rank2.getId());
 
-        assertThatThrownBy(() -> backupOfferCommandService.accept(offer.getId()))
+        assertThatThrownBy(() -> backupOfferCommandService.accept(offer.getId(), rank2.getId()))
                 .isInstanceOf(BackupOfferAlreadyResolvedException.class);
         assertThat(orderRepository.count()).isEqualTo(1);
     }
@@ -156,15 +166,49 @@ class BackupOfferCommandServiceTest {
         entityManager.merge(offer);
         flushAndClear();
 
-        assertThatThrownBy(() -> backupOfferCommandService.accept(offer.getId()))
+        assertThatThrownBy(() -> backupOfferCommandService.accept(offer.getId(), rank2.getId()))
                 .isInstanceOf(BackupOfferExpiredException.class);
         assertThat(orderRepository.count()).isZero();
     }
 
     @Test
     void 존재하지_않는_제안을_수락하면_예외가_발생한다() {
-        assertThatThrownBy(() -> backupOfferCommandService.accept(9999L))
+        assertThatThrownBy(() -> backupOfferCommandService.accept(9999L, 1L))
                 .isInstanceOf(BackupOfferNotFoundException.class);
+    }
+
+    @Test
+    void candidate가_아닌_사용자의_수락_시도는_403_예외가_발생하고_상태가_바뀌지_않는다() {
+        User winner = persistUser("winner2@vintic.local");
+        User rank2 = persistUser("rank2b@vintic.local");
+        User rank3 = persistUser("rank3b@vintic.local");
+        User stranger = persistUser("stranger@vintic.local");
+        Auction auction = persistEndedAuctionWithThreeBidders(winner, rank2, rank3);
+        BackupOffer offer = backupOfferRepository.save(BackupOffer.create(auction, rank2, 20000L));
+        flushAndClear();
+
+        assertThatThrownBy(() -> backupOfferCommandService.accept(offer.getId(), stranger.getId()))
+                .isInstanceOf(BackupOfferAccessDeniedException.class);
+        assertThat(orderRepository.count()).isZero();
+        BackupOffer reloaded = backupOfferRepository.findById(offer.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(BackupOfferStatus.WAITING);
+    }
+
+    @Test
+    void candidate가_아닌_사용자의_거절_시도는_403_예외가_발생하고_다음_제안이_생성되지_않는다() {
+        User winner = persistUser("winner3@vintic.local");
+        User rank2 = persistUser("rank2c@vintic.local");
+        User rank3 = persistUser("rank3c@vintic.local");
+        User stranger = persistUser("stranger2@vintic.local");
+        Auction auction = persistEndedAuctionWithThreeBidders(winner, rank2, rank3);
+        BackupOffer offer = backupOfferRepository.save(BackupOffer.create(auction, rank2, 20000L));
+        flushAndClear();
+
+        assertThatThrownBy(() -> backupOfferCommandService.decline(offer.getId(), stranger.getId()))
+                .isInstanceOf(BackupOfferAccessDeniedException.class);
+        assertThat(backupOfferRepository.count()).isEqualTo(1);
+        BackupOffer reloaded = backupOfferRepository.findById(offer.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(BackupOfferStatus.WAITING);
     }
 
     @Test
@@ -176,7 +220,7 @@ class BackupOfferCommandServiceTest {
         BackupOffer offer = backupOfferRepository.save(BackupOffer.create(auction, rank2, 20000L));
         flushAndClear();
 
-        BackupOfferDeclineResponse response = backupOfferCommandService.decline(offer.getId());
+        BackupOfferDeclineResponse response = backupOfferCommandService.decline(offer.getId(), rank2.getId());
 
         assertThat(response.status()).isEqualTo(BackupOfferStatus.DECLINED);
         BackupOffer reloadedOffer = backupOfferRepository.findById(offer.getId()).orElseThrow();
@@ -187,6 +231,14 @@ class BackupOfferCommandServiceTest {
                 .orElseThrow();
         assertThat(nextOffer.getStatus()).isEqualTo(BackupOfferStatus.WAITING);
         assertThat(nextOffer.getPurchasePrice()).isEqualTo(15000L);
+
+        // #75: rank3에게 새로 생성된 BackupOffer에 대해 BACKUP_OFFER_CREATED Notification이 정확히 1건이다.
+        assertThat(notificationRepository.count()).isEqualTo(1);
+        Notification notification = notificationRepository.findAll().get(0);
+        assertThat(notification.getType()).isEqualTo(NotificationType.BACKUP_OFFER_CREATED);
+        assertThat(notification.getRecipient().getId()).isEqualTo(rank3.getId());
+        assertThat(notification.getResourceId()).isEqualTo(nextOffer.getId());
+        assertThat(notification.getBusinessEventKey()).isEqualTo("BACKUP_OFFER_CREATED:" + nextOffer.getId());
     }
 
     @Test
@@ -198,9 +250,11 @@ class BackupOfferCommandServiceTest {
         BackupOffer offer = backupOfferRepository.save(BackupOffer.create(auction, rank3, 15000L));
         flushAndClear();
 
-        backupOfferCommandService.decline(offer.getId());
+        backupOfferCommandService.decline(offer.getId(), rank3.getId());
 
         assertThat(backupOfferRepository.count()).isEqualTo(1);
+        // #75: rank3(마지막 순위) 거절은 다음 BackupOffer를 만들지 않으므로 Notification도 없다.
+        assertThat(notificationRepository.count()).isZero();
     }
 
     @Test
@@ -212,10 +266,13 @@ class BackupOfferCommandServiceTest {
         BackupOffer offer = backupOfferRepository.save(BackupOffer.create(auction, rank2, 20000L));
         flushAndClear();
 
-        backupOfferCommandService.decline(offer.getId());
+        backupOfferCommandService.decline(offer.getId(), rank2.getId());
 
-        assertThatThrownBy(() -> backupOfferCommandService.decline(offer.getId()))
+        assertThatThrownBy(() -> backupOfferCommandService.decline(offer.getId(), rank2.getId()))
                 .isInstanceOf(BackupOfferAlreadyResolvedException.class);
         assertThat(backupOfferRepository.count()).isEqualTo(2); // rank2(DECLINED) + rank3(WAITING), 중복 없음.
+        // #75: 재실행(이미 DECLINED된 제안 재거절)은 예외를 던지고 BackupOffer 생성 로직에
+        // 도달하지 않으므로 최초 decline이 만든 1건만 유지된다.
+        assertThat(notificationRepository.count()).isEqualTo(1);
     }
 }

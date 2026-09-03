@@ -5,7 +5,7 @@ import com.vintic.backend.recommendation.dto.RecommendationResponse;
 import com.vintic.backend.recommendation.service.RecommendationService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,10 +24,12 @@ public class RecommendationController {
     }
 
     // 로그인하지 않아도 호출할 수 있다. 그때는 취향 데이터가 없으므로 Fallback이 나간다.
-    // (인터셉터는 currentUserId를 파라미터로 받는 핸들러만 검증하므로 헤더를 직접 읽는다)
+    // #75-5A: X-User-Id를 직접 읽던 경로를 제거했다 - dev/prod identity source는
+    // JwtAuthenticationFilter가, local은 MockAuthInterceptor가 채우는 currentUserId
+    // request attribute만 신뢰한다(AuctionController의 anonymous GET 3개와 동일 패턴).
     @GetMapping("/auctions")
     public ResponseEntity<ApiResponse<RecommendationResponse>> recommendAuctions(
-            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @RequestAttribute(value = "currentUserId", required = false) Long userId,
             @RequestParam(defaultValue = "10") int limit
     ) {
         RecommendationResponse response = recommendationService.recommend(userId, normalize(limit));

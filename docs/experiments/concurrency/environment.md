@@ -135,3 +135,75 @@ CPU/OS: 두 측정 모두 동일 로컬 머신(Windows, 사용자 워크스테�
 별도로 코어 수/모델을 조회해 기록하지는 않았다(같은 머신에서 두 revision을 순차 측정했다는
 사실 자체가 "동일 환경"의 근거다. 다만 백그라운드 프로세스 등 머신 상태 자체의 완전한
 동일성까지는 보장하지 않는다 — §protocol.md Performance Interpretation Rules 참고).
+
+## #74 Optimistic Lock + Retry 실행 환경
+
+`experiment/#74-optimistic-lock-retry` 브랜치에서 harness가 실행 시 자동 조회한 값:
+
+```text
+[opt-env]      mysql.version=8.4.10 isolation=REPEATABLE-READ hikari.maximumPoolSize=20 springBootInstances=1 maxAttempts=5 backoff=none
+[opt-perf-env] mysql.version=8.4.10 isolation=REPEATABLE-READ hikari.maximumPoolSize=20 springBootInstances=1 maxAttempts=5 backoff=none
+```
+
+#34/#35와 완전히 동일 — 독립변수(Auction 최초 조회 방식: non-locking `findById` + bounded
+retry) 외 환경은 변경되지 않았음을 실측으로 확인했다.
+
+| 항목 | #34 No-lock | #35 Pessimistic Lock | #74 Optimistic Lock + Retry |
+|---|---|---|---|
+| MySQL version | 8.4.10 | 8.4.10 | 8.4.10 |
+| Transaction isolation | REPEATABLE-READ | REPEATABLE-READ | REPEATABLE-READ |
+| HikariCP maximumPoolSize | 20 | 20 | 20 |
+| Worker/bidder count(correctness) | 8 | 8 | 8 |
+| Correctness test-only delay | 1000ms (`findById` 대상) | 1000ms (`findByIdForUpdate` 대상) | 1000ms (`findById` 대상, armed 상태인 동안 매 attempt마다 적용) |
+| Correctness runs | 20 | 20 | 20 |
+| Performance concurrency | 8 | 8 | 8 |
+| Performance warm-up batches | 5(폐기) | 5(폐기) | 5(폐기) |
+| Performance measured batches/requests | 50 / 400 | 50 / 400 | 50 / 400 |
+| Performance delay | 0 | 0 | 0 |
+| Auction 최초 조회 | `findById`(non-locking) | `findByIdForUpdate`(`PESSIMISTIC_WRITE`) | `findById`(non-locking) + `@Version` |
+| maxAttempts / maxRetries | 해당 없음 | 해당 없음 | 5 / 4 |
+| backoff | 해당 없음 | 해당 없음 | none(즉시 재시도) |
+| retry 대상 exception | 해당 없음 | 해당 없음 | `ObjectOptimisticLockingFailureException`만 |
+| exhaustion 시 exception | 해당 없음 | 해당 없음 | `OptimisticRetryExhaustedException`(40909와 의미만 공유, 신규 매핑 추가 없음) |
+| transaction boundary(claim~command) | claim+command 단일 물리 트랜잭션(`REQUIRED`) | 동일 | claim(T0, `REQUIRED`) 안에서 attempt마다 `REQUIRES_NEW`(T1..) 독립 커밋/롤백 |
+| Correctness branch/tag | `experiment/#34-no-lock` | `experiment/#35-pessimistic-lock` | `experiment/#74-optimistic-lock-retry`, tag `exp/optimistic-lock-retry-correctness` |
+| Performance revision | `exp/baseline-no-lock` worktree | 현재 브랜치(`exp/pessimistic-lock` 조상) | tag `exp/optimistic-lock-retry-performance` |
+
+### #74 tag / commit hash
+
+tag object hash(annotated tag 자체의 해시)와 그 tag가 가리키는 commit hash는 서로 다르다 —
+혼동하지 않는다(`git rev-parse <tag>`는 tag object hash를, `git rev-list -n 1 <tag>`는 commit
+hash를 반환한다).
+
+| tag | tag object hash | 가리키는 commit hash | commit 요약 |
+|---|---|---|---|
+| `exp/optimistic-lock-retry-correctness` | `eb1e2d2767f37c66410e6ecb68a10a8b8d6defed` | `01007018fa73a6aea4d2477b5fc4946f254f387e` | `[experiment/#74] Optimistic correctness experiment harness` |
+| `exp/optimistic-lock-retry-performance` | `8c230cb1c125a39587e42204ac634aa6b8bf2744` | `3a252db6fe945db4396cf24237d93f1291db8b15` | `[experiment/#74] Optimistic performance experiment harness` |
+
+correctness raw(`optimistic-correctness.csv`, `raw/logs/optimistic-run-*.log`)는 correctness
+tag commit(`0100701`) 다음 커밋 `884bc44`(`[experiment/#74] Optimistic correctness raw results`)
+로 기록됐고, performance raw(`optimistic-performance.csv`)는 performance tag commit(`3a252db`)
+다음 커밋 `ff716e6`(`[experiment/#74] Optimistic performance raw results`)로 기록됐다 — harness를
+가리키는 tag commit과 raw 결과가 실제로 기록된 commit은 서로 다르다.
+
+### #74 src/main 변경 고지
+
+**"production code 완전 무변경"이 아니다.** `experiment/#74-optimistic-lock-retry` 브랜치는
+`main` 대비 `backend/src/main`에 정확히 2개 파일, behavior-preserving 변경만 포함한다
+(`git diff $(git merge-base main HEAD)..HEAD -- backend/src/main`으로 실측 확인, 그 외 파일
+없음):
+
+- `Auction.java`: `@Version private Long version` 필드 + getter 추가(총 13 lines). production
+  Pessimistic 경로는 이 필드를 읽거나 조건으로 쓰지 않는다 — Hibernate가 매 UPDATE의 WHERE
+  절에 version을 자동으로 추가할 뿐이다.
+- `BidCommandService.java`: `findByIdForUpdate()` 이후 로직을 package-private
+  `executeManualBidOnLoadedAuction()`으로 extract(총 19 lines diff). 실행 순서/validation/
+  Proxy/종료연장/audit/예외 semantics는 무변경 — production `placeManualBid()`는 이 메서드를
+  호출하는 것만 달라졌다.
+
+이 2개 외에 `findByIdForUpdate`/`@Lock(PESSIMISTIC_WRITE)`는 `AuctionRepository`/
+`BidCommandService`에 그대로 존재하며, Auction API endpoint/response/error contract, Auction
+lifecycle scheduler(`AuctionStartScheduler`/`AuctionEndScheduler`), Order/BackupOffer
+scheduler는 무변경이다. Redisson/Kafka/queue 추가 없음, `RaceWindowDelay`는
+`backend/src/main`에 존재하지 않는다(전부 `backend/src/test`) — grep/diff로 실측 확인
+(§#74-5 완료보고 참고).

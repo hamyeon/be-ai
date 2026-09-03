@@ -12,12 +12,17 @@ import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.common.exception.AlreadyPaidException;
 import com.vintic.backend.common.exception.NotAwardeeException;
 import com.vintic.backend.common.exception.PaymentExpiredException;
+import com.vintic.backend.notification.domain.Notification;
+import com.vintic.backend.notification.domain.NotificationType;
+import com.vintic.backend.notification.repository.NotificationRepository;
+import com.vintic.backend.notification.service.NotificationRecorder;
 import com.vintic.backend.order.domain.Order;
 import com.vintic.backend.order.domain.OrderStatus;
 import com.vintic.backend.order.repository.OrderRepository;
 import com.vintic.backend.penalty.domain.PenaltyType;
 import com.vintic.backend.penalty.repository.PenaltyRepository;
 import com.vintic.backend.product.domain.Product;
+import com.vintic.backend.support.TestClockConfig;
 import com.vintic.backend.user.domain.User;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -35,8 +40,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
 // FINAL contract §11.
+// #75: BACKUP_OFFER_CREATED Notification 연결 - NotificationRecorder는 이 서비스의 트랜잭션에 참여한다.
 @DataJpaTest
-@Import(AuctionForfeitService.class)
+@Import({AuctionForfeitService.class, TestClockConfig.class, NotificationRecorder.class})
 class AuctionForfeitServiceTest {
 
     @Autowired
@@ -56,6 +62,9 @@ class AuctionForfeitServiceTest {
 
     @Autowired
     private BidRepository bidRepository;
+
+    @Autowired
+    private NotificationRepository notificationRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -183,6 +192,15 @@ class AuctionForfeitServiceTest {
         assertThat(offer.getPurchasePrice()).isEqualTo(20000L);
         // deadline = createdAt + 24h(§0.10).
         assertThat(offer.getDeadline()).isCloseTo(offer.getCreatedAt().plusHours(24), within(1, ChronoUnit.SECONDS));
+
+        // #75: rank2 BackupOffer 생성과 함께 BACKUP_OFFER_CREATED Notification이 정확히 1건 기록된다.
+        assertThat(notificationRepository.count()).isEqualTo(1);
+        Notification notification = notificationRepository.findAll().get(0);
+        assertThat(notification.getType()).isEqualTo(NotificationType.BACKUP_OFFER_CREATED);
+        assertThat(notification.getRecipient().getId()).isEqualTo(loser.getId());
+        assertThat(notification.getAuctionId()).isEqualTo(auction.getId());
+        assertThat(notification.getResourceId()).isEqualTo(offer.getId());
+        assertThat(notification.getBusinessEventKey()).isEqualTo("BACKUP_OFFER_CREATED:" + offer.getId());
     }
 
     @Test
@@ -201,6 +219,8 @@ class AuctionForfeitServiceTest {
         assertThat(response.result()).isEqualTo(AuctionResult.FORFEITED);
         assertThat(backupOfferRepository.count()).isZero();
         assertThat(penaltyRepository.count()).isEqualTo(1);
+        // #75: 차순위 후보가 없어 BackupOffer 자체가 생성되지 않으므로 Notification도 없다.
+        assertThat(notificationRepository.count()).isZero();
     }
 
     @Test
@@ -224,5 +244,8 @@ class AuctionForfeitServiceTest {
         assertThat(second.result()).isEqualTo(AuctionResult.FORFEITED);
         assertThat(penaltyRepository.count()).isEqualTo(1);
         assertThat(backupOfferRepository.count()).isEqualTo(1);
+        // #75: 재실행(이미 CANCELED된 주문에 다시 forfeit)은 idempotent short-circuit으로 BackupOffer
+        // 생성 로직 자체를 다시 타지 않으므로 Notification도 여전히 1건이다.
+        assertThat(notificationRepository.count()).isEqualTo(1);
     }
 }

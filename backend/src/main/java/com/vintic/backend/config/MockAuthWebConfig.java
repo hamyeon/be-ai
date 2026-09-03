@@ -7,14 +7,16 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
-// local/dev profile에서 등록되는 mock 인증 설정. 그 외 profile에서는 이 클래스 자체가 빈으로 생성되지
-// 않아 MockAuthInterceptor도 절대 등록되지 않는다(허용 목록 방식이라 다른 profile이 추가돼도 안전).
+// local profile 전용으로 등록되는 mock 인증 설정. 그 외 profile에서는 이 클래스 자체가 빈으로
+// 생성되지 않아 MockAuthInterceptor도 절대 등록되지 않는다(허용 목록 방식이라 다른 profile이
+// 추가돼도 안전).
 //
-// dev를 포함하는 이유: 배포 서버가 dev로 뜨는데 여기서 인터셉터가 빠지면 currentUserId를 받는 컨트롤러가
-// 값을 채울 방법이 없어 상품 등록/입찰 API가 500으로 죽는다.
-// 인터셉터를 /**에 걸어도 실제 헤더 검증은 currentUserId를 받는 핸들러에만 적용된다(MockAuthInterceptor).
+// #75-4B: dev는 더 이상 여기 포함하지 않는다 - 배포 서버(dev)는 이제 JwtSecurityConfig/
+// JwtAuthenticationFilter가 currentUserId request attribute를 채운다(#75-4A/4B). dev를 여기
+// 남겨두면 실제 JWT 인증과 MockAuth(X-User-Id 헤더 그대로 신뢰)가 같은 profile에서 동시에
+// 동작해 인증이 무의미해진다.
 @Configuration
-@Profile({"local", "dev"})
+@Profile("local")
 public class MockAuthWebConfig implements WebMvcConfigurer {
 
     private final MockUserRegistry mockUserRegistry;
