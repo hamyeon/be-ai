@@ -1,42 +1,85 @@
 brand,model_key,color_family,listing_count,median_price,q1_price,q3_price
-Vans,oldskool,black,80,20500,15000,30000
-Hunter,hunteroriginal,black,71,70000,50000,95000
-Rockfish,rockfishrain,black,41,36000,25000,45000
-Converse,chuck70,black,40,29000,20000,42000
-Converse,chucktaylor,black,31,24000,12000,40000
-Nike,jordan1,blue,31,86000,41000,100000
-Dr. Martens,dm1461,black,28,80000,60000,118000
-Skechers,gowalk,black,25,40000,30000,65000
-Dr. Martens,dm2976,black,24,67500,36000,112000
-Nike,airforce1,black,24,50000,40000,80000
-Adidas,sambaog,black,23,45000,30000,57000
-Vans,oldskool,blue,23,26000,20000,45000
-Nike,airforce1,white,22,45000,30000,60000
-Nike,jordan1,grey,21,50000,32900,85000
-Adidas,superstar,black,19,30000,20000,80000
-Adidas,superstar,white,18,47000,25000,160000
-Rockfish,rockfishrain,cream,17,30000,25000,49000
-Vans,oldskool,black+white,17,20000,10000,35000
-Converse,chuck70,white,17,30000,27000,51000
-New Balance,nb2002r,grey,15,49000,32000,80000
-Adidas,spezial,blue,14,38000,30000,40000
-Nike,jordan1,black+red,14,40000,30000,70000
-Nike,airmax97,white,14,50000,19000,60000
-Converse,chuck70,blue,14,33000,26000,52000
-Salomon,xt6,black,14,139500,100000,170000
-Nike,dunkhigh,blue,14,42500,30000,72000
-Nike,jordan4,blue,13,200000,180000,269000
-Adidas,gazelle,pink,12,40500,40000,69000
-Vans,oldskool,red,12,20000,15000,35000
-Nike,airmaxkoko,black,12,32500,20000,40000
-Adidas,gazelle,blue,12,40000,25000,80000
-Nike,airmax97,black,11,38000,26000,60000
-Adidas,stansmith,black,11,99000,50000,120000
-Vans,authentic,black,10,24000,23000,32000
-Dr. Martens,dmadrian,black,10,100000,75000,108000
-Nike,dunklow,blue,10,85000,48000,159000
-Nike,dunklow,grey,10,62500,45000,145000
-Converse,chuck70,grey,10,31000,10000,60000
-Adidas,gazelle,black,10,57000,25000,65000
-Hunter,hunteroriginal,blue,10,70000,50000,73000
-Nike,jordan4,red,10,62500,40000,180000
+Vans,oldskool,black,120,20000,15000,30000
+Hunter,hunteroriginal,black,117,70000,50000,90000
+Converse,chuck70,black,80,27000,20000,42000
+Rockfish,rockfishrain,black,62,36000,25000,45000
+Converse,chucktaylor,black,61,25000,17000,40000
+Skechers,gowalk,black,60,35000,27000,50000
+Nike,jordan1,blue,52,75000,40000,100000
+Dr. Martens,dm1461,black,50,80000,50000,100000
+Dr. Martens,dm2976,black,45,60000,40000,90000
+Nike,airforce1,white,42,38500,27000,60000
+Nike,jordan1,grey,37,57000,32900,80000
+Nike,airforce1,black,37,50000,40000,75000
+Vans,oldskool,blue,37,26000,18000,35000
+Adidas,sambaog,black,33,48000,30000,50000
+Adidas,superstar,black,33,28000,20000,80000
+Converse,chuck70,blue,30,36500,26000,52000
+Vans,oldskool,black+white,25,20000,11000,35000
+Nike,airmax97,white,24,42000,30000,50000
+Nike,jordan4,blue,24,223000,190000,280000
+Converse,chuck70,white,24,30000,25000,51000
+New Balance,nb2002r,grey,23,49000,35000,70000
+Nike,jordan1,red,23,75000,49000,200000
+Adidas,superstar,white,22,40000,25000,103000
+Nike,jordan4,red,22,129500,55000,269000
+Rockfish,rockfishrain,cream,21,30000,23000,49000
+Dr. Martens,dm1460,black,21,73000,50000,89000
+Vans,oldskool,red,21,20000,15000,40000
+Nike,jordan1,black,20,77500,40000,130000
+Adidas,gazelle,pink,20,47500,40000,65000
+Dr. Martens,dmadrian,black,20,73000,60000,100000
+Converse,chuck70,grey,20,30000,20000,60000
+Nike,dunkhigh,blue,20,40000,29000,72000
+New Balance,nb574,grey,20,32500,22444,50000
+Nike,jordan1,black+red,19,40000,25000,70000
+Salomon,xt6,black,19,145000,100000,180000
+Nike,dunklow,blue,18,90000,48000,110000
+Nike,dunklow,grey,18,42500,30000,70000
+Nike,jordan1,brown,17,70000,49000,130000
+Nike,airmax97,black,17,33000,22000,55000
+Adidas,gazelle,blue,17,40000,17000,60000
+Converse,chucktaylor,blue,17,20000,15000,30000
+Adidas,spezial,blue,16,38500,30000,47000
+New Balance,nb530,grey+silver,16,28500,23333,81000
+Converse,chucktaylor,white,16,23000,13000,27000
+Adidas,stansmith,black,15,90000,47000,120000
+New Balance,nb530,grey,15,48000,26000,60000
+Adidas,stansmith,white,15,32000,17000,55000
+Converse,chuck70,pink,15,30000,20000,38000
+Nike,airmaxkoko,black,14,35500,20000,45000
+Nike,pegasus,black,14,56500,35000,80000
+New Balance,nb993,grey,14,115000,60000,180000
+Vans,oldskool,white,14,22500,13000,30000
+Vans,authentic,black,13,25000,23000,30000
+Nike,jordan1,white,13,60000,26000,160000
+Adidas,sambaog,black+white,13,54000,34000,75000
+Adidas,gazelle,black,13,55000,25000,60000
+Hunter,hunteroriginal,blue,13,55000,43000,73000
+Converse,chucktaylor,pink,12,25500,19000,41000
+Salomon,xt6,white,12,139000,75000,160000
+UGG,tasman,black,12,69500,63000,135000
+Adidas,sambaog,white,12,49500,30000,77000
+Vans,oldskool,green,12,17500,11000,40000
+Skechers,gowalk,blue,11,32000,29000,59000
+Adidas,superstar,black+white,11,78000,65000,185000
+Adidas,gazelle,green,11,40000,17000,58000
+New Balance,nb1906,grey+silver,11,100000,60000,130000
+New Balance,nb574,blue,11,40000,29000,70000
+Nike,vomero,black,11,100000,30000,120000
+Adidas,gazelle,grey,11,34000,20000,41000
+Skechers,gowalk,grey,11,25000,15000,47000
+Nike,jordan4,green,11,310000,150000,390000
+Converse,chucktaylor,green,11,15000,10000,20000
+Dr. Martens,dm1461,brown,10,140000,130000,180000
+Birkenstock,boston,brown,10,82500,63000,125000
+Nike,dunklow,green,10,40000,23000,50000
+New Balance,nb990,grey,10,110000,50000,160000
+New Balance,nb990,black,10,157500,42000,185000
+Rockfish,rockfishrain,brown,10,33500,20000,52000
+Nike,airforce1,pink,10,32500,20000,55000
+Adidas,spezial,black,10,79500,70000,85000
+Nike,dunkhigh,black,10,31500,23000,150000
+Vans,oldskool,grey,10,30000,20000,38000
+Nike,dunkhigh,red,10,105000,60000,146000
+Birkenstock,boston,black,10,105000,50000,160000

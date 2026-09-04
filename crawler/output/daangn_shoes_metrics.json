@@ -1,100 +1,170 @@
 {
-  "regions_searched": 12,
+  "regions_searched": 22,
   "keywords_searched": 36,
-  "raw_items_seen": 31795,
-  "new_records_saved": 4574,
-  "duplicates_skipped": 27221,
+  "raw_items_seen": 56769,
+  "new_records_saved": 18980,
+  "duplicates_skipped": 37789,
   "dropped_missing_price_or_disallowed": 0,
-  "duplicate_rate": 0.856,
-  "missing_brand_guess_rate": 0.404,
-  "missing_condition_grade_rate": 0.722,
-  "missing_box_included_rate": 0.887,
+  "duplicate_rate": 0.666,
+  "missing_brand_guess_rate": 0.595,
+  "missing_condition_grade_rate": 0.729,
+  "missing_box_included_rate": 0.883,
   "missing_image_rate": 0.0,
-  "elapsed_seconds": 961.35,
+  "elapsed_seconds": 1725.01,
   "by_region": [
     {
       "region": "대현동",
-      "raw_items_seen": 1935,
-      "new_records_saved": 117,
-      "duplicates_skipped": 1818,
-      "elapsed_seconds": 77.61
+      "raw_items_seen": 1937,
+      "new_records_saved": 0,
+      "duplicates_skipped": 1937,
+      "elapsed_seconds": 73.8
     },
     {
       "region": "방배동",
-      "raw_items_seen": 2932,
-      "new_records_saved": 357,
-      "duplicates_skipped": 2575,
-      "elapsed_seconds": 82.8
+      "raw_items_seen": 2931,
+      "new_records_saved": 0,
+      "duplicates_skipped": 2931,
+      "elapsed_seconds": 77.21
     },
     {
       "region": "역삼1동",
-      "raw_items_seen": 3375,
-      "new_records_saved": 826,
-      "duplicates_skipped": 2549,
-      "elapsed_seconds": 82.64
+      "raw_items_seen": 3372,
+      "new_records_saved": 0,
+      "duplicates_skipped": 3372,
+      "elapsed_seconds": 77.63
     },
     {
       "region": "상도제1동",
-      "raw_items_seen": 2204,
-      "new_records_saved": 197,
-      "duplicates_skipped": 2007,
-      "elapsed_seconds": 78.34
+      "raw_items_seen": 2202,
+      "new_records_saved": 0,
+      "duplicates_skipped": 2202,
+      "elapsed_seconds": 73.09
     },
     {
       "region": "영등포동",
       "raw_items_seen": 1449,
-      "new_records_saved": 79,
-      "duplicates_skipped": 1370,
-      "elapsed_seconds": 74.06
+      "new_records_saved": 0,
+      "duplicates_skipped": 1449,
+      "elapsed_seconds": 70.88
     },
     {
       "region": "화양동",
-      "raw_items_seen": 2824,
-      "new_records_saved": 367,
-      "duplicates_skipped": 2457,
-      "elapsed_seconds": 81.45
+      "raw_items_seen": 2826,
+      "new_records_saved": 0,
+      "duplicates_skipped": 2826,
+      "elapsed_seconds": 77.41
     },
     {
       "region": "신림동",
-      "raw_items_seen": 3605,
-      "new_records_saved": 840,
-      "duplicates_skipped": 2765,
-      "elapsed_seconds": 85.05
+      "raw_items_seen": 3606,
+      "new_records_saved": 0,
+      "duplicates_skipped": 3606,
+      "elapsed_seconds": 83.76
     },
     {
       "region": "길동",
-      "raw_items_seen": 3204,
-      "new_records_saved": 573,
-      "duplicates_skipped": 2631,
-      "elapsed_seconds": 82.46
+      "raw_items_seen": 3208,
+      "new_records_saved": 0,
+      "duplicates_skipped": 3208,
+      "elapsed_seconds": 76.64
     },
     {
       "region": "행운동",
-      "raw_items_seen": 1954,
-      "new_records_saved": 180,
-      "duplicates_skipped": 1774,
-      "elapsed_seconds": 75.58
+      "raw_items_seen": 1951,
+      "new_records_saved": 1,
+      "duplicates_skipped": 1950,
+      "elapsed_seconds": 70.75
     },
     {
       "region": "진관동",
-      "raw_items_seen": 3186,
-      "new_records_saved": 457,
-      "duplicates_skipped": 2729,
-      "elapsed_seconds": 82.46
+      "raw_items_seen": 3187,
+      "new_records_saved": 0,
+      "duplicates_skipped": 3187,
+      "elapsed_seconds": 75.76
     },
     {
       "region": "문정2동",
       "raw_items_seen": 2036,
-      "new_records_saved": 173,
-      "duplicates_skipped": 1863,
-      "elapsed_seconds": 75.24
+      "new_records_saved": 0,
+      "duplicates_skipped": 2036,
+      "elapsed_seconds": 71.01
     },
     {
       "region": "석촌동",
       "raw_items_seen": 3091,
-      "new_records_saved": 408,
-      "duplicates_skipped": 2683,
-      "elapsed_seconds": 83.21
+      "new_records_saved": 0,
+      "duplicates_skipped": 3091,
+      "elapsed_seconds": 72.62
+    },
+    {
+      "region": "서교동",
+      "raw_items_seen": 3179,
+      "new_records_saved": 2499,
+      "duplicates_skipped": 680,
+      "elapsed_seconds": 84.1
+    },
+    {
+      "region": "연남동",
+      "raw_items_seen": 2368,
+      "new_records_saved": 1795,
+      "duplicates_skipped": 573,
+      "elapsed_seconds": 80.99
+    },
+    {
+      "region": "창천동",
+      "raw_items_seen": 1955,
+      "new_records_saved": 1401,
+      "duplicates_skipped": 554,
+      "elapsed_seconds": 78.23
+    },
+    {
+      "region": "안암동",
+      "raw_items_seen": 1788,
+      "new_records_saved": 1200,
+      "duplicates_skipped": 588,
+      "elapsed_seconds": 76.91
+    },
+    {
+      "region": "회기동",
+      "raw_items_seen": 1875,
+      "new_records_saved": 1314,
+      "duplicates_skipped": 561,
+      "elapsed_seconds": 79.41
+    },
+    {
+      "region": "행당동",
+      "raw_items_seen": 2742,
+      "new_records_saved": 2124,
+      "duplicates_skipped": 618,
+      "elapsed_seconds": 82.68
+    },
+    {
+      "region": "흑석동",
+      "raw_items_seen": 2567,
+      "new_records_saved": 1976,
+      "duplicates_skipped": 591,
+      "elapsed_seconds": 83.15
+    },
+    {
+      "region": "성수동2가",
+      "raw_items_seen": 2516,
+      "new_records_saved": 1895,
+      "duplicates_skipped": 621,
+      "elapsed_seconds": 82.53
+    },
+    {
+      "region": "한남동",
+      "raw_items_seen": 3170,
+      "new_records_saved": 2560,
+      "duplicates_skipped": 610,
+      "elapsed_seconds": 85.85
+    },
+    {
+      "region": "공덕동",
+      "raw_items_seen": 2813,
+      "new_records_saved": 2215,
+      "duplicates_skipped": 598,
+      "elapsed_seconds": 89.36
     }
   ]
 }

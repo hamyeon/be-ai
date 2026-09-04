@@ -40,12 +40,13 @@ class ConditionRateProviderTest {
 
     @Test
     void 공통_실측값도_없으면_기존_기본값을_유지한다() {
-        // S는 표본이 12건뿐이라 CSV에 넣지 않았다. 12건짜리 중앙값으로 계수를 바꾸면
-        // 근거 없는 값을 근거 없는 값으로 바꾸는 것뿐이다.
-        ConditionRate rate = provider.resolve("Dunk Low", "S");
+        // C는 표본이 기준을 넘었지만 등급 서열을 깨서(C 0.32 > B 0.28) 산출에서
+        // 제외됐다 - "미세 하자, 거의 새것" 매물이 하자 키워드에 걸리는 과포착.
+        // 서열을 깨는 실측은 싣지 않고 기본값을 유지한다.
+        ConditionRate rate = provider.resolve("Dunk Low", "C");
 
         assertThat(rate.basis()).isEqualTo(Basis.DEFAULT);
-        assertThat(rate.rate()).isEqualTo(0.70);
+        assertThat(rate.rate()).isEqualTo(0.20);
         assertThat(rate.sampleSize()).isZero();
     }
 

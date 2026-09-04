@@ -22,6 +22,8 @@ STANDARD = {
     "530":           "Steel Grey - 530 대표 상시 컬러",
     "cortez":        "White Varsity Red/White Black - 클래식 컬러 (남성·W 모두 포함)",
     "574":           "Legacy Navy - 574 대표 상시 라인",
+    "1461":          "Smooth Black - 1461 대표 상시 가죽·컬러 (크레이지홀스·모노 변형은 제외)",
+    "blazermid77":   "White Black - 블레이저 미드 77 빈티지 대표 컬러",
 }
 
 LIMITED = {

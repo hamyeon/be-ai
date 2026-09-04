@@ -12,6 +12,7 @@ MODEL_ALIASES = {
     "에어포스1": "airforce1low", "에어포스 1": "airforce1low", "에어포스원": "airforce1low",
     "에어포스": "airforce1low", "air force 1": "airforce1low", "af1": "airforce1low",
     "코르테즈": "cortez", "cortez": "cortez",
+    "블레이저": "blazermid77", "blazer": "blazermid77",
     "덩크로우": "dunklow", "덩크 로우": "dunklow", "덩크로": "dunklow",
     "dunk low": "dunklow", "덩크": "dunklow",
     "에어맥스95": "airmax95", "에어맥스 95": "airmax95", "air max 95": "airmax95", "am95": "airmax95",
@@ -37,6 +38,8 @@ MODEL_ALIASES = {
     "뉴발530": "530", "nb530": "530", "new balance 530": "530", "nb 530": "530",
     "뉴발란스 574": "574", "뉴발란스574": "574", "뉴발 574": "574",
     "뉴발574": "574", "nb574": "574", "new balance 574": "574", "nb 574": "574",
+    # Dr. Martens - 숫자 단독("1461")은 가격·품번 등 무관한 숫자에 붙는다
+    "닥터마틴 1461": "1461", "닥터마틴1461": "1461", "닥마 1461": "1461", "마틴 1461": "1461",
     # ASICS
     "젤카야노14": "gelkayano14", "젤 카야노 14": "gelkayano14",
     "카야노14": "gelkayano14", "카야노 14": "gelkayano14", "gel kayano 14": "gelkayano14",
