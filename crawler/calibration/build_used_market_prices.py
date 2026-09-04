@@ -71,6 +71,17 @@ MODELS = [
     ("Salomon", "xt6", "XT-6", ["xt-6", "xt6", "xt 6"], None),
     ("Converse", "chuck70", "Chuck 70", ["척70", "척 70", "chuck 70"], None),
     ("Crocs", "classicclog", "Classic Clog", ["클래식 클로그", "classic clog"], None),
+    # --- #89 확대: 미매칭 매물 빈도 분석으로 추가 (scratchpad/coverage_candidates) ---
+    # 기준: 표본 10건 이상 + 가격대 응집. "에어맥스"(번호 없음, 130건)와
+    # "핏플랍"(브랜드 단위, 137건)은 여러 모델이 한 통에 섞여 제외 - "이지"와 같은 이유.
+    ("Nike", "jordan4", "Jordan 4", ["조던4", "조던 4", "jordan 4"], None),
+    ("Nike", "airmaxkoko", "Air Max Koko", ["에어맥스 코코", "맥스코코", "맥스 코코", "air max koko"], None),
+    ("Dr. Martens", "dmadrian", "Adrian", ["아드리안", "adrian"], ["닥터마틴", "닥마", "마틴", "dr. martens", "dr martens"]),
+    ("Dr. Martens", "dm2976", "2976 Chelsea", ["2976", "첼시"], ["닥터마틴", "닥마", "마틴", "dr. martens", "dr martens"]),
+    ("UGG", "tasman", "Tasman", ["타스만", "태즈먼", "tasman"], None),
+    ("Hunter", "hunteroriginal", "Original Rain Boot", ["헌터"], ["레인", "부츠", "장화"]),
+    ("Rockfish", "rockfishrain", "Weatherwear Rain Boot", ["락피쉬"], ["레인", "부츠", "장화", "웨더웨어"]),
+    ("Skechers", "gowalk", "Go Walk", ["고워크", "gowalk", "go walk"], None),
 ]
 
 # 긴 별칭부터 검사해야 "에어맥스95"가 "에어맥스 9x" 계열끼리 먹히지 않는다
