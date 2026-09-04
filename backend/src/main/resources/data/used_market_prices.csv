@@ -1,39 +1,46 @@
 brand,model_key,model_display,listing_count,median_price,q1_price,q3_price,daangn_count,fruits_count
-Nike,jordan1,Jordan 1,221,68000,40000,100000,218,3
-Nike,airforce1,Air Force 1,183,50000,32000,85000,176,7
-Hunter,hunteroriginal,Original Rain Boot,175,70000,50000,90000,111,64
-Adidas,superstar,Superstar,120,49500,24000,82000,109,11
-Nike,dunklow,Dunk Low,116,40000,25000,81000,113,3
-Rockfish,rockfishrain,Weatherwear Rain Boot,100,36000,25000,49000,100,0
-Adidas,sambaog,Samba,83,60000,35000,77000,73,10
-Dr. Martens,dm1461,1461,82,110000,75000,140000,50,32
-Adidas,gazelle,Gazelle,80,40500,30000,70000,70,10
-New Balance,nb530,530,55,50000,30000,70000,53,2
-Nike,cortez,Cortez,50,32000,16000,50000,46,4
-Salomon,xt6,XT-6,45,150000,120000,180000,30,15
-Nike,airmax97,Air Max 97,43,50000,22000,60000,42,1
-New Balance,nb574,574,41,46000,26500,65000,37,4
-New Balance,nb1906,1906,40,93000,72000,160000,32,8
-Dr. Martens,dm2976,2976 Chelsea,38,69500,48300,97000,32,6
-Adidas,spezial,Handball Spezial,35,45000,30000,70000,34,1
-Nike,vomero,Vomero,34,70000,48000,100000,32,2
-Nike,airmax95,Air Max 95,32,53000,35000,80000,27,5
-New Balance,nb327,327,31,35000,15000,41000,31,0
-Nike,pegasus,Pegasus,30,67500,41000,99000,29,1
-Nike,dunkhigh,Dunk High,28,42500,30000,80000,28,0
-Dr. Martens,dm1460,1460,28,96500,73000,150000,18,10
-New Balance,nb2002r,2002R,27,60000,45000,80000,25,2
-New Balance,nb990,990,27,145000,100000,190000,20,7
-Asics,gelkayano14,Gel-Kayano 14,26,142500,120000,180000,19,7
-Dr. Martens,dmadrian,Adrian,23,75000,45000,108000,19,4
-Nike,v2krun,V2K Run,22,55000,35000,70000,22,0
-Skechers,gowalk,Go Walk,21,72000,58000,79000,21,0
+Vans,oldskool,Old Skool,378,23000,15000,34000,378,0
+Nike,jordan1,Jordan 1,265,70000,40000,102000,262,3
+Converse,chuck70,Chuck 70,202,30000,20000,50000,202,0
+Nike,airforce1,Air Force 1,201,50000,30000,82000,194,7
+Hunter,hunteroriginal,Original Rain Boot,184,70000,50000,90000,120,64
+Rockfish,rockfishrain,Weatherwear Rain Boot,129,35000,25000,48000,129,0
+Adidas,superstar,Superstar,126,49500,24000,83000,115,11
+Nike,dunklow,Dunk Low,125,40000,25000,78000,122,3
+Nike,dunkhigh,Dunk High,120,50000,30000,75000,120,0
+Converse,chucktaylor,Chuck Taylor,106,20000,13500,33000,106,0
+Skechers,gowalk,Go Walk,105,45000,29000,70000,105,0
+Nike,jordan4,Jordan 4,103,180000,70000,269000,102,1
+Adidas,sambaog,Samba,88,60000,36000,77000,78,10
+Adidas,gazelle,Gazelle,87,40000,30000,69000,77,10
+Dr. Martens,dm1461,1461,84,109000,75000,140000,52,32
+Adidas,stansmith,Stan Smith,75,38000,20000,90000,71,4
+UGG,tasman,Tasman,68,87000,62000,135000,68,0
+New Balance,nb530,530,58,50000,35000,67000,56,2
+Nike,cortez,Cortez,55,34000,16000,53000,51,4
+Birkenstock,boston,Boston,52,82500,50000,129000,52,0
+Vans,authentic,Authentic,48,23000,14500,30000,48,0
+Salomon,xt6,XT-6,48,148500,109000,180000,33,15
+Nike,airmax97,Air Max 97,45,50000,23000,60000,44,1
+New Balance,nb1906,1906,43,91000,70000,160000,35,8
+New Balance,nb574,574,43,40000,26500,65000,39,4
+Dr. Martens,dm2976,2976 Chelsea,41,69000,50000,97000,35,6
+Adidas,spezial,Handball Spezial,40,45000,35000,70000,39,1
+Nike,vomero,Vomero,38,70000,40000,100000,36,2
+New Balance,nb327,327,38,35000,20000,40000,38,0
+Nike,airmax95,Air Max 95,33,50000,28000,75000,28,5
+New Balance,nb990,990,31,145000,100000,190000,24,7
+Nike,pegasus,Pegasus,31,65000,41000,99000,30,1
+Nike,airmaxkoko,Air Max Koko,31,40000,20000,55000,31,0
+Vans,slipon,Slip-On,31,20000,10000,27000,31,0
+New Balance,nb2002r,2002R,30,60000,40000,80000,28,2
+Dr. Martens,dm1460,1460,29,95000,68000,143000,19,10
+Asics,gelkayano14,Gel-Kayano 14,27,140000,114000,180000,20,7
+Dr. Martens,dmadrian,Adrian,25,80000,50000,108000,21,4
+Nike,v2krun,V2K Run,23,50000,35000,70000,23,0
+Nike,blazer,Blazer,21,21000,15000,38000,21,0
 Nike,airmax90,Air Max 90,20,38500,30000,79000,18,2
-Adidas,stansmith,Stan Smith,19,40000,30000,116800,15,4
-Nike,blazer,Blazer,19,21000,15000,38000,19,0
-UGG,tasman,Tasman,19,70000,35000,110000,19,0
 New Balance,nb993,993,19,200000,120000,240000,13,6
-Converse,chuck70,Chuck 70,18,30000,25000,40000,18,0
-Crocs,classicclog,Classic Clog,16,31500,18000,81000,9,7
-Nike,jordan4,Jordan 4,14,121500,76000,220000,13,1
-Nike,airmaxkoko,Air Max Koko,14,43500,20000,55000,14,0
+Crocs,classicclog,Classic Clog,17,30000,18000,63000,10,7
+New Balance,nb550,550,11,40000,34000,49900,10,1
+Nike,jordan3,Jordan 3,11,80000,35000,150000,11,0

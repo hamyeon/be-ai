@@ -82,6 +82,13 @@ MODELS = [
     ("Hunter", "hunteroriginal", "Original Rain Boot", ["헌터"], ["레인", "부츠", "장화"]),
     ("Rockfish", "rockfishrain", "Weatherwear Rain Boot", ["락피쉬"], ["레인", "부츠", "장화", "웨더웨어"]),
     ("Skechers", "gowalk", "Go Walk", ["고워크", "gowalk", "go walk"], None),
+    # --- #89 2차 확대: 검색어 확대 재크롤링(+4,574건) 후 재분석으로 추가 ---
+    ("Vans", "oldskool", "Old Skool", ["올드스쿨", "올드 스쿨", "old skool"], None),
+    ("Vans", "authentic", "Authentic", ["어센틱", "authentic"], ["반스", "vans"]),
+    ("Vans", "slipon", "Slip-On", ["슬립온", "슬립 온"], ["반스", "vans"]),
+    ("Converse", "chucktaylor", "Chuck Taylor", ["척테일러", "척 테일러", "chuck taylor"], None),
+    ("Birkenstock", "boston", "Boston", ["보스턴"], ["버켄", "birkenstock"]),
+    ("Nike", "jordan3", "Jordan 3", ["조던3", "조던 3", "jordan 3"], None),
 ]
 
 # 긴 별칭부터 검사해야 "에어맥스95"가 "에어맥스 9x" 계열끼리 먹히지 않는다
