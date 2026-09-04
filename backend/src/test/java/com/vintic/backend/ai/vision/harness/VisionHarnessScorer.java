@@ -23,12 +23,12 @@ public final class VisionHarnessScorer {
     }
 
     public enum Field {
-        BRAND, MODEL_NAME, SIZE, BOX_INCLUDED, CONDITION_GRADE
+        BRAND, MODEL_NAME, COLOR, SIZE, BOX_INCLUDED, CONDITION_GRADE
     }
 
     public enum Outcome {
         CORRECT,      // 값을 채웠고 정답
-        NEAR,         // 값을 채웠고 한 등급 차이 (conditionGrade 전용)
+        NEAR,         // 값을 채웠고 근사 - conditionGrade는 한 등급 차이, color는 색 계열만 일치
         WRONG,        // 값을 채웠는데 오답 = 환각
         ABSTAINED,    // null 또는 UNKNOWN - 모르겠다고 기권
         NOT_LABELED   // 픽스처에 정답이 없어 채점 제외
@@ -83,6 +83,7 @@ public final class VisionHarnessScorer {
         Map<Field, Outcome> outcomes = new EnumMap<>(Field.class);
         outcomes.put(Field.BRAND, scoreBrand(expected.brand(), result.brand()));
         outcomes.put(Field.MODEL_NAME, scoreModelName(expected.modelKeywords(), result.modelName()));
+        outcomes.put(Field.COLOR, scoreColor(expected.colorKeywords(), result.color()));
         outcomes.put(Field.SIZE, scoreEquals(expected.size(), result.size()));
         outcomes.put(Field.BOX_INCLUDED, scoreEquals(expected.boxIncluded(), result.boxIncluded()));
         outcomes.put(Field.CONDITION_GRADE, scoreConditionGrade(expected.conditionGrade(), result.conditionGrade()));
@@ -90,6 +91,7 @@ public final class VisionHarnessScorer {
         Map<Field, String> mismatches = new EnumMap<>(Field.class);
         recordMismatch(mismatches, outcomes, Field.BRAND, expected.brand(), result.brand());
         recordMismatch(mismatches, outcomes, Field.MODEL_NAME, expected.modelKeywords(), result.modelName());
+        recordMismatch(mismatches, outcomes, Field.COLOR, expected.colorKeywords(), result.color());
         recordMismatch(mismatches, outcomes, Field.SIZE, expected.size(), result.size());
         recordMismatch(mismatches, outcomes, Field.BOX_INCLUDED, expected.boxIncluded(), result.boxIncluded());
         recordMismatch(mismatches, outcomes, Field.CONDITION_GRADE, expected.conditionGrade(), result.conditionGrade());
@@ -142,6 +144,47 @@ public final class VisionHarnessScorer {
                 .map(VisionHarnessScorer::normalize)
                 .allMatch(actual::contains);
         return matched ? Outcome.CORRECT : Outcome.WRONG;
+    }
+
+    // 색상은 2단계로 채점한다(#90). 판매자 표기와 문자 그대로 겹치면 정답,
+    // 표기는 달라도 색 계열이 겹치면 근사(NEAR). 프롬프트가 공식 컬러웨이명을 금지하므로
+    // "Cream"과 "Beige"처럼 같은 계열의 다른 표기를 오답으로 갈라서는 안 된다.
+    private static Outcome scoreColor(List<String> expectedKeywords, String actualColor) {
+        if (expectedKeywords == null || expectedKeywords.isEmpty()) {
+            return Outcome.NOT_LABELED;
+        }
+        if (actualColor == null || normalize(actualColor).isEmpty()) {
+            return Outcome.ABSTAINED;
+        }
+        // 정확 일치도 단어 단위로 본다. 부분 문자열로 보면 "Titanium"이 "tan"에 걸린다.
+        java.util.Set<String> actualWords = colorWords(actualColor);
+        boolean exact = expectedKeywords.stream()
+                .map(VisionHarnessScorer::normalize)
+                .filter(expected -> !expected.isEmpty())
+                .anyMatch(actualWords::contains);
+        if (exact) {
+            return Outcome.CORRECT;
+        }
+        var expectedFamilies = ColorFamilies.of(String.join(" ", expectedKeywords));
+        var actualFamilies = ColorFamilies.of(actualColor);
+        boolean familyOverlap = expectedFamilies.stream().anyMatch(actualFamilies::contains);
+        return familyOverlap ? Outcome.NEAR : Outcome.WRONG;
+    }
+
+    // 응답 색상을 단어 집합으로 바꾼다. "wolf grey" 같은 두 단어 표기와 맞추기 위해
+    // 인접 단어를 이어붙인 것도 포함한다 ("Wolf Grey / White" -> wolf, grey, white, wolfgrey, greywhite).
+    private static java.util.Set<String> colorWords(String text) {
+        String[] words = text.toLowerCase().split("[^a-z0-9]+");
+        java.util.Set<String> result = new java.util.HashSet<>();
+        for (int i = 0; i < words.length; i++) {
+            if (!words[i].isEmpty()) {
+                result.add(words[i]);
+                if (i + 1 < words.length && !words[i + 1].isEmpty()) {
+                    result.add(words[i] + words[i + 1]);
+                }
+            }
+        }
+        return result;
     }
 
     private static Outcome scoreEquals(Object expected, Object actual) {

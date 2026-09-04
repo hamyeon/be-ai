@@ -19,6 +19,7 @@
           "Asics"
         ],
         "modelKeywords": null,
+        "colorKeywords": null,
         "size": 235,
         "boxIncluded": null,
         "conditionGrade": null
@@ -43,11 +44,14 @@
         "modelKeywords": [
           "kayano"
         ],
+        "colorKeywords": [
+          "silver"
+        ],
         "size": 260,
         "boxIncluded": null,
         "conditionGrade": "A"
       },
-      "groundTruthSource": "사이트 size 260 / 7회 착용, 상태 괜찮음"
+      "groundTruthSource": "사이트 size 260 / 7회 착용, 상태 괜찮음 / 제목 색상: 실버문"
     },
     {
       "id": "adidas-yeezy-foam-275",
@@ -69,6 +73,7 @@
           "foam",
           "runner"
         ],
+        "colorKeywords": null,
         "size": 275,
         "boxIncluded": null,
         "conditionGrade": "A"
@@ -94,11 +99,14 @@
         "modelKeywords": [
           "adios"
         ],
+        "colorKeywords": [
+          "black"
+        ],
         "size": 275,
         "boxIncluded": null,
         "conditionGrade": null
       },
-      "groundTruthSource": "사이트 size 275 / 35km 주행"
+      "groundTruthSource": "사이트 size 275 / 35km 주행 / 제목 색상: 코어 블랙"
     },
     {
       "id": "crocs-levis-clog-290",
@@ -118,6 +126,7 @@
         "modelKeywords": [
           "terrain"
         ],
+        "colorKeywords": null,
         "size": 290,
         "boxIncluded": null,
         "conditionGrade": "DS"
@@ -143,11 +152,14 @@
         "modelKeywords": [
           "1460"
         ],
+        "colorKeywords": [
+          "orange"
+        ],
         "size": 240,
         "boxIncluded": null,
         "conditionGrade": "A"
       },
-      "groundTruthSource": "사이트 size 240 / 거의 새것"
+      "groundTruthSource": "사이트 size 240 / 거의 새것 / 제목 색상: 오렌지"
     },
     {
       "id": "drmartens-1461-inferno-270",
@@ -168,6 +180,7 @@
         "modelKeywords": [
           "1461"
         ],
+        "colorKeywords": null,
         "size": 270,
         "boxIncluded": true,
         "conditionGrade": "DS"
@@ -192,11 +205,14 @@
         "modelKeywords": [
           "short"
         ],
+        "colorKeywords": [
+          "pink"
+        ],
         "size": 235,
         "boxIncluded": null,
         "conditionGrade": "A"
       },
-      "groundTruthSource": "사이트 size 235 / 몇 번 안 신고 보관"
+      "groundTruthSource": "사이트 size 235 / 몇 번 안 신고 보관 / 제목 색상: 핑크"
     },
     {
       "id": "newbalance-530-235",
@@ -216,11 +232,16 @@
         "modelKeywords": [
           "530"
         ],
+        "colorKeywords": [
+          "steel grey",
+          "grey",
+          "gray"
+        ],
         "size": 235,
         "boxIncluded": null,
         "conditionGrade": null
       },
-      "groundTruthSource": "사이트 size 235"
+      "groundTruthSource": "사이트 size 235 / 제목 색상: 스틸 그레이"
     },
     {
       "id": "newbalance-530-255",
@@ -240,11 +261,15 @@
         "modelKeywords": [
           "530"
         ],
+        "colorKeywords": [
+          "white",
+          "silver"
+        ],
         "size": 255,
         "boxIncluded": null,
         "conditionGrade": null
       },
-      "groundTruthSource": "사이트 size 255"
+      "groundTruthSource": "사이트 size 255 / 제목 색상: 화이트 실버"
     },
     {
       "id": "nike-sacai-ldwaffle-290",
@@ -265,11 +290,14 @@
         "modelKeywords": [
           "waffle"
         ],
+        "colorKeywords": [
+          "blue"
+        ],
         "size": 290,
         "boxIncluded": null,
         "conditionGrade": null
       },
-      "groundTruthSource": "사이트 size 290 / 상태 8·10"
+      "groundTruthSource": "사이트 size 290 / 상태 8·10 / 제목 색상: 블랙큰드 블루"
     },
     {
       "id": "nike-undefeated-am97-230",
@@ -290,11 +318,14 @@
           "airmax",
           "97"
         ],
+        "colorKeywords": [
+          "black"
+        ],
         "size": 230,
         "boxIncluded": null,
         "conditionGrade": "A"
       },
-      "groundTruthSource": "사이트 size 230 / 오염 하자 없음, 사용감 약간"
+      "groundTruthSource": "사이트 size 230 / 오염 하자 없음, 사용감 약간 / 제목 색상: 블랙"
     },
     {
       "id": "oofos-clog-255",
@@ -312,6 +343,7 @@
           "OOFOS"
         ],
         "modelKeywords": null,
+        "colorKeywords": null,
         "size": 255,
         "boxIncluded": null,
         "conditionGrade": "A"
@@ -334,6 +366,7 @@
           "Puma"
         ],
         "modelKeywords": null,
+        "colorKeywords": null,
         "size": 250,
         "boxIncluded": null,
         "conditionGrade": "B"
@@ -359,6 +392,7 @@
         "modelKeywords": [
           "mihara"
         ],
+        "colorKeywords": null,
         "size": 230,
         "boxIncluded": null,
         "conditionGrade": "A"
@@ -383,6 +417,7 @@
           "Maison Margiela"
         ],
         "modelKeywords": null,
+        "colorKeywords": null,
         "size": 275,
         "boxIncluded": null,
         "conditionGrade": "A"
@@ -407,11 +442,15 @@
         "modelKeywords": [
           "acs"
         ],
+        "colorKeywords": [
+          "white",
+          "silver"
+        ],
         "size": 250,
         "boxIncluded": null,
         "conditionGrade": null
       },
-      "groundTruthSource": "사이트 size 250"
+      "groundTruthSource": "사이트 size 250 / 제목 색상: 화이트 실버"
     }
   ]
 }

@@ -19,6 +19,7 @@ public record VisionHarnessCase(
     public record Expected(
             List<String> brand,          // 허용 가능한 브랜드 표기. 하나라도 맞으면 정답 (예: 조던 -> "Nike" 또는 "Jordan")
             List<String> modelKeywords,  // modelName에 전부 포함돼야 정답으로 보는 키워드
+            List<String> colorKeywords,  // 허용 가능한 색상 표기. 하나라도 포함되면 정답, 색 계열만 맞으면 근사(#90)
             Integer size,
             Boolean boxIncluded,
             String conditionGrade
