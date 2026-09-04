@@ -147,6 +147,20 @@ public class PriceCalculationService {
     private CalculatePriceResponse calculateFromUsedMarket(
             CalculatePriceRequest request, UsedMarketPriceProvider.UsedMarketPrice market) {
 
+        // 같은 색상 계열의 시세가 서 있으면 그것이 더 좁은 근거다 (#93).
+        // 색상 표기는 계열로 정규화해 비교하므로 "그레이"/"gray"/"회색"이 같은 버킷에 붙는다.
+        // 버킷이 없으면(표본 10건 미만이거나 색상 미판독) 모델 시세로 폴백 -
+        // 색상 시세는 통계적으로 설 때만 쓰고, 정확도가 나빠지는 경로는 없다.
+        Optional<UsedMarketPriceProvider.ColorPrice> colorPrice =
+                usedMarketPriceProvider.findColor(request.brand(), request.modelName(), request.color());
+
+        int baseMedian = colorPrice.map(UsedMarketPriceProvider.ColorPrice::medianPrice)
+                .orElse(market.medianPrice());
+        int baseQ1 = colorPrice.map(UsedMarketPriceProvider.ColorPrice::q1Price)
+                .orElse(market.q1Price());
+        int baseQ3 = colorPrice.map(UsedMarketPriceProvider.ColorPrice::q3Price)
+                .orElse(market.q3Price());
+
         String normalizedConditionGrade = normalizeConditionGrade(request.conditionGrade());
         ConditionRateProvider.ConditionRate gradeRate =
                 conditionRateProvider.resolve(request.modelName(), normalizedConditionGrade);
@@ -166,11 +180,11 @@ public class PriceCalculationService {
         double componentRate = getComponentRate(request.componentStatus());
 
         int recommendedPrice =
-                roundToNearestThousand((int) Math.round(market.medianPrice() * conditionRatio * componentRate));
+                roundToNearestThousand((int) Math.round(baseMedian * conditionRatio * componentRate));
         int minRecommendedPrice =
-                roundToNearestThousand((int) Math.round(market.q1Price() * conditionRatio * componentRate));
+                roundToNearestThousand((int) Math.round(baseQ1 * conditionRatio * componentRate));
         int maxRecommendedPrice =
-                roundToNearestThousand((int) Math.round(market.q3Price() * conditionRatio * componentRate));
+                roundToNearestThousand((int) Math.round(baseQ3 * conditionRatio * componentRate));
         String priceRange = makePriceRange(minRecommendedPrice, maxRecommendedPrice);
 
         // UNKNOWN은 비율을 1.0으로 고정하므로 계수 출처를 밝힐 것이 없다.
@@ -178,16 +192,23 @@ public class PriceCalculationService {
                 ? ""
                 : makeRateBasisText(gradeRate);
 
+        // 어떤 표본을 근거로 했는지 - 색상 시세면 색상까지 밝힌다
+        String sourceText = colorPrice
+                .map(color -> String.format(
+                        "당근마켓·후르츠패밀리에 올라온 %s 중고 매물 중 같은 색상 계열(%s) %d건을 근거로 계산했습니다.",
+                        market.modelDisplay(), color.colorFamily(), color.listingCount()))
+                .orElseGet(() -> String.format(
+                        "당근마켓·후르츠패밀리에 올라온 %s 중고 매물 %d건을 근거로 계산했습니다.",
+                        market.modelDisplay(), market.listingCount()));
+
         String reason = String.format(
-                "당근마켓·후르츠패밀리에 올라온 %s 중고 매물 %d건을 근거로 계산했습니다. "
-                        + "실거래가 중앙값은 %,d원이고, 매물의 절반이 %,d원 ~ %,d원 사이에 있습니다. "
+                "%s 실거래가 중앙값은 %,d원이고, 매물의 절반이 %,d원 ~ %,d원 사이에 있습니다. "
                         + "상품 상태 %s(%s)는 전체 매물 시세 대비 %.0f%% 수준으로 반영했습니다.%s %s "
                         + "이를 바탕으로 최종 추천가는 %,d원이며, 판매 권장 범위는 실거래 분포를 따라 %s입니다.",
-                market.modelDisplay(),
-                market.listingCount(),
-                market.medianPrice(),
-                market.q1Price(),
-                market.q3Price(),
+                sourceText,
+                baseMedian,
+                baseQ1,
+                baseQ3,
                 normalizedConditionGrade,
                 getConditionDescription(normalizedConditionGrade),
                 conditionRatio * 100,
@@ -201,7 +222,7 @@ public class PriceCalculationService {
         // 어느 근거로 계산했는지는 reason이 밝힌다.
         return new CalculatePriceResponse(
                 recommendedPrice,
-                market.medianPrice(),
+                baseMedian,
                 0,
                 0,
                 minRecommendedPrice,

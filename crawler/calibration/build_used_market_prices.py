@@ -18,11 +18,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from listing_filters import exclusion_reason  # noqa: E402
+from color_families import families  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 DAANGN = ROOT / "crawler" / "output" / "daangn_shoes_raw.jsonl"
 FRUITS = ROOT / "crawler" / "data" / "products.jsonl"
 OUT = ROOT / "backend" / "src" / "main" / "resources" / "data" / "used_market_prices.csv"
+# 색상별 시세 (#93). 모델 시세와 파일을 나눈 이유: 색상 시세는 있는 버킷만 싣는
+# 부분 데이터라, 한 파일에 섞으면 "색상 행이 없는 모델"과 "모델 자체가 없는 것"이
+# 구분되지 않는다.
+OUT_BY_COLOR = ROOT / "backend" / "src" / "main" / "resources" / "data" / "used_market_prices_by_color.csv"
 
 # 신발 한 켤레 가격으로 볼 수 있는 범위 (부품·사은품·오타 제외)
 PRICE_MIN, PRICE_MAX = 10_000, 2_000_000
@@ -126,8 +131,17 @@ def iter_listings():
         yield "FRUITS", d.get("item_title"), d.get("description"), d.get("price_krw")
 
 
+def color_key(title):
+    """제목의 색 계열을 안정된 키로 접는다. 1~2계열만 인정 - 3계열 이상은 판독 혼란."""
+    fams = families(title)
+    if not fams or len(fams) > 2:
+        return None
+    return "+".join(sorted(fams))
+
+
 def main():
     prices = defaultdict(list)
+    color_prices = defaultdict(list)
     sources = defaultdict(lambda: defaultdict(int))
     excluded = defaultdict(int)
 
@@ -148,6 +162,11 @@ def main():
             continue
         prices[found].append(price)
         sources[found][source] += 1
+        # 색상은 제목에서만 읽는다. 설명에는 "검정 끈으로 교체" 같은 노이즈가 많다.
+        # 제목에 색이 없는 매물(약 43%)은 색상 시세에서 빠질 뿐, 모델 시세에는 남는다.
+        key = color_key(title)
+        if key:
+            color_prices[(found, key)].append(price)
 
     display = {(b, k): d for b, k, d, _, _ in MODELS}
     lines = ["brand,model_key,model_display,listing_count,median_price,q1_price,q3_price,daangn_count,fruits_count"]
@@ -168,6 +187,27 @@ def main():
     total = sum(len(v) for (bk, v) in prices.items() if len(v) >= MIN_LISTINGS)
     print(f"\n{OUT.relative_to(ROOT)} 작성 - 모델 {kept}개, 매물 {total:,}건")
     print("제외:", ", ".join(f"{k} {v}건" for k, v in sorted(excluded.items())) or "없음")
+
+    # --- 색상별 시세 (#93). 모델 시세가 있는 모델의, 표본이 서는 색상 버킷만. ---
+    color_lines = ["brand,model_key,color_family,listing_count,median_price,q1_price,q3_price"]
+    color_kept = 0
+    print(f"\n[색상별 시세] 표본 {MIN_LISTINGS}건 이상 버킷만")
+    for ((brand, key), color), values in sorted(color_prices.items(), key=lambda kv: -len(kv[1])):
+        if len(values) < MIN_LISTINGS:
+            continue
+        if len(prices[(brand, key)]) < MIN_LISTINGS:
+            continue  # 모델 시세 자체가 없는 모델의 색상 행은 내보내지 않는다
+        values.sort()
+        median = int(statistics.median(values))
+        q1, q3 = values[len(values) // 4], values[3 * len(values) // 4]
+        color_lines.append(f"{brand},{key},{color},{len(values)},{median},{q1},{q3}")
+        color_kept += 1
+        model_median = int(statistics.median(prices[(brand, key)]))
+        premium = (median - model_median) / model_median * 100
+        print(f"  {key:<16} {color:<14} n={len(values):>3}  중앙값 {median:>9,}"
+              f"  (모델 전체 대비 {premium:+.0f}%)")
+    OUT_BY_COLOR.write_text("\n".join(color_lines) + "\n", encoding="utf-8")
+    print(f"{OUT_BY_COLOR.relative_to(ROOT)} 작성 - 버킷 {color_kept}개")
 
 
 if __name__ == "__main__":
