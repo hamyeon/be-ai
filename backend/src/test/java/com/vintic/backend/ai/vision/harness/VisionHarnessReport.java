@@ -168,6 +168,7 @@ public record VisionHarnessReport(
         return switch (field) {
             case BRAND -> "brand";
             case MODEL_NAME -> "model";
+            case COLOR -> "color";
             case SIZE -> "size";
             case BOX_INCLUDED -> "box";
             case CONDITION_GRADE -> "grade";
