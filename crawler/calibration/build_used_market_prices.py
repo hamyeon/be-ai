@@ -19,6 +19,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from listing_filters import exclusion_reason  # noqa: E402
 from color_families import families  # noqa: E402
+import re  # noqa: E402
+
+# 새상품 신호 키워드 (crawler/config.py CONDITION_DS_KEYWORDS와 같은 계열)
+NEW_PAT = re.compile(r"새상품|새제품|미착용|미개봉|택\s*(포함|달림|있)|한\s*번도\s*안\s*신")
 
 ROOT = Path(__file__).resolve().parents[2]
 DAANGN = ROOT / "crawler" / "output" / "daangn_shoes_raw.jsonl"
@@ -139,9 +143,18 @@ def color_key(title):
     return "+".join(sorted(fams))
 
 
+# 색상 버킷의 새상품 비중이 모델 평균에서 이만큼(퍼센트포인트) 벗어나면 버킷을 버린다.
+# 실측(#93): DS 편중과 프리미엄의 상관 +0.218 - 편중이 극단인 버킷(올드스쿨 그레이
+# DS 60% vs 모델 18%)은 "색상 프리미엄"이 아니라 "상태 구성 차이"를 재고 있었다.
+# 30%p는 사람이 정한 선이며, 걸린 버킷은 산출 로그에 이유와 함께 남는다.
+MAX_NEW_SHARE_BIAS = 0.30
+
+
 def main():
     prices = defaultdict(list)
     color_prices = defaultdict(list)
+    new_counts = defaultdict(int)         # (모델,색) -> 새상품 키워드 매물 수
+    model_new_counts = defaultdict(int)   # 모델 -> 새상품 키워드 매물 수
     sources = defaultdict(lambda: defaultdict(int))
     excluded = defaultdict(int)
 
@@ -162,11 +175,16 @@ def main():
             continue
         prices[found].append(price)
         sources[found][source] += 1
+        is_new = bool(NEW_PAT.search(blob))
+        if is_new:
+            model_new_counts[found] += 1
         # 색상은 제목에서만 읽는다. 설명에는 "검정 끈으로 교체" 같은 노이즈가 많다.
         # 제목에 색이 없는 매물(약 43%)은 색상 시세에서 빠질 뿐, 모델 시세에는 남는다.
         key = color_key(title)
         if key:
             color_prices[(found, key)].append(price)
+            if is_new:
+                new_counts[(found, key)] += 1
 
     display = {(b, k): d for b, k, d, _, _ in MODELS}
     lines = ["brand,model_key,model_display,listing_count,median_price,q1_price,q3_price,daangn_count,fruits_count"]
@@ -197,6 +215,12 @@ def main():
             continue
         if len(prices[(brand, key)]) < MIN_LISTINGS:
             continue  # 모델 시세 자체가 없는 모델의 색상 행은 내보내지 않는다
+        bucket_new = new_counts[((brand, key), color)] / len(values)
+        model_new = model_new_counts[(brand, key)] / len(prices[(brand, key)])
+        if abs(bucket_new - model_new) > MAX_NEW_SHARE_BIAS:
+            print(f"  {key:<16} {color:<14} 제외 - 새상품 비중 편중 "
+                  f"(버킷 {bucket_new:.0%} vs 모델 {model_new:.0%}): 색이 아니라 상태 구성을 재게 된다")
+            continue
         values.sort()
         median = int(statistics.median(values))
         q1, q3 = values[len(values) // 4], values[3 * len(values) // 4]

@@ -375,6 +375,26 @@ class AiTrackE2EMySqlIT {
     }
 
     @Test
+    @DisplayName("색상 시세: 같은 색상 계열의 매물 시세가 우선 적용된다")
+    void 색상이_판독되면_같은_색상_시세로_계산한다() throws Exception {
+        Long analysisId = awaitingConfirmationSession();
+
+        // "Wolf Gray"는 색상 계열 정규화(#93)를 거쳐 grey 버킷(조던1, 실측 표본)에 붙는다.
+        // 표기가 grey/회색이어도 같은 결과여야 한다 - 그게 계열 정규화의 계약이다.
+        String body = """
+                {"analysisId": %d, "brand": "Nike", "modelName": "Jordan 1", "color": "Wolf Gray",
+                 "size": 270, "conditionGrade": "UNKNOWN", "componentStatus": "FULL"}
+                """.formatted(analysisId);
+
+        mockMvc.perform(post("/api/products/calculate-price")
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.recommendedPrice").value(org.hamcrest.Matchers.greaterThan(0)))
+                .andExpect(jsonPath("$.data.reason",
+                        org.hamcrest.Matchers.containsString("같은 색상 계열(grey)")));
+    }
+
+    @Test
     @DisplayName("가격 계산은 세션당 1회만 가능하다")
     void 같은_세션으로_두_번_계산하면_거부된다() throws Exception {
         Long analysisId = awaitingConfirmationSession();
