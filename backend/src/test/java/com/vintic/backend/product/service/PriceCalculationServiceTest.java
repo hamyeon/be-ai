@@ -26,12 +26,15 @@ class PriceCalculationServiceTest {
     @Mock
     private UsedMarketPriceProvider usedMarketPriceProvider;
 
+    @Mock
+    private ColorPremiumProvider colorPremiumProvider;
+
     // 상태 계수는 실측 CSV까지 실제로 읽어야 비율(#61 값)이 의미를 갖는다
     private final ConditionRateProvider conditionRateProvider = new ConditionRateProvider();
 
     private PriceCalculationService newService() {
         return new PriceCalculationService(
-                marketPriceDataLoader, conditionRateProvider, usedMarketPriceProvider);
+                marketPriceDataLoader, conditionRateProvider, usedMarketPriceProvider, colorPremiumProvider);
     }
 
     private CalculatePriceRequest request(String brand, String model, String grade) {
@@ -124,6 +127,25 @@ class PriceCalculationServiceTest {
         assertThat(response.recommendedPrice()).isEqualTo(85_000);
         assertThat(response.minRecommendedPrice()).isEqualTo(60_000);
         assertThat(response.reason()).contains("같은 색상 계열(blue)", "10건");
+    }
+
+    @Test
+    void 색상_버킷이_없으면_KREAM_색상_프리미엄으로_보정한다() {
+        // 중간 폴백(#93): 당근 색상 표본은 없지만 KREAM에서 그 색이 비싼 걸 아는 경우
+        when(usedMarketPriceProvider.find("Nike", "Dunk Low"))
+                .thenReturn(Optional.of(dunkLowMarket()));
+        when(usedMarketPriceProvider.findColor("Nike", "Dunk Low", "Brown"))
+                .thenReturn(Optional.empty());
+        when(colorPremiumProvider.find("Nike", "Dunk Low", "Brown"))
+                .thenReturn(Optional.of(new ColorPremiumProvider.ColorPremium(
+                        "nike", "dunklow", "brown", 1.2, 5)));
+
+        CalculatePriceResponse response = newService().calculate(
+                new CalculatePriceRequest(1L, "Nike", "Dunk Low", "Brown", 270, "UNKNOWN", "FULL"));
+
+        // 모델 중앙값 40,000 x 1.2 = 48,000
+        assertThat(response.recommendedPrice()).isEqualTo(48_000);
+        assertThat(response.reason()).contains("모델 평균 대비 +20%", "KREAM 체결 5건");
     }
 
     @Test

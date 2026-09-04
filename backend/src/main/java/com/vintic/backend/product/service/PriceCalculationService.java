@@ -26,15 +26,18 @@ public class PriceCalculationService {
     private final MarketPriceDataLoader marketPriceDataLoader;
     private final ConditionRateProvider conditionRateProvider;
     private final UsedMarketPriceProvider usedMarketPriceProvider;
+    private final ColorPremiumProvider colorPremiumProvider;
 
     public PriceCalculationService(
             MarketPriceDataLoader marketPriceDataLoader,
             ConditionRateProvider conditionRateProvider,
-            UsedMarketPriceProvider usedMarketPriceProvider
+            UsedMarketPriceProvider usedMarketPriceProvider,
+            ColorPremiumProvider colorPremiumProvider
     ) {
         this.marketPriceDataLoader = marketPriceDataLoader;
         this.conditionRateProvider = conditionRateProvider;
         this.usedMarketPriceProvider = usedMarketPriceProvider;
+        this.colorPremiumProvider = colorPremiumProvider;
     }
 
     public CalculatePriceResponse calculate(CalculatePriceRequest request) {
@@ -153,13 +156,21 @@ public class PriceCalculationService {
         // 색상 시세는 통계적으로 설 때만 쓰고, 정확도가 나빠지는 경로는 없다.
         Optional<UsedMarketPriceProvider.ColorPrice> colorPrice =
                 usedMarketPriceProvider.findColor(request.brand(), request.modelName(), request.color());
+        // 당근 색상 버킷이 없으면 KREAM 색상 프리미엄이 중간 폴백이다:
+        // 당근 모델 시세 x (KREAM에서 이 색이 모델 평균 대비 몇 배인가).
+        Optional<ColorPremiumProvider.ColorPremium> colorPremium = colorPrice.isPresent()
+                ? Optional.empty()
+                : colorPremiumProvider.find(request.brand(), request.modelName(), request.color());
+        double premiumRate = colorPremium
+                .map(ColorPremiumProvider.ColorPremium::premium)
+                .orElse(1.0);
 
         int baseMedian = colorPrice.map(UsedMarketPriceProvider.ColorPrice::medianPrice)
-                .orElse(market.medianPrice());
+                .orElse((int) Math.round(market.medianPrice() * premiumRate));
         int baseQ1 = colorPrice.map(UsedMarketPriceProvider.ColorPrice::q1Price)
-                .orElse(market.q1Price());
+                .orElse((int) Math.round(market.q1Price() * premiumRate));
         int baseQ3 = colorPrice.map(UsedMarketPriceProvider.ColorPrice::q3Price)
-                .orElse(market.q3Price());
+                .orElse((int) Math.round(market.q3Price() * premiumRate));
 
         String normalizedConditionGrade = normalizeConditionGrade(request.conditionGrade());
         ConditionRateProvider.ConditionRate gradeRate =
@@ -192,14 +203,24 @@ public class PriceCalculationService {
                 ? ""
                 : makeRateBasisText(gradeRate);
 
-        // 어떤 표본을 근거로 했는지 - 색상 시세면 색상까지 밝힌다
-        String sourceText = colorPrice
-                .map(color -> String.format(
-                        "당근마켓·후르츠패밀리에 올라온 %s 중고 매물 중 같은 색상 계열(%s) %d건을 근거로 계산했습니다.",
-                        market.modelDisplay(), color.colorFamily(), color.listingCount()))
-                .orElseGet(() -> String.format(
-                        "당근마켓·후르츠패밀리에 올라온 %s 중고 매물 %d건을 근거로 계산했습니다.",
-                        market.modelDisplay(), market.listingCount()));
+        // 어떤 표본을 근거로 했는지 - 색상 버킷 / KREAM 프리미엄 보정 / 모델 전체 순으로 밝힌다
+        String sourceText;
+        if (colorPrice.isPresent()) {
+            sourceText = String.format(
+                    "당근마켓·후르츠패밀리에 올라온 %s 중고 매물 중 같은 색상 계열(%s) %d건을 근거로 계산했습니다.",
+                    market.modelDisplay(), colorPrice.get().colorFamily(), colorPrice.get().listingCount());
+        } else if (colorPremium.isPresent()) {
+            ColorPremiumProvider.ColorPremium premium = colorPremium.get();
+            sourceText = String.format(
+                    "당근마켓·후르츠패밀리에 올라온 %s 중고 매물 %d건을 기준으로 하되, "
+                            + "KREAM 체결 %d건에서 이 색상 계열(%s)이 모델 평균 대비 %+.0f%% 수준인 것을 반영했습니다.",
+                    market.modelDisplay(), market.listingCount(),
+                    premium.tradeCount(), premium.colorFamily(), (premium.premium() - 1.0) * 100);
+        } else {
+            sourceText = String.format(
+                    "당근마켓·후르츠패밀리에 올라온 %s 중고 매물 %d건을 근거로 계산했습니다.",
+                    market.modelDisplay(), market.listingCount());
+        }
 
         String reason = String.format(
                 "%s 실거래가 중앙값은 %,d원이고, 매물의 절반이 %,d원 ~ %,d원 사이에 있습니다. "
