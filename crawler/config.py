@@ -32,14 +32,30 @@ BRANDS = [
     {"canonical": "Nike", "tokens": ["조던", "jordan"]},
     {"canonical": "Mizuno", "tokens": ["미즈노", "mizuno"]},
     {"canonical": "Hoka", "tokens": ["호카", "hoka"]},
+    # --- #89 확대: 미매칭 매물 분석에서 수요가 확인됐는데 검색을 안 하던 브랜드.
+    # 어그 232건·락피쉬 100건 등이 "부츠" 같은 일반 검색어에 우연히 걸려 있었다 -
+    # 직접 검색하면 훨씬 많이 모인다.
+    {"canonical": "UGG", "tokens": ["어그", "ugg"]},
+    {"canonical": "Birkenstock", "tokens": ["버켄스탁", "버켄", "birkenstock"]},
+    {"canonical": "Vans", "tokens": ["반스", "vans"]},
+    {"canonical": "Converse", "tokens": ["컨버스", "converse"]},
+    {"canonical": "Skechers", "tokens": ["스케쳐스", "스케처스", "skechers"]},
+    {"canonical": "Rockfish", "tokens": ["락피쉬", "rockfish"]},
 ]
 
 GENERIC_KEYWORDS = [
     "운동화", "신발", "스니커즈", "구두", "부츠", "샌들", "슬리퍼", "로퍼",
 ]
 
+# 표본이 얇은 고가치 모델은 모델명으로 직접 판다(#89). 브랜드 검색은 결과 상위
+# 일부만 보이므로, 모델 검색이 그 모델의 매물을 더 깊게 가져온다.
+MODEL_KEYWORDS = [
+    "타스만", "조던 4", "에어맥스 코코", "올드스쿨", "버켄스탁 보스턴",
+    "스탠스미스", "척70", "덩크 하이", "고워크",
+]
+
 # 브랜드명만 검색하면 의류 등 신발 아닌 상품까지 섞여 나와서, 브랜드+"신발" 조합으로 좁힌다.
-SEARCH_KEYWORDS = [f'{brand["tokens"][0]} 신발' for brand in BRANDS] + GENERIC_KEYWORDS
+SEARCH_KEYWORDS = [f'{brand["tokens"][0]} 신발' for brand in BRANDS] + GENERIC_KEYWORDS + MODEL_KEYWORDS
 
 # 당근은 "in=동이름-id" 형식의 정확한 지역 id가 있어야 해당 지역 결과가 나오고,
 # 이름만 주면 무시되고 기본 지역으로 fallback된다. id는 브라우저에서 직접 동네를 설정해 확인한 값.
