@@ -20,7 +20,8 @@ STANDARD = {
     # 2026-09-04 크롤러 재수집분 (merge_kream_crawl.py)
     "superstar":     "White Black - 오리지널 기본 컬러 (코어 블랙·슈퍼스타2는 제외했다)",
     "530":           "Steel Grey - 530 대표 상시 컬러",
-    "cortez":        "White Varsity Red - 클래식 컬러. 참조가 W 버전이라는 한계는 있다",
+    "cortez":        "White Varsity Red/White Black - 클래식 컬러 (남성·W 모두 포함)",
+    "574":           "Legacy Navy - 574 대표 상시 라인",
 }
 
 LIMITED = {
