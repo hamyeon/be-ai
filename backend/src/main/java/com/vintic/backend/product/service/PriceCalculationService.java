@@ -14,8 +14,10 @@ import java.util.Optional;
 @Service
 public class PriceCalculationService {
 
-    private static final double KREAM_WEIGHT = 0.7;
-    private static final double EBAY_WEIGHT = 0.3;
+    // eBay는 기준 시세에서 뺐다(#89 실측). 해외 호가라 국내 실거래보다 중앙값 기준
+    // 2.5배 높고, 당근 실거래 예측 오차가 KREAM 단독 25% vs 혼합(0.7/0.3) 38% vs
+    // eBay 단독 155%였다. 섞을수록 나빠지는 것을 측정으로 확인했다.
+    // 응답에는 계속 실어 참고 정보로만 보여준다.
     private static final double PRICE_RANGE_RATE = 0.05;
     private static final String UNKNOWN_CONDITION_GRADE = "UNKNOWN";
     // 상태 불문 전체 매물의 계수. 중고 시세 경로에서 상태 비율의 분모(기준선)가 된다.
@@ -63,25 +65,31 @@ public class PriceCalculationService {
         int kreamAveragePrice = calculateAveragePrice(kreamMatches);
         int ebayAveragePrice = calculateAveragePrice(ebayMatches);
 
-        if (kreamAveragePrice == 0 && ebayAveragePrice == 0) {
+        // KREAM이 없으면 가격을 만들지 않는다. eBay만으로 추천가를 내면 155% 오차의
+        // 숫자를 판매자에게 주게 된다 - 틀린 값보다 "없음"이 낫다. (현재 데이터에서
+        // eBay 전용 모델은 없어서 실제로는 기존과 같은 요청만 이 분기에 온다)
+        if (kreamAveragePrice == 0) {
             // 어떤 근거로도 가격을 못 준 요청. 커버리지 확대 우선순위의 1급 근거다(#89).
             log.info("시세 정보 없음 응답: brand={}, model={}, color={}, size={}",
                     request.brand(), request.modelName(), request.color(), request.size());
+            String noDataReason = ebayAveragePrice > 0
+                    ? "국내 시세(중고 실거래·KREAM)를 찾지 못했습니다. eBay 해외 매물은 확인되지만 국내 실거래와 차이가 커 추천가 근거로 쓰지 않았으며, 참고로만 표시합니다."
+                    : "입력한 브랜드, 모델명, 색상, 사이즈와 일치하는 시세 데이터를 찾지 못했습니다. 추천 가격 산정을 위해서는 유사 거래 데이터가 추가로 필요합니다.";
             return new CalculatePriceResponse(
                     0,
                     0,
                     0,
-                    0,
+                    ebayAveragePrice,
                     0,
                     0,
                     "시세 정보 없음",
-                    "입력한 브랜드, 모델명, 색상, 사이즈와 일치하는 KREAM/eBay 시세 데이터를 찾지 못했습니다. 추천 가격 산정을 위해서는 유사 거래 데이터가 추가로 필요합니다.",
+                    noDataReason,
                     List.of(),
-                    List.of()
+                    toResponseMatches(ebayMatches)
             );
         }
 
-        int baseMarketPrice = calculateBaseMarketPrice(kreamAveragePrice, ebayAveragePrice);
+        int baseMarketPrice = kreamAveragePrice;
 
         String normalizedConditionGrade = normalizeConditionGrade(request.conditionGrade());
         ConditionRateProvider.ConditionRate rate =
@@ -224,18 +232,6 @@ public class PriceCalculationService {
         );
     }
 
-    private int calculateBaseMarketPrice(int kreamAveragePrice, int ebayAveragePrice) {
-        if (kreamAveragePrice > 0 && ebayAveragePrice > 0) {
-            return (int) Math.round(kreamAveragePrice * KREAM_WEIGHT + ebayAveragePrice * EBAY_WEIGHT);
-        }
-
-        if (kreamAveragePrice > 0) {
-            return kreamAveragePrice;
-        }
-
-        return ebayAveragePrice;
-    }
-
     private String normalizeConditionGrade(String conditionGrade) {
         if (conditionGrade == null || conditionGrade.isBlank()) {
             return UNKNOWN_CONDITION_GRADE;
@@ -316,32 +312,22 @@ public class PriceCalculationService {
             int ebayAveragePrice,
             int baseMarketPrice
     ) {
-        if (kreamAveragePrice > 0 && ebayAveragePrice > 0) {
-            return String.format(
-                    "KREAM 유사 거래 %d건의 평균가 %,d원과 eBay 유사 거래 %d건의 평균가 %,d원을 각각 %.0f%%, %.0f%% 비율로 반영해 기준 시세 %,d원을 계산했습니다.",
-                    kreamCount,
-                    kreamAveragePrice,
-                    ebayCount,
-                    ebayAveragePrice,
-                    KREAM_WEIGHT * 100,
-                    EBAY_WEIGHT * 100,
-                    baseMarketPrice
-            );
-        }
-
-        if (kreamAveragePrice > 0) {
-            return String.format(
-                    "KREAM 유사 거래 %d건의 평균가 %,d원을 기준 시세로 사용했습니다.",
-                    kreamCount,
-                    kreamAveragePrice
-            );
-        }
-
-        return String.format(
-                "KREAM 유사 거래는 찾지 못했지만, eBay 유사 거래 %d건의 평균가 %,d원을 기준 시세로 사용했습니다.",
-                ebayCount,
-                ebayAveragePrice
+        // 기준 시세는 KREAM 단독이다(#89 실측 - 클래스 상단 주석 참고).
+        String kreamText = String.format(
+                "KREAM 새제품 유사 거래 %d건의 평균가 %,d원을 기준 시세로 사용했습니다.",
+                kreamCount,
+                kreamAveragePrice
         );
+
+        if (ebayAveragePrice > 0) {
+            return kreamText + String.format(
+                    " eBay 해외 매물 %d건(평균 %,d원)은 국내 실거래와 차이가 커 참고로만 표시합니다.",
+                    ebayCount,
+                    ebayAveragePrice
+            );
+        }
+
+        return kreamText;
     }
 
     private String makeConditionText(
@@ -427,15 +413,8 @@ public class PriceCalculationService {
     }
 
     private String makeComparisonText(int kreamAveragePrice, int ebayAveragePrice, int recommendedPrice) {
-        if (kreamAveragePrice > 0) {
-            return makePriceComparisonText("KREAM 평균가", kreamAveragePrice, recommendedPrice);
-        }
-
-        if (ebayAveragePrice > 0) {
-            return makePriceComparisonText("eBay 평균가", ebayAveragePrice, recommendedPrice);
-        }
-
-        return "";
+        // 이 경로에서 KREAM은 항상 있다(없으면 위에서 "시세 정보 없음"으로 끝난다)
+        return makePriceComparisonText("KREAM 평균가", kreamAveragePrice, recommendedPrice);
     }
 
     private String makePriceComparisonText(String sourceName, int averagePrice, int recommendedPrice) {

@@ -131,4 +131,42 @@ class PriceCalculationServiceTest {
         assertThat(response.priceRange()).isEqualTo("시세 정보 없음");
         verify(marketPriceDataLoader).loadKreamRows();
     }
+
+    private MarketPriceDataLoader.MarketPriceRow row(String source, int price) {
+        return new MarketPriceDataLoader.MarketPriceRow(
+                source, "Nike", "없는모델", "Panda", 270, "DS", true, price, "https://example.com");
+    }
+
+    @Test
+    void 이순위_기준_시세는_KREAM_단독이다() {
+        // #89 실측: 당근 실거래 예측 오차가 KREAM 단독 25% vs 혼합(0.7/0.3) 38%.
+        // eBay(해외 호가)를 섞을수록 나빠져서 기준 시세에서 뺐다.
+        when(usedMarketPriceProvider.find(anyString(), anyString())).thenReturn(Optional.empty());
+        when(marketPriceDataLoader.loadKreamRows()).thenReturn(List.of(row("KREAM", 100_000)));
+        when(marketPriceDataLoader.loadEbayRows()).thenReturn(List.of(row("EBAY", 300_000)));
+
+        CalculatePriceResponse response = newService().calculate(request("Nike", "없는모델", "DS"));
+
+        // 혼합이었다면 기준 시세가 160,000이 됐을 것이다
+        assertThat(response.baseMarketPrice()).isEqualTo(100_000);
+        // eBay는 계산에서 빠지되 참고 정보로는 남는다
+        assertThat(response.ebayAveragePrice()).isEqualTo(300_000);
+        assertThat(response.reason()).contains("참고로만 표시");
+    }
+
+    @Test
+    void eBay만_있으면_가격을_만들지_않는다() {
+        // eBay 단독 예측 오차 155% - 틀린 값보다 "없음"이 낫다
+        when(usedMarketPriceProvider.find(anyString(), anyString())).thenReturn(Optional.empty());
+        when(marketPriceDataLoader.loadKreamRows()).thenReturn(List.of());
+        when(marketPriceDataLoader.loadEbayRows()).thenReturn(List.of(row("EBAY", 300_000)));
+
+        CalculatePriceResponse response = newService().calculate(request("Nike", "없는모델", "DS"));
+
+        assertThat(response.recommendedPrice()).isZero();
+        assertThat(response.priceRange()).isEqualTo("시세 정보 없음");
+        // 참고용으로는 보여준다
+        assertThat(response.ebayAveragePrice()).isEqualTo(300_000);
+        assertThat(response.ebayMatches()).hasSize(1);
+    }
 }
