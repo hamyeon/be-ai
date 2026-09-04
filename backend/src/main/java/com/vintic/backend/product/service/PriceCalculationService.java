@@ -3,12 +3,14 @@ package com.vintic.backend.product.service;
 import com.vintic.backend.product.dto.CalculatePriceRequest;
 import com.vintic.backend.product.dto.CalculatePriceResponse;
 import com.vintic.backend.product.service.MarketPriceDataLoader.MarketPriceRow;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
+@Slf4j
 @Service
 public class PriceCalculationService {
 
@@ -46,6 +48,12 @@ public class PriceCalculationService {
             return calculateFromUsedMarket(request, usedMarket.get());
         }
 
+        // 중고 시세에 없는 모델은 그 자체가 커버리지 구멍이다. 어떤 모델을 확대해야
+        // 하는지 감이 아니라 실요청 빈도로 정하기 위해 기록한다(#89).
+        // 메트릭 태그가 아니라 로그인 이유: 모델명은 값의 종류가 무한해서 태그로 쓰면
+        // 카디널리티가 터진다(#51에서 정한 규칙).
+        log.info("중고 시세 미보유(2순위 폴백): brand={}, model={}", request.brand(), request.modelName());
+
         List<MarketPriceRow> kreamRows = marketPriceDataLoader.loadKreamRows();
         List<MarketPriceRow> ebayRows = marketPriceDataLoader.loadEbayRows();
 
@@ -56,6 +64,9 @@ public class PriceCalculationService {
         int ebayAveragePrice = calculateAveragePrice(ebayMatches);
 
         if (kreamAveragePrice == 0 && ebayAveragePrice == 0) {
+            // 어떤 근거로도 가격을 못 준 요청. 커버리지 확대 우선순위의 1급 근거다(#89).
+            log.info("시세 정보 없음 응답: brand={}, model={}, color={}, size={}",
+                    request.brand(), request.modelName(), request.color(), request.size());
             return new CalculatePriceResponse(
                     0,
                     0,
