@@ -1,100 +1,100 @@
 {
   "regions_searched": 12,
-  "keywords_searched": 21,
-  "raw_items_seen": 28867,
-  "new_records_saved": 19206,
-  "duplicates_skipped": 9661,
+  "keywords_searched": 36,
+  "raw_items_seen": 31795,
+  "new_records_saved": 4574,
+  "duplicates_skipped": 27221,
   "dropped_missing_price_or_disallowed": 0,
-  "duplicate_rate": 0.335,
-  "missing_brand_guess_rate": 0.665,
+  "duplicate_rate": 0.856,
+  "missing_brand_guess_rate": 0.404,
   "missing_condition_grade_rate": 0.722,
-  "missing_box_included_rate": 0.901,
+  "missing_box_included_rate": 0.887,
   "missing_image_rate": 0.0,
-  "elapsed_seconds": 532.12,
+  "elapsed_seconds": 961.35,
   "by_region": [
     {
       "region": "대현동",
-      "raw_items_seen": 1849,
-      "new_records_saved": 136,
-      "duplicates_skipped": 1713,
-      "elapsed_seconds": 42.2
+      "raw_items_seen": 1935,
+      "new_records_saved": 117,
+      "duplicates_skipped": 1818,
+      "elapsed_seconds": 77.61
     },
     {
       "region": "방배동",
-      "raw_items_seen": 2683,
-      "new_records_saved": 285,
-      "duplicates_skipped": 2398,
-      "elapsed_seconds": 45.1
+      "raw_items_seen": 2932,
+      "new_records_saved": 357,
+      "duplicates_skipped": 2575,
+      "elapsed_seconds": 82.8
     },
     {
       "region": "역삼1동",
-      "raw_items_seen": 2968,
-      "new_records_saved": 2389,
-      "duplicates_skipped": 579,
-      "elapsed_seconds": 45.25
+      "raw_items_seen": 3375,
+      "new_records_saved": 826,
+      "duplicates_skipped": 2549,
+      "elapsed_seconds": 82.64
     },
     {
       "region": "상도제1동",
-      "raw_items_seen": 2056,
-      "new_records_saved": 1502,
-      "duplicates_skipped": 554,
-      "elapsed_seconds": 42.92
+      "raw_items_seen": 2204,
+      "new_records_saved": 197,
+      "duplicates_skipped": 2007,
+      "elapsed_seconds": 78.34
     },
     {
       "region": "영등포동",
-      "raw_items_seen": 1393,
-      "new_records_saved": 900,
-      "duplicates_skipped": 493,
-      "elapsed_seconds": 41.23
+      "raw_items_seen": 1449,
+      "new_records_saved": 79,
+      "duplicates_skipped": 1370,
+      "elapsed_seconds": 74.06
     },
     {
       "region": "화양동",
-      "raw_items_seen": 2577,
-      "new_records_saved": 1994,
-      "duplicates_skipped": 583,
-      "elapsed_seconds": 44.71
+      "raw_items_seen": 2824,
+      "new_records_saved": 367,
+      "duplicates_skipped": 2457,
+      "elapsed_seconds": 81.45
     },
     {
       "region": "신림동",
-      "raw_items_seen": 3022,
-      "new_records_saved": 2540,
-      "duplicates_skipped": 482,
-      "elapsed_seconds": 46.07
+      "raw_items_seen": 3605,
+      "new_records_saved": 840,
+      "duplicates_skipped": 2765,
+      "elapsed_seconds": 85.05
     },
     {
       "region": "길동",
-      "raw_items_seen": 2863,
-      "new_records_saved": 2283,
-      "duplicates_skipped": 580,
-      "elapsed_seconds": 46.17
+      "raw_items_seen": 3204,
+      "new_records_saved": 573,
+      "duplicates_skipped": 2631,
+      "elapsed_seconds": 82.46
     },
     {
       "region": "행운동",
-      "raw_items_seen": 1844,
-      "new_records_saved": 1307,
-      "duplicates_skipped": 537,
-      "elapsed_seconds": 42.67
+      "raw_items_seen": 1954,
+      "new_records_saved": 180,
+      "duplicates_skipped": 1774,
+      "elapsed_seconds": 75.58
     },
     {
       "region": "진관동",
-      "raw_items_seen": 2868,
-      "new_records_saved": 2277,
-      "duplicates_skipped": 591,
-      "elapsed_seconds": 45.52
+      "raw_items_seen": 3186,
+      "new_records_saved": 457,
+      "duplicates_skipped": 2729,
+      "elapsed_seconds": 82.46
     },
     {
       "region": "문정2동",
-      "raw_items_seen": 1913,
-      "new_records_saved": 1365,
-      "duplicates_skipped": 548,
-      "elapsed_seconds": 44.08
+      "raw_items_seen": 2036,
+      "new_records_saved": 173,
+      "duplicates_skipped": 1863,
+      "elapsed_seconds": 75.24
     },
     {
       "region": "석촌동",
-      "raw_items_seen": 2831,
-      "new_records_saved": 2228,
-      "duplicates_skipped": 603,
-      "elapsed_seconds": 45.72
+      "raw_items_seen": 3091,
+      "new_records_saved": 408,
+      "duplicates_skipped": 2683,
+      "elapsed_seconds": 83.21
     }
   ]
 }

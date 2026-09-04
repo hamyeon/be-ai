@@ -18,9 +18,12 @@ OUT = ROOT / "backend" / "src" / "main" / "resources" / "data" / "kream_normaliz
 
 # product_id -> (브랜드, 모델명, 컬러웨이). 표준(상시) 컬러웨이만 고른다.
 INCLUDE = {
-    30987: ("Adidas", "Superstar", "White Black"),        # 오리지널 기본 컬러
-    28260: ("New Balance", "530", "Steel Grey"),          # 530 대표 상시 컬러
-    # Cortez(이전 수집분)는 product_id를 이름으로 찾는다 - main() 참고
+    30987: ("Adidas", "Superstar", "White Black"),         # 오리지널 기본 컬러
+    28260: ("New Balance", "530", "Steel Grey"),           # 530 대표 상시 컬러
+    385971: ("Nike", "Cortez", "White Varsity Red (W)"),   # 코르테즈 클래식 (W)
+    270425: ("Nike", "Cortez", "White Black"),             # 코르테즈 클래식 (남성)
+    273000: ("Nike", "Cortez", "White Black (W)"),         # 코르테즈 클래식 (W)
+    65216: ("New Balance", "574", "Legacy Navy"),          # 574 대표 상시 라인
 }
 
 # 수집됐지만 참조로 쓰지 않는 상품과 이유. 실수로 INCLUDE에 옮기지 않도록 기록한다.
@@ -37,11 +40,7 @@ def main():
             p = json.loads(line)
             products[p["product_id"]] = p
 
-    # Cortez는 이전 수집분이라 product_id를 URL에서 찾는다
     include = dict(INCLUDE)
-    for pid, p in products.items():
-        if "코르테즈" in (p.get("name_ko") or "") and pid not in include and pid not in EXCLUDE:
-            include[pid] = ("Nike", "Cortez", "White Varsity Red")
 
     existing = OUT.read_text(encoding="utf-8-sig")
     seen = set()
