@@ -14,6 +14,8 @@ MODEL_ALIASES = {
     "코르테즈": "cortez", "cortez": "cortez",
     "블레이저": "blazermid77", "blazer": "blazermid77",
     "보메로": "vomero", "vomero": "vomero",
+    "덩크하이": "dunkhigh", "덩크 하이": "dunkhigh", "dunk high": "dunkhigh",
+    "에어맥스90": "airmax90", "에어맥스 90": "airmax90", "air max 90": "airmax90",
     "덩크로우": "dunklow", "덩크 로우": "dunklow", "덩크로": "dunklow",
     "dunk low": "dunklow", "덩크": "dunklow",
     "에어맥스95": "airmax95", "에어맥스 95": "airmax95", "air max 95": "airmax95", "am95": "airmax95",

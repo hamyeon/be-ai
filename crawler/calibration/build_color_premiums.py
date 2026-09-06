@@ -26,7 +26,7 @@ OUT = ROOT / "backend" / "src" / "main" / "resources" / "data" / "kream_color_pr
 # 체결 5건(상품 페이지 한 번)이 최소 단위다. 그보다 적으면 버킷을 만들지 않는다.
 MIN_TRADES = 5
 # 별개 모델이 섞이면 프리미엄이 아니라 모델 차이를 재게 된다 (merge_kream_crawl과 동일)
-EXCLUDE_PRODUCT_IDS = {406041}  # 슈퍼스타 2 - 저가 별도 라인
+EXCLUDE_PRODUCT_IDS = {406041, 34573, 369}  # 슈퍼스타2(별도 라인), 앰부쉬 덩크(콜라보), SB 하이네켄(콜라보 한정)
 
 
 def color_key(name):
