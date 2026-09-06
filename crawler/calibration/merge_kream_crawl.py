@@ -33,6 +33,9 @@ INCLUDE = {
     317696: ("New Balance", "1906", "Silver Metallic (1906A)"),
     37186: ("Nike", "Dunk High", "Championship White"),    # 덩크하이 대표 상시 컬러
     57601: ("Nike", "Air Max 90", "Triple White"),         # 에어맥스90 대표 상시 컬러
+    266659: ("Nike", "V2K Run", "Black Anthracite"),       # V2K 상시 컬러 3종
+    137241: ("Nike", "V2K Run", "Summit White Silver"),
+    229964: ("Nike", "V2K Run", "Light Orewood Brown"),
 }
 
 # 수집됐지만 참조로 쓰지 않는 상품과 이유. 실수로 INCLUDE에 옮기지 않도록 기록한다.
@@ -44,6 +47,7 @@ EXCLUDE = {
     81175: "(W) 보메로 5 - 여성판. 남녀 가격차가 색상 차이보다 커서 참조·프리미엄 모두 제외",
     34573: "앰부쉬 덩크 하이 - 콜라보. 프리미엄이 색이 아니라 협업에서 나온다",
     369: "SB 덩크 로우 하이네켄 - 콜라보 한정(체결 450만원). 어떤 산출에도 못 쓴다",
+    329970: "스탠스미스 데콘 - 프리미엄 라인 변형, 체결가 스프레드 3배(89k~257k). 기본형 참조가 필요하다",
 }
 
 

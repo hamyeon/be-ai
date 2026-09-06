@@ -1,6 +1,8 @@
 brand,model_key,color_family,premium,trade_count,color_median,model_median
 Dr. Martens,dm1461,black,0.984,10,181000,184000
 Dr. Martens,dm1461,brown,1.049,5,193000,184000
+Nike,v2krun,black,1.0,5,91000,91000
+Nike,v2krun,brown+green,0.802,5,73000,91000
 Nike,vomero,black,1.068,5,126000,118000
 Nike,vomero,white,0.932,5,110000,118000
 Salomon,xt6,black,1.044,5,250000,239500
