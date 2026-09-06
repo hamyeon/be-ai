@@ -21,11 +21,15 @@
         "modelKeywords": [
           "dimension"
         ],
+        "colorKeywords": [
+          "cloud white",
+          "white"
+        ],
         "size": 275,
         "boxIncluded": null,
         "conditionGrade": "A"
       },
-      "groundTruthSource": "판매글: 라벨사이즈 275 / 상태 양호"
+      "groundTruthSource": "판매글: 라벨사이즈 275 / 상태 양호 / 제목 색상: 클라우드 화이트"
     },
     {
       "id": "adidas-golf-adipower-230",
@@ -41,6 +45,7 @@
           "Adidas"
         ],
         "modelKeywords": null,
+        "colorKeywords": null,
         "size": 230,
         "boxIncluded": null,
         "conditionGrade": "A"
@@ -64,6 +69,7 @@
         "modelKeywords": [
           "nmd"
         ],
+        "colorKeywords": null,
         "size": 275,
         "boxIncluded": null,
         "conditionGrade": "C"
@@ -88,6 +94,7 @@
         "modelKeywords": [
           "metarun"
         ],
+        "colorKeywords": null,
         "size": 255,
         "boxIncluded": null,
         "conditionGrade": "A"
@@ -110,11 +117,14 @@
           "Nike"
         ],
         "modelKeywords": null,
+        "colorKeywords": [
+          "black"
+        ],
         "size": 230,
         "boxIncluded": null,
         "conditionGrade": "B"
       },
-      "groundTruthSource": "판매글: 사이즈 230mm / 밑창 사용감"
+      "groundTruthSource": "판매글: 사이즈 230mm / 밑창 사용감 / 제목 색상: 블랙"
     },
     {
       "id": "newbalance-530-230-multi",
@@ -131,6 +141,7 @@
         "modelKeywords": [
           "530"
         ],
+        "colorKeywords": null,
         "size": 230,
         "boxIncluded": null,
         "conditionGrade": "A"
@@ -152,11 +163,15 @@
         "modelKeywords": [
           "1906"
         ],
+        "colorKeywords": [
+          "grey",
+          "gray"
+        ],
         "size": 230,
         "boxIncluded": null,
         "conditionGrade": "DS"
       },
-      "groundTruthSource": "판매글: 사이즈 230mm / 새 제품"
+      "groundTruthSource": "판매글: 사이즈 230mm / 새 제품 / 제목 색상: 회색"
     },
     {
       "id": "newbalance-574-275",
@@ -174,11 +189,15 @@
         "modelKeywords": [
           "574"
         ],
+        "colorKeywords": [
+          "grey",
+          "gray"
+        ],
         "size": 275,
         "boxIncluded": null,
         "conditionGrade": "DS"
       },
-      "groundTruthSource": "판매글: 사이즈 275 / 10분 실내착용, 택·박스 보관"
+      "groundTruthSource": "판매글: 사이즈 275 / 10분 실내착용, 택·박스 보관 / 제목 색상: 포터리 그레이"
     },
     {
       "id": "nike-cortez-240",
@@ -195,6 +214,7 @@
         "modelKeywords": [
           "cortez"
         ],
+        "colorKeywords": null,
         "size": 240,
         "boxIncluded": null,
         "conditionGrade": "A"
@@ -216,6 +236,7 @@
         "modelKeywords": [
           "huarache"
         ],
+        "colorKeywords": null,
         "size": 220,
         "boxIncluded": null,
         "conditionGrade": "A"
@@ -240,11 +261,14 @@
         "modelKeywords": [
           "daybreak"
         ],
+        "colorKeywords": [
+          "gold"
+        ],
         "size": 280,
         "boxIncluded": null,
         "conditionGrade": "A"
       },
-      "groundTruthSource": "판매글: 라벨사이즈 280 / 상태 양호"
+      "groundTruthSource": "판매글: 라벨사이즈 280 / 상태 양호 / 제목 색상: 베가스 골드"
     },
     {
       "id": "underarmour-curry12-225",
@@ -264,6 +288,7 @@
         "modelKeywords": [
           "curry"
         ],
+        "colorKeywords": null,
         "size": 225,
         "boxIncluded": null,
         "conditionGrade": "C"
@@ -288,11 +313,14 @@
         "modelKeywords": [
           "slipon"
         ],
+        "colorKeywords": [
+          "black"
+        ],
         "size": 285,
         "boxIncluded": null,
         "conditionGrade": "C"
       },
-      "groundTruthSource": "판매글: 라벨사이즈 285 / 사용감 많음"
+      "groundTruthSource": "판매글: 라벨사이즈 285 / 사용감 많음 / 제목 색상: 블랙"
     },
     {
       "id": "vans-checkerboard-225",
@@ -311,11 +339,16 @@
         "modelKeywords": [
           "checker"
         ],
+        "colorKeywords": [
+          "checkerboard",
+          "checker",
+          "checkered"
+        ],
         "size": 225,
         "boxIncluded": null,
         "conditionGrade": "A"
       },
-      "groundTruthSource": "판매글: 사이즈 225 / 1회 착용"
+      "groundTruthSource": "판매글: 사이즈 225 / 1회 착용 / 제목 색상: 체커보드(패턴만 명시, 색상 무관)"
     }
   ]
 }

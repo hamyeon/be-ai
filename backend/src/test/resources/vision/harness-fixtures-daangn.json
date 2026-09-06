@@ -16,11 +16,16 @@
         "modelKeywords": [
           "jordan"
         ],
+        "colorKeywords": [
+          "wolf grey",
+          "grey",
+          "gray"
+        ],
         "size": 240,
         "boxIncluded": null,
         "conditionGrade": null
       },
-      "groundTruthSource": "판매글: 조던 1 로우 울프그레이 / 사이즈 240 (US 7)"
+      "groundTruthSource": "판매글: 조던 1 로우 울프그레이 / 사이즈 240 (US 7) / 제목 색상: 울프그레이"
     },
     {
       "id": "nike-airmax-furyosa-245",
@@ -35,6 +40,7 @@
         "modelKeywords": [
           "airmax"
         ],
+        "colorKeywords": null,
         "size": 245,
         "boxIncluded": null,
         "conditionGrade": "A"
@@ -54,6 +60,7 @@
         "modelKeywords": [
           "falcon"
         ],
+        "colorKeywords": null,
         "size": 280,
         "boxIncluded": null,
         "conditionGrade": "A"
@@ -73,11 +80,14 @@
         "modelKeywords": [
           "bermuda"
         ],
+        "colorKeywords": [
+          "mint"
+        ],
         "size": 240,
         "boxIncluded": null,
         "conditionGrade": "B"
       },
-      "groundTruthSource": "판매글: 사이즈 240mm / 뒷부분 사용감 조금"
+      "groundTruthSource": "판매글: 사이즈 240mm / 뒷부분 사용감 조금 / 제목 색상: 민트"
     },
     {
       "id": "newbalance-550-225",
@@ -92,11 +102,14 @@
         "modelKeywords": [
           "550"
         ],
+        "colorKeywords": [
+          "white"
+        ],
         "size": 225,
         "boxIncluded": null,
         "conditionGrade": "DS"
       },
-      "groundTruthSource": "판매글: 사이즈 225mm (37 EU) / 신지 않음"
+      "groundTruthSource": "판매글: 사이즈 225mm (37 EU) / 신지 않음 / 제목 색상: 화이트"
     },
     {
       "id": "newbalance-2002rc-225",
@@ -111,6 +124,7 @@
         "modelKeywords": [
           "2002"
         ],
+        "colorKeywords": null,
         "size": 225,
         "boxIncluded": null,
         "conditionGrade": "A"
@@ -130,6 +144,7 @@
         "modelKeywords": [
           "1906"
         ],
+        "colorKeywords": null,
         "size": 245,
         "boxIncluded": null,
         "conditionGrade": "DS"
@@ -149,11 +164,15 @@
         "modelKeywords": [
           "1461"
         ],
+        "colorKeywords": [
+          "crazy horse",
+          "brown"
+        ],
         "size": 290,
         "boxIncluded": null,
         "conditionGrade": "A"
       },
-      "groundTruthSource": "판매글: 사이즈 290 / 실착 1회"
+      "groundTruthSource": "판매글: 사이즈 290 / 실착 1회 / 제목 색상: 크레이지 호스(브라운 가죽)"
     },
     {
       "id": "drmartens-1461-3hole-260",
@@ -168,11 +187,14 @@
         "modelKeywords": [
           "1461"
         ],
+        "colorKeywords": [
+          "brown"
+        ],
         "size": 260,
         "boxIncluded": false,
         "conditionGrade": "B"
       },
-      "groundTruthSource": "판매글: 사이즈 260 / 실착 4회 / 박스 없음"
+      "groundTruthSource": "판매글: 사이즈 260 / 실착 4회 / 박스 없음 / 제목 색상: 브라운"
     },
     {
       "id": "drmartens-1460-bex-270",
@@ -187,11 +209,14 @@
         "modelKeywords": [
           "1460"
         ],
+        "colorKeywords": [
+          "black"
+        ],
         "size": 270,
         "boxIncluded": true,
         "conditionGrade": "DS"
       },
-      "groundTruthSource": "판매글: 사이즈 270 (UK8) / 새제품 / 박스 포함"
+      "groundTruthSource": "판매글: 사이즈 270 (UK8) / 새제품 / 박스 포함 / 제목 색상: 블랙"
     },
     {
       "id": "vans-classic-slipon-285",
@@ -206,11 +231,14 @@
         "modelKeywords": [
           "slipon"
         ],
+        "colorKeywords": [
+          "black"
+        ],
         "size": 285,
         "boxIncluded": null,
         "conditionGrade": "C"
       },
-      "groundTruthSource": "판매글: 라벨사이즈 285 / 사용감 많음"
+      "groundTruthSource": "판매글: 라벨사이즈 285 / 사용감 많음 / 제목 색상: 블랙"
     },
     {
       "id": "asics-metarun-255",
@@ -225,6 +253,7 @@
         "modelKeywords": [
           "metarun"
         ],
+        "colorKeywords": null,
         "size": 255,
         "boxIncluded": null,
         "conditionGrade": "A"
@@ -244,11 +273,15 @@
         "modelKeywords": [
           "sonoma"
         ],
+        "colorKeywords": [
+          "grey",
+          "gray"
+        ],
         "size": 270,
         "boxIncluded": null,
         "conditionGrade": null
       },
-      "groundTruthSource": "판매글: 사이즈 270mm"
+      "groundTruthSource": "판매글: 사이즈 270mm / 제목 색상: 회색"
     },
     {
       "id": "puma-future7-pro-265",
@@ -263,6 +296,7 @@
         "modelKeywords": [
           "future"
         ],
+        "colorKeywords": null,
         "size": 265,
         "boxIncluded": true,
         "conditionGrade": "A"
@@ -282,6 +316,7 @@
         "modelKeywords": [
           "gsm"
         ],
+        "colorKeywords": null,
         "size": 240,
         "boxIncluded": null,
         "conditionGrade": null
@@ -301,6 +336,7 @@
         "modelKeywords": [
           "taichi"
         ],
+        "colorKeywords": null,
         "size": 230,
         "boxIncluded": null,
         "conditionGrade": "A"
@@ -320,6 +356,7 @@
         "modelKeywords": [
           "hopara"
         ],
+        "colorKeywords": null,
         "size": 230,
         "boxIncluded": true,
         "conditionGrade": "DS"
@@ -340,11 +377,14 @@
           "chuck",
           "70"
         ],
+        "colorKeywords": [
+          "brown"
+        ],
         "size": 240,
         "boxIncluded": null,
         "conditionGrade": "A"
       },
-      "groundTruthSource": "판매글: 사이즈 240 / 1회 착용, 상태 아주 양호"
+      "groundTruthSource": "판매글: 사이즈 240 / 1회 착용, 상태 아주 양호 / 제목 색상: 브라운"
     }
   ]
 }
