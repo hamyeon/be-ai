@@ -40,9 +40,9 @@ class ConditionRateProviderTest {
 
     @Test
     void 공통_실측값도_없으면_기존_기본값을_유지한다() {
-        // C는 표본이 기준을 넘었지만 등급 서열을 깨서(C 0.32 > B 0.28) 산출에서
-        // 제외됐다 - "미세 하자, 거의 새것" 매물이 하자 키워드에 걸리는 과포착.
-        // 서열을 깨는 실측은 싣지 않고 기본값을 유지한다.
+        // C는 부정어·정도 정제(#93) 후 표본 28건으로 기준(50) 미달이라 기본값 유지.
+        // 정제 전에는 과포착("미세 하자, 거의 새것"이 C로) 탓에 서열 역전(0.32>B)이
+        // 났었고, 정제 후 실측 중앙값 0.23은 기본값 0.20과 부합한다.
         ConditionRate rate = provider.resolve("Dunk Low", "C");
 
         assertThat(rate.basis()).isEqualTo(Basis.DEFAULT);
@@ -71,8 +71,11 @@ class ConditionRateProviderTest {
 
         assertThat(all.basis()).isEqualTo(Basis.MEASURED_COMMON);
         assertThat(all.sampleSize()).isGreaterThan(100);
-        // 전체에는 새상품 매물이 포함되므로 UNKNOWN(상태 단서 없음)보다 높아야 한다
-        assertThat(all.rate()).isGreaterThan(provider.resolve(null, "UNKNOWN").rate());
+        // ALL은 전 등급을 포괄하므로 최상급(DS)과 최하위 측정치 사이에 있어야 한다.
+        // (처음엔 "ALL > UNKNOWN"을 단정했다가 C 정제로 버킷 구성이 바뀌며 깨졌다 -
+        //  둘의 서열은 불변식이 아니라 그때그때의 구성에 달린 값이다)
+        assertThat(all.rate()).isLessThan(provider.resolve(null, "DS").rate());
+        assertThat(all.rate()).isGreaterThan(provider.resolve(null, "B").rate());
     }
 
     @Test
