@@ -24,6 +24,8 @@ STANDARD = {
     "574":           "Legacy Navy - 574 대표 상시 라인",
     "1461":          "Smooth Black - 1461 대표 상시 가죽·컬러 (크레이지홀스·모노 변형은 제외)",
     "blazermid77":   "White Black - 블레이저 미드 77 빈티지 대표 컬러",
+    "vomero":        "Black/Summit White - 보메로 5·18 상시 컬러 (당근 매물이 두 라인 혼합이라 참조도 혼합)",
+    "1906":          "Silver Metallic - 1906 라인 대표 컬러 계열",
 }
 
 LIMITED = {
