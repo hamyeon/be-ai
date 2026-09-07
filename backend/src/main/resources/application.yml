@@ -19,6 +19,12 @@ cloud:
       secret-key: ${AWS_SECRET_ACCESS_KEY}
     s3:
       bucket: vintic-mvp-bucket-123
+      # Presigned PUT URL 발급(S3Presigner) 전용 설정. S3Client(S3UploaderService)는 기존
+      # static credentials를 그대로 쓰고, 이 presigner만 DefaultCredentialsProvider를 쓴다.
+      presign:
+        expiry-seconds: ${ANALYSIS_JOB_UPLOAD_PRESIGN_EXPIRY_SECONDS:600}
+        # 비어있으면 실제 AWS 기본 엔드포인트, 채우면 LocalStack.
+        endpoint-override: ${ANALYSIS_JOB_UPLOAD_PRESIGN_ENDPOINT:}
     region:
       static: ap-northeast-2
 
@@ -48,6 +54,18 @@ analysis:
     key: ${ANALYSIS_STREAM_KEY:ai:analysis:requests}
     group: ${ANALYSIS_STREAM_GROUP:ai-analysis-workers}
     consumer-prefix: ${ANALYSIS_STREAM_CONSUMER_PREFIX:worker}
+  # 인프라 스프린트 SQS 비동기 파이프라인(ProductAnalysisJob)의 QueuePublisher 설정.
+  # type을 비워두면(기본값) InMemory/SqsQueuePublisher 둘 다 빈으로 등록되지 않아 기동이
+  # 실패한다 - 운영 환경에서 설정 누락이 조용히 InMemory로 대체되는 것을 막기 위한 의도적인
+  # fail-fast다. local 프로필에서만 in-memory로 명시적으로 켠다(application-local.yml).
+  job:
+    queue:
+      type: ${ANALYSIS_JOB_QUEUE_TYPE:}
+      sqs:
+        queue-url: ${ANALYSIS_JOB_QUEUE_URL:}
+        region: ${ANALYSIS_JOB_QUEUE_REGION:ap-northeast-2}
+        # 비어있으면 실제 AWS 기본 엔드포인트를 쓴다. LocalStack에서만 이 값을 채운다.
+        endpoint-override: ${ANALYSIS_JOB_QUEUE_ENDPOINT:}
 
 # 추천용 상품 벡터 백필.
 #

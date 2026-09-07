@@ -16,6 +16,13 @@ spring:
       host: ${LOCAL_REDIS_HOST:localhost}
       port: ${LOCAL_REDIS_PORT:6379}
 
+# 로컬/이 프로필을 재사용하는 MySqlIT들은 실제 SQS/LocalStack이 없어도 컨텍스트가 떠야 하므로
+# QueuePublisher를 명시적으로 in-memory로 켠다.
+analysis:
+  job:
+    queue:
+      type: in-memory
+
 # 로컬에서는 관리 엔드포인트를 서비스 포트에서 그대로 쓴다.
 # 포트 분리는 배포 환경에서 보안그룹으로 막기 위한 것이라 로컬에서는 번거롭기만 하다.
 management:

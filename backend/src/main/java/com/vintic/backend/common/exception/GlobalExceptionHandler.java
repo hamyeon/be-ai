@@ -1,5 +1,7 @@
 package com.vintic.backend.common.exception;
 
+import com.vintic.backend.analyze.job.ProductAnalysisJobAccessDeniedException;
+import com.vintic.backend.analyze.job.ProductAnalysisJobNotFoundException;
 import com.vintic.backend.common.auth.mock.MockAuthException;
 import com.vintic.backend.common.dto.ApiResponse;
 import org.springframework.dao.PessimisticLockingFailureException;
@@ -321,6 +323,20 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handlePessimisticLockingFailureException(PessimisticLockingFailureException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiResponse.fail(40909, "다른 요청과 충돌이 발생했습니다. 잠시 후 다시 시도해주세요."));
+    }
+
+    // 존재하지 않는 ProductAnalysisJob 조회/재발행 (404 Not Found)
+    @ExceptionHandler(ProductAnalysisJobNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleProductAnalysisJobNotFoundException(ProductAnalysisJobNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40406, e.getMessage()));
+    }
+
+    // 소유자가 아닌 사용자의 ProductAnalysisJob 조회 시도 (403 Forbidden)
+    @ExceptionHandler(ProductAnalysisJobAccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleProductAnalysisJobAccessDeniedException(ProductAnalysisJobAccessDeniedException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.fail(40306, e.getMessage()));
     }
 
     // 존재하지 않는 경로 (404 Not Found)
