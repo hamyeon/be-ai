@@ -29,6 +29,7 @@ STANDARD = {
     "dunkhigh":      "Championship White - 덩크하이 대표 상시 컬러",
     "airmax90":      "Triple White - 에어맥스90 대표 상시 컬러",
     "v2krun":        "Black/Summit White/Orewood - V2K 상시 컬러 3종",
+    "chuck70":       "Black - 척70 대표 표준 컬러",
 }
 
 LIMITED = {

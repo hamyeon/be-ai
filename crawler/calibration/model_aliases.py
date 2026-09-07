@@ -50,6 +50,8 @@ MODEL_ALIASES = {
     # ASICS
     "젤카야노14": "gelkayano14", "젤 카야노 14": "gelkayano14",
     "카야노14": "gelkayano14", "카야노 14": "gelkayano14", "gel kayano 14": "gelkayano14",
+    # Converse
+    "척70": "chuck70", "척 70": "chuck70", "chuck 70": "chuck70",
     # Salomon
     "xt6": "xt6", "xt-6": "xt6", "xt 6": "xt6",
 }
