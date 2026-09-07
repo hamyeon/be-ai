@@ -22,6 +22,14 @@ STANDARD = {
     "530":           "Steel Grey - 530 대표 상시 컬러",
     "cortez":        "White Varsity Red/White Black - 클래식 컬러 (남성·W 모두 포함)",
     "574":           "Legacy Navy - 574 대표 상시 라인",
+    "1461":          "Smooth Black - 1461 대표 상시 가죽·컬러 (크레이지홀스·모노 변형은 제외)",
+    "blazermid77":   "White Black - 블레이저 미드 77 빈티지 대표 컬러",
+    "vomero":        "Black/Summit White - 보메로 5·18 상시 컬러 (당근 매물이 두 라인 혼합이라 참조도 혼합)",
+    "1906":          "Silver Metallic - 1906 라인 대표 컬러 계열",
+    "dunkhigh":      "Championship White - 덩크하이 대표 상시 컬러",
+    "airmax90":      "Triple White - 에어맥스90 대표 상시 컬러",
+    "v2krun":        "Black/Summit White/Orewood - V2K 상시 컬러 3종",
+    "chuck70":       "Black - 척70 대표 표준 컬러",
 }
 
 LIMITED = {

@@ -40,12 +40,13 @@ class ConditionRateProviderTest {
 
     @Test
     void 공통_실측값도_없으면_기존_기본값을_유지한다() {
-        // S는 표본이 12건뿐이라 CSV에 넣지 않았다. 12건짜리 중앙값으로 계수를 바꾸면
-        // 근거 없는 값을 근거 없는 값으로 바꾸는 것뿐이다.
-        ConditionRate rate = provider.resolve("Dunk Low", "S");
+        // C는 부정어·정도 정제(#93) 후 표본 28건으로 기준(50) 미달이라 기본값 유지.
+        // 정제 전에는 과포착("미세 하자, 거의 새것"이 C로) 탓에 서열 역전(0.32>B)이
+        // 났었고, 정제 후 실측 중앙값 0.23은 기본값 0.20과 부합한다.
+        ConditionRate rate = provider.resolve("Dunk Low", "C");
 
         assertThat(rate.basis()).isEqualTo(Basis.DEFAULT);
-        assertThat(rate.rate()).isEqualTo(0.70);
+        assertThat(rate.rate()).isEqualTo(0.20);
         assertThat(rate.sampleSize()).isZero();
     }
 
@@ -70,8 +71,11 @@ class ConditionRateProviderTest {
 
         assertThat(all.basis()).isEqualTo(Basis.MEASURED_COMMON);
         assertThat(all.sampleSize()).isGreaterThan(100);
-        // 전체에는 새상품 매물이 포함되므로 UNKNOWN(상태 단서 없음)보다 높아야 한다
-        assertThat(all.rate()).isGreaterThan(provider.resolve(null, "UNKNOWN").rate());
+        // ALL은 전 등급을 포괄하므로 최상급(DS)과 최하위 측정치 사이에 있어야 한다.
+        // (처음엔 "ALL > UNKNOWN"을 단정했다가 C 정제로 버킷 구성이 바뀌며 깨졌다 -
+        //  둘의 서열은 불변식이 아니라 그때그때의 구성에 달린 값이다)
+        assertThat(all.rate()).isLessThan(provider.resolve(null, "DS").rate());
+        assertThat(all.rate()).isGreaterThan(provider.resolve(null, "B").rate());
     }
 
     @Test

@@ -23,11 +23,14 @@ import java.util.Optional;
 public class UsedMarketPriceProvider {
 
     private static final String CSV_PATH = "data/used_market_prices.csv";
+    private static final String COLOR_CSV_PATH = "data/used_market_prices_by_color.csv";
 
     private final List<UsedMarketPrice> rows = new ArrayList<>();
+    private final List<ColorPrice> colorRows = new ArrayList<>();
 
     public UsedMarketPriceProvider() {
         load();
+        loadColors();
     }
 
     /**
@@ -45,6 +48,26 @@ public class UsedMarketPriceProvider {
                 .filter(row -> row.brandNorm().equals(requestBrand))
                 .filter(row -> row.modelNorm().contains(requestModel)
                         || requestModel.contains(row.modelNorm()))
+                .findFirst();
+    }
+
+    /**
+     * 같은 모델의 "같은 색상 계열" 시세 (#93). 색상 표기는 계열로 정규화해 비교하므로
+     * "Wolf Gray"/"그레이"/"회색"이 전부 grey 버킷에 붙는다.
+     * 색상 버킷이 없으면 empty - 호출부는 모델 시세로 폴백한다(정확도가 나빠지는 경로 없음).
+     */
+    public Optional<ColorPrice> findColor(String brand, String modelName, String color) {
+        String requestBrand = normalize(brand);
+        String requestModel = normalize(modelName);
+        Optional<String> key = ColorFamilies.colorKey(color);
+        if (requestBrand.isEmpty() || requestModel.isEmpty() || key.isEmpty()) {
+            return Optional.empty();
+        }
+        return colorRows.stream()
+                .filter(row -> row.brandNorm().equals(requestBrand))
+                .filter(row -> row.modelNorm().contains(requestModel)
+                        || requestModel.contains(row.modelNorm()))
+                .filter(row -> row.colorFamily().equals(key.get()))
                 .findFirst();
     }
 
@@ -96,11 +119,62 @@ public class UsedMarketPriceProvider {
         }
     }
 
+    // 색상 CSV도 파일이 없거나 깨져도 색상 시세만 포기하고 동작한다
+    private void loadColors() {
+        try {
+            ClassPathResource resource = new ClassPathResource(COLOR_CSV_PATH);
+            if (!resource.exists()) {
+                return;
+            }
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8))) {
+                reader.readLine(); // 헤더
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.isBlank()) {
+                        continue;
+                    }
+                    String[] c = line.split(",", -1);
+                    if (c.length < 7) {
+                        continue;
+                    }
+                    try {
+                        colorRows.add(new ColorPrice(
+                                normalize(c[0]),
+                                normalize(c[1]),
+                                c[2].trim(),
+                                Integer.parseInt(c[3].trim()),
+                                Integer.parseInt(c[4].trim()),
+                                Integer.parseInt(c[5].trim()),
+                                Integer.parseInt(c[6].trim())
+                        ));
+                    } catch (NumberFormatException e) {
+                        // 한 줄이 깨져도 나머지는 읽는다
+                    }
+                }
+            }
+        } catch (Exception e) {
+            colorRows.clear();
+        }
+    }
+
     public record UsedMarketPrice(
             String brand,
             String brandNorm,
             String modelNorm,
             String modelDisplay,
+            int listingCount,
+            int medianPrice,
+            int q1Price,
+            int q3Price
+    ) {
+    }
+
+    /** (모델, 색상 계열) 시세 버킷. 표본이 서는 버킷만 CSV에 실린다(#93). */
+    public record ColorPrice(
+            String brandNorm,
+            String modelNorm,
+            String colorFamily,
             int listingCount,
             int medianPrice,
             int q1Price,

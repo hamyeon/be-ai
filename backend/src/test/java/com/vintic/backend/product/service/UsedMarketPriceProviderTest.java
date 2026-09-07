@@ -51,4 +51,25 @@ class UsedMarketPriceProviderTest {
         assertThat(provider.find("Nike", null)).isEmpty();
         assertThat(provider.find("  ", "  ")).isEmpty();
     }
+
+    @Test
+    void 색상_표기가_달라도_같은_색상_버킷을_찾는다() {
+        // 조던1 grey 버킷(실측 21건)에 "Wolf Gray"도 "회색"도 붙어야 한다 (#93)
+        var wolfGray = provider.findColor("Nike", "Jordan 1", "Wolf Gray");
+        var korean = provider.findColor("Nike", "Jordan 1", "회색");
+
+        assertThat(wolfGray).isPresent();
+        assertThat(korean).isPresent();
+        assertThat(wolfGray.get().colorFamily()).isEqualTo("grey");
+        assertThat(wolfGray.get().medianPrice()).isEqualTo(korean.get().medianPrice());
+        assertThat(wolfGray.get().listingCount()).isGreaterThanOrEqualTo(10);
+    }
+
+    @Test
+    void 색상_버킷이_없으면_empty로_모델_시세_폴백을_유도한다() {
+        // 색상을 판독 못 하거나 표본이 없는 색이면 empty - 호출부는 모델 시세를 쓴다
+        assertThat(provider.findColor("Nike", "Jordan 1", "Panda")).isEmpty();
+        assertThat(provider.findColor("Nike", "Jordan 1", null)).isEmpty();
+        assertThat(provider.findColor("Adidas", "Jordan 1", "grey")).isEmpty();
+    }
 }

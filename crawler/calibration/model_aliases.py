@@ -12,6 +12,11 @@ MODEL_ALIASES = {
     "에어포스1": "airforce1low", "에어포스 1": "airforce1low", "에어포스원": "airforce1low",
     "에어포스": "airforce1low", "air force 1": "airforce1low", "af1": "airforce1low",
     "코르테즈": "cortez", "cortez": "cortez",
+    "블레이저": "blazermid77", "blazer": "blazermid77",
+    "보메로": "vomero", "vomero": "vomero",
+    "v2k": "v2krun", "브이투케이": "v2krun",
+    "덩크하이": "dunkhigh", "덩크 하이": "dunkhigh", "dunk high": "dunkhigh",
+    "에어맥스90": "airmax90", "에어맥스 90": "airmax90", "air max 90": "airmax90",
     "덩크로우": "dunklow", "덩크 로우": "dunklow", "덩크로": "dunklow",
     "dunk low": "dunklow", "덩크": "dunklow",
     "에어맥스95": "airmax95", "에어맥스 95": "airmax95", "air max 95": "airmax95", "am95": "airmax95",
@@ -37,9 +42,16 @@ MODEL_ALIASES = {
     "뉴발530": "530", "nb530": "530", "new balance 530": "530", "nb 530": "530",
     "뉴발란스 574": "574", "뉴발란스574": "574", "뉴발 574": "574",
     "뉴발574": "574", "nb574": "574", "new balance 574": "574", "nb 574": "574",
+    # Dr. Martens - 숫자 단독("1461")은 가격·품번 등 무관한 숫자에 붙는다
+    "닥터마틴 1461": "1461", "닥터마틴1461": "1461", "닥마 1461": "1461", "마틴 1461": "1461",
+    # New Balance 1906 - 같은 이유로 브랜드/라인 표기가 붙은 형태만
+    "뉴발란스 1906": "1906", "뉴발란스1906": "1906", "뉴발 1906": "1906",
+    "뉴발1906": "1906", "1906r": "1906", "1906a": "1906", "nb1906": "1906",
     # ASICS
     "젤카야노14": "gelkayano14", "젤 카야노 14": "gelkayano14",
     "카야노14": "gelkayano14", "카야노 14": "gelkayano14", "gel kayano 14": "gelkayano14",
+    # Converse
+    "척70": "chuck70", "척 70": "chuck70", "chuck 70": "chuck70",
     # Salomon
     "xt6": "xt6", "xt-6": "xt6", "xt 6": "xt6",
 }

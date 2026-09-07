@@ -230,13 +230,30 @@ def write_csv(standard_by_cond, standard_by_model_cond):
 
     print(f"\n{out.relative_to(ROOT)} 작성")
     print("  [전 모델 공통]")
+    # 공통 계수도 등급 서열(DS>=S>=A>=B>=C)을 지켜야 내보낸다. 표본이 커진 뒤
+    # C(0.32) > B(0.28) 역전이 실제로 나왔다 - "미세 하자, 거의 새것" 같은 매물이
+    # 하자 키워드에 걸려 C로 분류되는 과포착이 원인으로 보인다. 서열을 깨는 등급은
+    # 기본값을 유지하는 편이 정직하다(모델별 가드와 같은 원칙).
+    common_measured = {}
     for grade, vals in sorted(standard_by_cond.items()):
         if len(vals) < MIN_SAMPLE:
             print(f"    {grade:<9} 제외 (n={len(vals)} < {MIN_SAMPLE}, 코드 기본값 유지)")
             continue
-        rate = round(statistics.median(vals), 3)
-        lines.append(f",{grade},{rate},{len(vals)},{NOTE}")
-        print(f"    {grade:<9} {rate:.3f}  (n={len(vals)})")
+        common_measured[grade] = (round(statistics.median(vals), 3), len(vals))
+
+    previous_rate = None
+    for grade in GRADE_ORDER:
+        if grade not in common_measured:
+            continue
+        rate, n = common_measured[grade]
+        if previous_rate is not None and rate > previous_rate:
+            print(f"    {grade:<9} 서열 역전으로 제외 ({rate:.3f} > 상위 등급 {previous_rate:.3f}, 기본값 유지)")
+            del common_measured[grade]
+            continue
+        previous_rate = rate
+    for grade, (rate, n) in sorted(common_measured.items()):
+        lines.append(f",{grade},{rate},{n},{NOTE}")
+        print(f"    {grade:<9} {rate:.3f}  (n={n})")
 
     print("  [모델별]")
     # 모델별로 모아 등급 서열을 검증한 뒤 쓴다
