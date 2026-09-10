@@ -58,7 +58,7 @@ GoalDraft (초안) → 프론트 확인·수정 화면 → POST /api/purchase-go
 
 ### 1-2. 모델 별칭 표 (`data/model_aliases.csv`, `ModelAliases`)
 
-`Product.model`은 Vision 초안 기반 자유 텍스트라 정확 표기율이 22%다(vision-agent.md). 설계안
+`Product.model`은 Vision 초안 기반 자유 텍스트라 정확 표기율이 22%다(ai-vision-agent.md). 설계안
 5-1의 "모델·브랜드 구조화 필드 pre-filter"를 문자열 동등 비교로 하면 후보 대부분이 탈락한다.
 그래서 "뉴발 990" / "990v6" / "NB990" / "New Balance 990"을 전부 `nb990`으로 접는 표를
 백엔드에 두었다. 키 체계는 `used_market_prices.csv`의 `model_key`를 그대로 따른다 -
