@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 //
 // 쓰기를 별도 빈으로 빼면 프록시 경계가 이 클래스에 생기고, ActivityLogService 입장에서는
 // 이 메서드들이 예외를 던지는 평범한 호출이 된다. 그제서야 try-catch가 커밋 실패까지 덮는다.
-// (같은 문제를 #49 상품 벡터, #51 AI 호출 로그에서 겪었다 - docs/troubleshooting.md 2번)
+// (같은 문제를 #49 상품 벡터, #51 AI 호출 로그에서 겪었다 - docs/ai-troubleshooting.md 2번)
 @Component
 @RequiredArgsConstructor
 public class UserActivityLogWriter {

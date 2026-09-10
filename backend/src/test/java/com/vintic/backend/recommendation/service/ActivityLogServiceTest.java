@@ -100,7 +100,7 @@ class ActivityLogServiceTest {
     @Test
     void 트랜잭션_커밋_실패도_막는다() {
         // 쓰기를 별도 빈으로 분리한 이유. 프록시 경계가 write()에 있어야 커밋 시점의
-        // 예외까지 이 자리에서 잡힌다. (docs/troubleshooting.md 2번)
+        // 예외까지 이 자리에서 잡힌다. (docs/ai-troubleshooting.md 2번)
         doThrow(new org.springframework.transaction.TransactionSystemException("커밋 실패"))
                 .when(writer).write(any());
 
