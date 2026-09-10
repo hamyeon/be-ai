@@ -185,3 +185,64 @@ oldskool,Vans,oldskool,Old Skool
 슬립온,Vans,slipon,Slip-On
 slip-on,Vans,slipon,Slip-On
 slip on,Vans,slipon,Slip-On
+# --- #97 3차 확대 (크롤링 원본 재분석, 새 크롤링 없음) ---
+sb 덩크 로우,Nike,dunksb,SB Dunk
+sb 덩크 하이,Nike,dunksb,SB Dunk
+덩크 로우 sb,Nike,dunksb,SB Dunk
+sb 덩크,Nike,dunksb,SB Dunk
+덩크 sb,Nike,dunksb,SB Dunk
+sb dunk,Nike,dunksb,SB Dunk
+dunk sb,Nike,dunksb,SB Dunk
+조던11,Nike,jordan11,Jordan 11
+에어조던11,Nike,jordan11,Jordan 11
+air jordan 11,Nike,jordan11,Jordan 11
+jordan 11,Nike,jordan11,Jordan 11
+aj11,Nike,jordan11,Jordan 11
+# 에어맥스1은 한글 숫자 표기("에어맥스1")를 두지 않는다 - 정규화하면 "에어맥스 15만원"에 붙는다. 영문·"원" 표기만.
+air max 1,Nike,airmax1,Air Max 1
+airmax1,Nike,airmax1,Air Max 1
+am1,Nike,airmax1,Air Max 1
+에어맥스 원,Nike,airmax1,Air Max 1
+캠퍼스,Adidas,campus,Campus
+campus,Adidas,campus,Campus
+포럼,Adidas,forum,Forum
+forum,Adidas,forum,Forum
+sl72,Adidas,sl72,SL 72
+sl 72,Adidas,sl72,SL 72
+sl-72,Adidas,sl72,SL 72
+오즈위고,Adidas,ozweego,Ozweego
+ozweego,Adidas,ozweego,Ozweego
+원스타,Converse,onestar,One Star
+one star,Converse,onestar,One Star
+런스타,Converse,runstar,Run Star
+run star,Converse,runstar,Run Star
+sk8-hi,Vans,sk8hi,Sk8-Hi
+sk8 hi,Vans,sk8hi,Sk8-Hi
+스케이트 하이,Vans,sk8hi,Sk8-Hi
+노바블라스트,Asics,novablast,Novablast
+novablast,Asics,novablast,Novablast
+xt4,Salomon,xt4,XT-4
+xt-4,Salomon,xt4,XT-4
+xt 4,Salomon,xt4,XT-4
+본디,Hoka,bondi,Bondi
+bondi,Hoka,bondi,Bondi
+스피드캣,Puma,speedcat,Speedcat
+speedcat,Puma,speedcat,Speedcat
+팔레르모,Puma,palermo,Palermo
+palermo,Puma,palermo,Palermo
+푸마 스웨이드,Puma,pumasuede,Suede
+puma suede,Puma,pumasuede,Suede
+멕시코66,Onitsuka Tiger,mexico66,Mexico 66
+멕시코 66,Onitsuka Tiger,mexico66,Mexico 66
+mexico 66,Onitsuka Tiger,mexico66,Mexico 66
+울트라 미니,UGG,uggultramini,Ultra Mini
+울트라미니,UGG,uggultramini,Ultra Mini
+ultra mini,UGG,uggultramini,Ultra Mini
+뉴발란스 480,New Balance,nb480,480
+뉴발 480,New Balance,nb480,480
+nb 480,New Balance,nb480,480
+new balance 480,New Balance,nb480,480
+뉴발란스 860,New Balance,nb860,860
+뉴발 860,New Balance,nb860,860
+nb 860,New Balance,nb860,860
+new balance 860,New Balance,nb860,860
