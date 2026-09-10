@@ -49,7 +49,7 @@ class GoalDraftValidatorTest {
     @Test
     void 모르는_등급_표기와_모르는_브랜드는_비운다() {
         GoalDraft draft = validator.validate(new LlmGoalDraft(
-                null, null, "Balenciaga", "MINT", 500_000L, null, null, 0.7));
+                null, null, "Zara", "MINT", 500_000L, null, null, 0.7));
 
         assertThat(draft.minCondition()).isNull();
         assertThat(draft.brand()).isNull();

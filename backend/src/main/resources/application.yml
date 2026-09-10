@@ -50,6 +50,11 @@ purchase-agent:
     provider: ${PURCHASE_GOAL_PARSER:openai}
     model: ${PURCHASE_GOAL_PARSER_MODEL:gpt-4o-mini}
     max-output-tokens: 400
+  # 매물 적합도 Matcher. 실패 시 fallback 없이 예외 - 그 후보는 이번 scan에서 제외(설계안 6-2).
+  matcher:
+    provider: ${PURCHASE_LISTING_MATCHER:openai}
+    model: ${PURCHASE_LISTING_MATCHER_MODEL:gpt-4o-mini}
+    max-output-tokens: 300
 
 # Vision 분석 작업을 Worker에게 전달하는 Redis Stream 설정
 analysis:

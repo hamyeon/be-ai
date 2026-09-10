@@ -37,7 +37,24 @@ public final class BrandAliases {
             Map.entry("살로몬", "Salomon"), Map.entry("salomon", "Salomon"),
             Map.entry("스케쳐스", "Skechers"), Map.entry("스케처스", "Skechers"), Map.entry("skechers", "Skechers"),
             Map.entry("어그", "UGG"), Map.entry("ugg", "UGG"),
-            Map.entry("반스", "Vans"), Map.entry("vans", "Vans")
+            Map.entry("반스", "Vans"), Map.entry("vans", "Vans"),
+            // 시세 카탈로그 밖 브랜드. 이름만 같은 다른 브랜드 매물(골든구스 슈퍼스타, 알든 990 구두)을
+            // 브랜드 불일치로 걸러내기 위해 둔다. 카탈로그 브랜드가 아니므로 파서가 brand로 채우지는 않는다.
+            Map.entry("골든구스", "Golden Goose"), Map.entry("golden goose", "Golden Goose"),
+            Map.entry("알든", "Alden"), Map.entry("alden", "Alden"),
+            Map.entry("푸마", "Puma"), Map.entry("puma", "Puma"),
+            Map.entry("리복", "Reebok"), Map.entry("reebok", "Reebok"),
+            Map.entry("오니츠카", "Onitsuka Tiger"), Map.entry("onitsuka", "Onitsuka Tiger"),
+            Map.entry("호카", "Hoka"), Map.entry("hoka", "Hoka"),
+            Map.entry("미즈노", "Mizuno"), Map.entry("mizuno", "Mizuno"),
+            Map.entry("디아도라", "Diadora"), Map.entry("diadora", "Diadora"),
+            Map.entry("오트리", "Autry"), Map.entry("autry", "Autry"),
+            Map.entry("마르지엘라", "Maison Margiela"), Map.entry("margiela", "Maison Margiela"),
+            Map.entry("커먼프로젝트", "Common Projects"), Map.entry("common projects", "Common Projects"),
+            Map.entry("발렌시아가", "Balenciaga"), Map.entry("balenciaga", "Balenciaga"),
+            Map.entry("구찌", "Gucci"), Map.entry("gucci", "Gucci"),
+            Map.entry("프라다", "Prada"), Map.entry("prada", "Prada"),
+            Map.entry("루이비통", "Louis Vuitton"), Map.entry("louis vuitton", "Louis Vuitton")
     );
 
     private static final Set<String> KNOWN_BRANDS = Set.copyOf(ALIASES.values());

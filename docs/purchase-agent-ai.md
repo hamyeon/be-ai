@@ -6,7 +6,7 @@ Purchase Agent(사용자가 "뉴발 990, A급 이상, 15만원 이하로 하나"
 코드로 옮기며 결정한 것과 측정한 것을 남긴다.
 
 AI 담당은 셋이다. (1) 자연어 → Goal 초안 파싱, (2) 매물 적합도 판정, (3) AI 시세 제공.
-이 문서는 (1)을 먼저 다룬다. (2)와 (3)은 같은 브랜치에서 이어서 붙이고 이 문서에 추가한다.
+1장이 (1), 1-6장이 (2)다. (3)은 같은 브랜치에서 이어서 붙인다.
 
 **관통하는 원칙**: LLM은 해석만 하고 서버가 검증한다. LLM이 낸 값이 사람 확인 없이 cap이나
 입찰 금액에 닿는 경로는 없다. 못 알아본 필드는 null이고 이유가 warnings에 실린다.
@@ -16,6 +16,7 @@ AI 담당은 셋이다. (1) 자연어 → Goal 초안 파싱, (2) 매물 적합�
 | 날짜 | 내용 |
 | --- | --- |
 | 2026-09-10 | Goal 파서(규칙 기반 + OpenAI) · 모델 별칭 표 · 하네스 50케이스 · `POST /api/purchase-goals/parse` |
+| 2026-09-10 | 매물 적합도 Matcher(규칙 기반 + OpenAI) · 실제 당근 매물 59케이스 하네스 · 규칙 97%, 거짓 양성 0 |
 
 ---
 
@@ -96,6 +97,30 @@ stage=`goal-parse`, promptVersion=`v1`로 `AiCallLog`에 남는다. Vision 클�
 더 만들고 빈만 바꾸면 된다. 응답 스키마 파일은 표준 JSON Schema라 그대로 쓰고, 프롬프트는
 모델마다 반응이 달라 하네스로 다시 잰다.
 
+### 1-6. 매물 적합도 Matcher (설계안 6-2)
+
+```
+ListingMatcher.evaluate(MatchGoal, AuctionListing) → MatchResult { matched, semanticScore, reason, listingModelKey }
+  ├ OpenAiListingMatcher   Goal 별칭 목록 + 매물 텍스트(brand/model/colorway/title/description 600자)
+  │     └ MatchResultValidator  규칙이 확실히 아는 건 LLM이 뭐라 하든 false로 뒤집는다
+  └ RuleBasedListingMatcher 별칭 표 + 정규식. Fake 구현이자 기준선
+```
+
+- **텍스트만 본다.** 설계안의 `imageKeys`는 뺐다(Vision 케이스당 12.6초). 사진 판정은 v2.
+- **실패는 예외로 올린다.** 파서와 달리 규칙 fallback을 끼우지 않는다. 설계안 6-2대로 그 후보는
+  이번 scan에서 제외하고 다음 scan에서 재평가한다. 잘못된 `matched=true`는 잘못된 AutoBid가
+  되지만, 놓친 매물은 다음 scan에 다른 후보가 있다.
+- **검증은 false 쪽으로만 뒤집는다.** `MatchResultValidator`가 강제로 제외하는 것: 박스만 판매,
+  아동용, 의류·가방, 여러 켤레 일괄, 브랜드 불일치(골든구스 슈퍼스타, 알든 990 구두), 제목·상품
+  정보가 다른 카탈로그 모델을 가리킴(990 요청에 993 매물). LLM이 false라고 한 것을 true로
+  바꾸는 경로는 없다.
+- **규칙은 설명란을 믿지 않는다.** 실제 매물의 설명란에는 검색 노출용 브랜드 나열("나이키
+  발렌시아가 팔라스 슈프림 아디다스 ..."), 사이즈 비교("평소 가젤 255 신는데"), 다른 모델과의 비교가
+  흔하다. 최초 하네스에서 거짓 양성 4건 중 3건이 설명란 매칭이었다. 설명에서만 모델이 보이면
+  규칙은 놓치는 쪽을 택하고, 그걸 알아보는 건 LLM 몫이다.
+- `semanticScore`는 모델 식별 확신(상품 정보 0.7 / 제목 0.6)에 자유 조건 토큰 포함률(최대 +0.3)을
+  더한다. 규칙은 "흰색=화이트"를 모른다. ranking 3순위 tie-break에만 쓰이므로 정밀할 필요는 없다.
+
 ---
 
 ## 2. 측정
@@ -111,8 +136,17 @@ stage=`goal-parse`, promptVersion=`v1`로 `AiCallLog`에 남는다. Vision 클�
 - 규칙 기반: `RuleBasedGoalParserHarnessTest` - 매 빌드에서 돌고 `build/goal-parse-harness/rule.txt`에 남긴다. 기준선 회귀 하한(modelKey·금액 85%, 5필드 60%)을 어기면 실패한다.
 - OpenAI: `GoalParsePromptHarnessTest` - `OPENAI_API_KEY` + `-Dgoal.harness=true`일 때만. `build/goal-parse-harness/openai-{model}.txt`.
 
+**Matcher**: `src/test/resources/purchase/listing-match-fixtures.json` - 59케이스. listing은 당근
+크롤링 원본(`crawler/output/daangn_shoes_raw.jsonl`)에서 발췌한 **실제 매물**의 제목·설명이고,
+goal은 그 매물에 사용자가 걸었을 법한 목표다. 일치 31 / 불일치 28. `expected.matched`만 채점하고
+정확도·거짓 양성·거짓 음성을 따로 센다.
+
+- 규칙 기반: `RuleBasedListingMatcherHarnessTest` - 매 빌드. 하한 정확도 85%, **거짓 양성 3건 이하**. 정확도가 같아도 거짓 양성이 늘면 실패한다.
+- OpenAI: `ListingMatchPromptHarnessTest` - 같은 조건. `build/goal-parse-harness/listing-match-openai-{model}.txt`.
+
 ```
 ./gradlew test --tests '*GoalParsePromptHarnessTest' -Dgoal.harness=true -Dgoal.harness.model=gpt-4o-mini
+./gradlew test --tests '*ListingMatchPromptHarnessTest' -Dgoal.harness=true -Dgoal.harness.model=gpt-4o-mini
 ```
 
 ### 2-2. 결과
@@ -134,7 +168,25 @@ stage=`goal-parse`, promptVersion=`v1`로 `AiCallLog`에 남는다. Vision 클�
 이 수치는 "규칙이 픽스처를 다 처리한다"이지 "실사용 입력을 다 처리한다"가 아니다.
 실서비스 입력으로 픽스처를 늘리기 전까지 규칙 기반의 진짜 정확도는 모른다.
 
-**OpenAI 파서**: 미측정. 유료 호출이라 자동으로 돌리지 않았다 - `GoalParsePromptHarnessTest`를
+**규칙 기반 Matcher (2026-09-10, 실제 매물 59건, `RuleBasedListingMatcherHarnessTest`)**
+
+| 항목 | 결과 |
+| --- | --- |
+| 정확도 | 57/59 (97%) |
+| 거짓 양성 (사지 말아야 할 매물을 일치로) | 0건 |
+| 거짓 음성 (살 만한 매물을 놓침) | 2건 |
+| 지연 | 평균 0ms, 최대 6ms |
+
+첫 실행은 54/59(92%)에 거짓 양성 4건이었다. 3건은 설명란 매칭(브랜드 나열 스팸, 사이즈 비교),
+1건은 제목은 530인데 설명은 2002R 아동용인 모순 매물. 설명란 매칭을 규칙에서 빼고 설명란의
+아동 정황("아이들이", "아이가 신")을 부정 신호에 넣어 거짓 양성 0이 됐다. 대신 거짓 음성이 1→2가
+됐는데, 둘 다 규칙이 못 하는 게 당연한 케이스다 - 제목엔 없고 설명에만 있는 990v5, 품번
+WR993GL 안의 993. 이 두 종류가 LLM Matcher가 값을 해야 할 자리다.
+
+파서와 달리 이 픽스처는 작성자가 지어낸 문장이 아니라 실제 매물이라 숫자를 좀 더 믿을 수 있다.
+다만 59건이고 모델 수가 45개라 모델당 한두 건이다.
+
+**OpenAI 파서·Matcher**: 미측정. 유료 호출이라 자동으로 돌리지 않았다 - `GoalParsePromptHarnessTest`를
 키가 있는 환경에서 명시적으로 실행해야 한다. 규칙 기반이 픽스처를 다 맞추므로 LLM의 가치는 픽스처 밖 표현(오타, 신조어, 카탈로그 밖
 모델의 브랜드 추론, 복합 조건)에서 나와야 하고, 그걸 재려면 픽스처에 그런 케이스를 더 넣어야 한다.
 
@@ -153,7 +205,9 @@ stage=`goal-parse`, promptVersion=`v1`로 `AiCallLog`에 남는다. Vision 클�
 2. **모델 pre-filter는 `modelKey`로.** `Product.model` 문자열 대신 `ModelAliases.find(product.brand + " " + product.model)`의 키와 `goal.modelKey`를 비교. 키가 null인 Goal은 브랜드만 비교.
 3. **등급 비교는 `GoalCondition.satisfiedBy()`로.** 매물 `conditionGrade`가 UNKNOWN이면 제외.
 4. **6-2 Matcher 요청에서 `imageKeys` 제거 제안.** v1은 텍스트만(Vision 케이스당 12.6초).
-5. **`aiEstimatedPrice` 시점.** 등록 시점 `Product.recommendedPrice`(판매자용 추천가, stale)를 쓸지 ENGAGE 시점 재계산할지. (3) 시세 제공에서 provider를 만들어 두고 Day 0에 결정.
+5. **Matcher 호출 시 변환.** `PurchaseGoal → MatchGoal(modelKey, modelQuery, brand, freeTextConditions)`, `Auction+Product → AuctionListing(auctionId, brand, model, colorway, title, description)`. 등급·예산·사이즈는 넘기지 않는다(pre-filter가 끝냄).
+6. **Matcher 예외 = 후보 제외.** `AiApiException`/`AiResponseFormatException`이 올라오면 그 (goal, auction)은 이번 scan에서 건너뛰고 결과를 저장하지 않는다. 다음 scan에서 다시 부른다.
+7. **`aiEstimatedPrice` 시점.** 등록 시점 `Product.recommendedPrice`(판매자용 추천가, stale)를 쓸지 ENGAGE 시점 재계산할지. (3) 시세 제공에서 provider를 만들어 두고 Day 0에 결정.
 
 ## 4. 코드 지도
 
@@ -163,7 +217,8 @@ stage=`goal-parse`, promptVersion=`v1`로 `AiCallLog`에 남는다. Vision 클�
 | `ai/purchase/model/` | `ModelAliases`, `BrandAliases` |
 | `ai/purchase/parser/` | `GoalParser`, `RuleBasedGoalParser`, `OpenAiGoalParser`, `GoalDraftValidator`, `FallbackGoalParser`, `GoalParserConfig`, `GoalParserProperties` |
 | `ai/purchase/api/` | `GoalParseController`, `GoalParseRequest` |
+| `ai/purchase/match/` | `ListingMatcher`, `MatchGoal`, `AuctionListing`, `MatchResult`, `RuleBasedListingMatcher`, `OpenAiListingMatcher`, `MatchResultValidator`, `ListingSignals`, `ListingMatcherConfig`, `ListingMatcherProperties` |
 | `ai/vision/client/ChatCompletionClient` | 텍스트/이미지 Structured Outputs 호출 인터페이스 |
-| `resources/prompts/purchase/goal-parse-v1.{md,schema.json}` | 프롬프트·응답 스키마 |
+| `resources/prompts/purchase/{goal-parse,listing-match}-v1.{md,schema.json}` | 프롬프트·응답 스키마 |
 | `resources/data/model_aliases.csv` | 모델 별칭 표 |
 | `test/.../ai/purchase/harness/` | 픽스처 로더·채점·리포트·하네스 테스트 |
