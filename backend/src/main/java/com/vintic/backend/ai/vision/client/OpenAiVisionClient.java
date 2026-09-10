@@ -31,7 +31,7 @@ import java.util.regex.Pattern;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class OpenAiVisionClient {
+public class OpenAiVisionClient implements ChatCompletionClient {
 
     private static final String URL = "https://api.openai.com/v1/chat/completions";
 
@@ -60,6 +60,7 @@ public class OpenAiVisionClient {
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
 
+    @Override
     public VisionChatResponse complete(VisionChatRequest request) {
         Map<String, Object> body = buildRequestBody(request);
 

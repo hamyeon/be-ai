@@ -42,6 +42,15 @@ vision:
       detail: ${VISION_DETAIL_CONDITION:high}
       max-output-tokens: 1400
 
+# Purchase Agent(#95) - 자연어 구매 목표 파서.
+# provider: openai(LLM + 실패 시 규칙 기반 fallback) | rule(규칙 기반만).
+# 하네스에서 LLM이 규칙 기반보다 낫다는 게 확인되기 전이거나 OpenAI 장애 시 rule로 내린다.
+purchase-agent:
+  parser:
+    provider: ${PURCHASE_GOAL_PARSER:openai}
+    model: ${PURCHASE_GOAL_PARSER_MODEL:gpt-4o-mini}
+    max-output-tokens: 400
+
 # Vision 분석 작업을 Worker에게 전달하는 Redis Stream 설정
 analysis:
   stream:

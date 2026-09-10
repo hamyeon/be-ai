@@ -1472,3 +1472,91 @@ X-User-Id: 3
 ### Failure ❌
 
 추천 API는 데이터가 부족해도 Fallback으로 응답하므로 고유한 에러 코드가 없습니다. 서버 내부 오류(`50001`)만 공통 형식으로 반환됩니다.
+
+---
+
+# API 상세 설명
+
+`POST /api/purchase-goals/parse`
+
+Purchase Agent(#95)의 첫 단계입니다. 사용자가 자유롭게 쓴 구매 목표 문장을 구조화된 **초안(GoalDraft)** 으로 바꿔 돌려줍니다.
+
+- **DB에 아무것도 저장하지 않습니다.** 응답은 초안이고, 사용자가 확인 화면에서 고친 값을 `POST /api/purchase-goals`(백엔드 담당, 별도 명세 예정)로 보내야 Goal이 등록됩니다.
+- AI 해석에 실패하면 500이 아니라 **규칙 기반 초안**을 `warnings` 첫 줄에 안내를 붙여 돌려줍니다. 그래도 실패하면(50003) 프론트는 빈 폼으로 전환해 사용자가 직접 입력하게 해 주세요. 파싱 실패가 등록을 막으면 안 됩니다.
+- 인증이 필요합니다(`X-User-Id`). 유료 LLM 호출이라 익명에 열지 않습니다.
+
+## Request ✔️
+
+### Request Header
+
+```
+Content-Type: application/json
+X-User-Id: {userId}
+```
+
+### Request Body
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `text` | `string` | O | 구매 목표 문장. 1~300자 |
+
+```json
+{
+  "text": "뉴발 990, A급 이상, 15만원 이하로 하나"
+}
+```
+
+## Response ✔️
+
+### Success ✅
+
+### 200 OK
+
+```json
+{
+  "success": true,
+  "data": {
+    "modelQuery": "New Balance 990",
+    "brand": "New Balance",
+    "modelKey": "nb990",
+    "minCondition": "A",
+    "hardMaxAmount": 150000,
+    "sizeKr": null,
+    "freeTextConditions": null,
+    "confidence": 0.9,
+    "warnings": [
+      "사이즈가 없습니다. 사이즈를 지정하지 않으면 모든 사이즈가 후보가 됩니다."
+    ]
+  },
+  "error": null
+}
+```
+
+### 응답 필드 설명
+
+모든 값은 **초안**입니다. 못 알아본 필드는 `null`이고 이유가 `warnings`에 실립니다. 확인 화면에서 전부 수정 가능해야 합니다.
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `modelQuery` | `string \| null` | 사람이 읽는 모델명. 시세 카탈로그에 있으면 카탈로그 표기("New Balance 990"), 없으면 AI가 이해한 이름 |
+| `brand` | `string \| null` | 브랜드 영문 표기 (Nike, Adidas, New Balance, ...) |
+| `modelKey` | `string \| null` | 시세 카탈로그 키(예: `nb990`). **`null`이면 시세가 없는 모델이라 v1 구매 Agent가 후보를 찾지 못합니다.** 확인 화면에서 모델 선택을 유도해 주세요 |
+| `minCondition` | `"DS" \| "S" \| "A" \| "B" \| "C" \| null` | 최소 상태 등급. "A급 이상" → `A`. 없으면 `null`(모든 등급) |
+| `hardMaxAmount` | `number \| null` | 예산 상한(원). "이하/까지/안쪽/정도/선"만 상한으로 봅니다. "이상"만 있으면 `null` |
+| `sizeKr` | `number \| null` | 사이즈(mm, 220~320). 없으면 `null` |
+| `freeTextConditions` | `string \| null` | 위 필드에 담기지 않은 희망 사항 원문("박스 있으면 좋음", "시카고 컬러"). **v1에서는 필수 조건이 아니라 참고 사항**으로만 쓰입니다 |
+| `confidence` | `number` | 0~1. 초안 전체가 의도와 맞을 확신도. **0.7 미만이면 확인 화면에서 수정 유도를 강조**해 주세요(설계안 6-1). 서버 로직에는 쓰이지 않습니다 |
+| `warnings` | `string[]` | 확인 화면에 그대로 보여줄 안내문. 비어 있을 수 있습니다 |
+
+### 프론트 적용 시 유의사항
+
+- `warnings`는 문구를 그대로 노출해도 되는 형태로 내려갑니다. 첫 줄이 "AI 해석에 실패해..."로 시작하면 규칙 기반 초안이므로 수정 유도를 강조해 주세요.
+- `freeTextConditions`에 "필수/꼭/무조건" 같은 표현이 있으면 "v1에서는 참고 사항"이라는 안내가 `warnings`에 함께 옵니다. 등록 전에 사용자가 이 점을 보게 해 주세요.
+- 파싱을 거치지 않고 빈 폼에 직접 입력하는 경로도 항상 열어 두세요.
+
+### Failure ❌
+
+| 상태 | 코드 | 상황 |
+| --- | --- | --- |
+| 400 | 40001 | `text`가 비었거나 300자 초과 |
+| 500 | 50003 | AI 호출 실패 + 규칙 기반 fallback도 실패(정상이라면 발생하지 않음) |
