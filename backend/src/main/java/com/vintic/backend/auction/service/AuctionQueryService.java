@@ -17,6 +17,9 @@ import com.vintic.backend.common.exception.UserNotFoundException;
 import com.vintic.backend.common.util.NicknameMasker;
 import com.vintic.backend.common.util.ProductDisplayName;
 import com.vintic.backend.common.util.TimePolicy;
+import com.vintic.backend.ai.purchase.price.PriceEstimate;
+import com.vintic.backend.ai.purchase.price.PriceEstimateProvider;
+import com.vintic.backend.ai.purchase.price.PriceEstimateQuery;
 import com.vintic.backend.like.repository.AuctionLikeRepository;
 import com.vintic.backend.order.domain.OrderStatus;
 import com.vintic.backend.order.repository.OrderRepository;
@@ -24,6 +27,7 @@ import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.user.domain.User;
 import com.vintic.backend.user.repository.UserRepository;
 import org.springframework.data.domain.PageRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +41,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 public class AuctionQueryService {
 
     // #55: 상세 화면 "추천상품" 영역(프론트 확인 결과 이 endpoint 하나가 그 영역을 담당하며
@@ -50,6 +55,7 @@ public class AuctionQueryService {
     private final AuctionLikeRepository auctionLikeRepository;
     private final OrderRepository orderRepository;
     private final Clock clock;
+    private final PriceEstimateProvider priceEstimateProvider;
 
     public AuctionQueryService(
             AuctionRepository auctionRepository,
@@ -58,7 +64,8 @@ public class AuctionQueryService {
             AutoBidSettingRepository autoBidSettingRepository,
             AuctionLikeRepository auctionLikeRepository,
             OrderRepository orderRepository,
-            Clock clock
+            Clock clock,
+            PriceEstimateProvider priceEstimateProvider
     ) {
         this.auctionRepository = auctionRepository;
         this.bidRepository = bidRepository;
@@ -67,6 +74,7 @@ public class AuctionQueryService {
         this.auctionLikeRepository = auctionLikeRepository;
         this.orderRepository = orderRepository;
         this.clock = clock;
+        this.priceEstimateProvider = priceEstimateProvider;
     }
 
     // viewerUserId는 null일 수 있다(#55: 상세조회는 기존부터 비로그인 접근을 허용해왔다 - 계약상
@@ -94,6 +102,8 @@ public class AuctionQueryService {
         Long finalPrice = auction.getStatus() == AuctionStatus.ENDED && auction.getCurrentWinner() != null
                 ? auction.getCurrentPrice()
                 : null;
+
+        Optional<PriceEstimate> aiEstimate = estimateSafely(product);
 
         return new AuctionDetailResponse(
                 auction.getId(),
@@ -124,15 +134,33 @@ public class AuctionQueryService {
                 TimePolicy.toApiTime(auction.getStartAt()),
                 TimePolicy.toApiTime(auction.getEndAt()),
                 TimePolicy.toApiTime(now),
-                product.getRecommendedPrice() == null ? null : product.getRecommendedPrice().longValue(),
+                aiEstimate.map(estimate -> (long) estimate.estimatedPrice()).orElse(null),
                 minNextBidAmount, // aiRecommendedAutoBidCap: §4에서 이미 확정된 정책(buyer 전용 추천 소스 없음 -> minCapAmount)을 재사용한다.
-                product.getReason(),
+                aiEstimate.map(PriceEstimate::reason).orElse(null),
                 (int) bidCount,
                 isLiked,
                 (int) likeCount,
                 myState,
                 finalPrice
         );
+    }
+
+    // #96: aiEstimatedPrice/aiPriceReason는 Product.recommendedPrice/reason이 아니라 서버가 지금 계산한 값이다.
+    //
+    // Product.recommendedPrice는 ProductRegistrationService가 CreateProductRequest.recommendedPrice()를
+    // 그대로 저장한 클라이언트 값이라, 판매자가 부풀리면 구매자 화면의 "AI 시세"가 그대로 부풀려진다.
+    // Purchase Agent(#95)의 cap 입력으로도 같은 이유로 못 쓴다. PriceEstimateProvider는 기존
+    // PricingService(캐시 60분)를 그대로 불러 같은 입력이면 같은 값을 준다 - 새 계산식은 없다.
+    //
+    // 시세를 못 내면(카탈로그 밖 모델) null이다 - 틀린 숫자보다 없음이 낫다(ai-system.md 원칙).
+    // 시세 계산 실패가 경매 상세 조회를 실패시키면 안 되므로 예외는 삼키고 null로 둔다.
+    private Optional<PriceEstimate> estimateSafely(Product product) {
+        try {
+            return priceEstimateProvider.estimate(PriceEstimateQuery.of(product));
+        } catch (RuntimeException e) {
+            log.warn("경매 상세 AI 시세 계산 실패 - null로 응답합니다. productId={}, message={}", product.getId(), e.getMessage());
+            return Optional.empty();
+        }
     }
 
     private AuctionDetailResponse.MyState buildMyState(Auction auction, User viewer, LocalDateTime now) {

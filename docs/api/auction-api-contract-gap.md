@@ -799,9 +799,12 @@ seller.sellerId/nickname/profileImageUrl   MATCH (User 기존 필드 그대로)
 seller.completedSalesCount                 DEFERRED DATA SOURCE GAP(0 고정, semantics 미충족) - 아래 "남은 gap" 참고
 description/startPrice/currentPrice/bidIncrement/minNextBidAmount/minCapAmount  MATCH
 startsAt/endsAt/serverTime                 MATCH (TimePolicy 재사용)
-aiEstimatedPrice/aiPriceReason             MATCH - Product.recommendedPrice/reason
-                                            (PricingResult 기반 실제 pricing 결과)를 그대로
-                                            재사용한다. fake 값이 아니다.
+aiEstimatedPrice/aiPriceReason             MATCH - #96에서 소스를 바꿨다. Product.recommendedPrice/
+                                            reason은 CreateProductRequest에 실려 온 클라이언트 값이라
+                                            판매자가 부풀릴 수 있다. 지금은 PriceEstimateProvider(#95,
+                                            기존 PricingService 캐시 재사용)가 조회 시점에 서버에서
+                                            계산한 값이고, 시세를 못 내는 모델이면 null이다(계약상
+                                            Required X). 계산 실패도 null - 상세 조회를 막지 않는다.
 aiRecommendedAutoBidCap                    MATCH - §4에서 이미 확정된 정책(buyer 전용 추천
                                             소스 없음 -> minCapAmount)을 재사용했다. 새
                                             정책을 만들지 않았다.

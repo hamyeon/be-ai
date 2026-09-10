@@ -16,11 +16,14 @@ import com.vintic.backend.bid.domain.BidType;
 import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.common.exception.AuctionNotFoundException;
 import com.vintic.backend.common.util.TimePolicy;
+import com.vintic.backend.ai.purchase.price.PriceEstimate;
+import com.vintic.backend.ai.purchase.price.PriceEstimateProvider;
 import com.vintic.backend.config.ClockConfig;
 import com.vintic.backend.like.domain.AuctionLike;
 import com.vintic.backend.like.repository.AuctionLikeRepository;
 import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.support.TestClockConfig;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import com.vintic.backend.user.domain.User;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
@@ -34,8 +37,11 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
@@ -48,6 +54,11 @@ class AuctionQueryServiceTest {
 
     @Autowired
     private AuctionQueryService auctionQueryService;
+
+    // #96: AI 시세는 Product 컬럼이 아니라 서버 계산(PriceEstimateProvider)이다. 슬라이스 테스트에서는
+    // PricingService 전체를 올리지 않고 mock으로 대체한다 - 계산 자체는 PricingServiceEstimateProviderTest가 잰다.
+    @MockitoBean
+    private PriceEstimateProvider priceEstimateProvider;
 
     @Autowired
     private AuctionRepository auctionRepository;
@@ -163,21 +174,40 @@ class AuctionQueryServiceTest {
     }
 
     @Test
-    void 상세조회는_Product_pricing_결과를_AI_필드로_반환한다() {
+    void 상세조회의_AI_시세는_Product_컬럼이_아니라_서버가_계산한_값이다() {
+        User seller = persistUser("seller@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        flushAndClear();
+        // Product.recommendedPrice(300000)는 클라이언트가 보낸 값이다. 응답은 이걸 무시하고 provider 값을 쓴다.
+        when(priceEstimateProvider.estimate(any())).thenReturn(Optional.of(new PriceEstimate(
+                120000, 95000, 150000, PriceEstimate.Source.USED_MARKET, 29, "서버 계산 근거", LocalDateTime.now())));
+
+        AuctionDetailResponse response = auctionQueryService.getAuctionDetail(auction.getId(), null);
+
+        assertThat(response.aiEstimatedPrice()).isEqualTo(120000L);
+        assertThat(response.aiPriceReason()).isEqualTo("서버 계산 근거");
+        // aiRecommendedAutoBidCap: §4에서 이미 확정된 정책(buyer 전용 추천 소스 없음)을 재사용 -
+        // minCapAmount와 항상 같다. 시세가 생겼다고 이 정책을 바꾸는 건 별도 결정이다.
+        assertThat(response.aiRecommendedAutoBidCap()).isEqualTo(response.minCapAmount());
+    }
+
+    @Test
+    void 시세를_못_내거나_계산이_실패하면_AI_필드는_null이고_상세조회는_성공한다() {
         User seller = persistUser("seller@vintic.local");
         Product product = persistProduct(seller);
         Auction auction = persistLiveAuction(product);
         flushAndClear();
 
-        AuctionDetailResponse response = auctionQueryService.getAuctionDetail(auction.getId(), null);
+        when(priceEstimateProvider.estimate(any())).thenReturn(Optional.empty());
+        AuctionDetailResponse noData = auctionQueryService.getAuctionDetail(auction.getId(), null);
+        assertThat(noData.aiEstimatedPrice()).isNull();
+        assertThat(noData.aiPriceReason()).isNull();
 
-        // aiEstimatedPrice/aiPriceReason은 Product.recommendedPrice/reason(실제 pricing 결과)을
-        // 그대로 재사용한다 - fake 값이 아니다.
-        assertThat(response.aiEstimatedPrice()).isEqualTo(300000L);
-        assertThat(response.aiPriceReason()).isEqualTo("사유");
-        // aiRecommendedAutoBidCap: §4에서 이미 확정된 정책(buyer 전용 추천 소스 없음)을 재사용 -
-        // minCapAmount와 항상 같다.
-        assertThat(response.aiRecommendedAutoBidCap()).isEqualTo(response.minCapAmount());
+        when(priceEstimateProvider.estimate(any())).thenThrow(new IllegalStateException("시세 CSV 없음"));
+        AuctionDetailResponse failed = auctionQueryService.getAuctionDetail(auction.getId(), null);
+        assertThat(failed.aiEstimatedPrice()).isNull();
+        assertThat(failed.currentPrice()).isNotNull();
     }
 
     @Test
