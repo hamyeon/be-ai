@@ -6,7 +6,7 @@ Purchase Agent(사용자가 "뉴발 990, A급 이상, 15만원 이하로 하나"
 코드로 옮기며 결정한 것과 측정한 것을 남긴다.
 
 AI 담당은 셋이다. (1) 자연어 → Goal 초안 파싱, (2) 매물 적합도 판정, (3) AI 시세 제공.
-1장이 (1), 1-6장이 (2)다. (3)은 같은 브랜치에서 이어서 붙인다.
+1장이 (1), 1-6장이 (2), 1-7장이 (3)이다. 세 파트 모두 백엔드 orchestration 없이 동작하고, 어댑터 한 겹만 남았다.
 
 **관통하는 원칙**: LLM은 해석만 하고 서버가 검증한다. LLM이 낸 값이 사람 확인 없이 cap이나
 입찰 금액에 닿는 경로는 없다. 못 알아본 필드는 null이고 이유가 warnings에 실린다.
@@ -17,6 +17,7 @@ AI 담당은 셋이다. (1) 자연어 → Goal 초안 파싱, (2) 매물 적합�
 | --- | --- |
 | 2026-09-10 | Goal 파서(규칙 기반 + OpenAI) · 모델 별칭 표 · 하네스 50케이스 · `POST /api/purchase-goals/parse` |
 | 2026-09-10 | 매물 적합도 Matcher(규칙 기반 + OpenAI) · 실제 당근 매물 59케이스 하네스 · 규칙 97%, 거짓 양성 0 |
+| 2026-09-10 | AI 시세 provider. `Product.recommendedPrice`가 클라이언트 값임을 확인 - Agent 시세는 ENGAGE 직전 서버 재계산으로 결정 |
 
 ---
 
@@ -121,6 +122,30 @@ ListingMatcher.evaluate(MatchGoal, AuctionListing) → MatchResult { matched, se
 - `semanticScore`는 모델 식별 확신(상품 정보 0.7 / 제목 0.6)에 자유 조건 토큰 포함률(최대 +0.3)을
   더한다. 규칙은 "흰색=화이트"를 모른다. ranking 3순위 tie-break에만 쓰이므로 정밀할 필요는 없다.
 
+### 1-7. AI 시세 provider (설계안 5-2의 aiEstimatedPrice)
+
+```
+PriceEstimateProvider.estimate(PriceEstimateQuery.of(product)) → Optional<PriceEstimate>
+  PricingServiceEstimateProvider: 기존 PricingService(#86/#93) 호출. 새 계산식 없음.
+  PriceEstimate { estimatedPrice, lowerBound, upperBound, source(USED_MARKET|KREAM), sampleCount, reason, computedAt }
+```
+
+**결정: Agent 시세는 ENGAGE 직전에 서버가 재계산한다. `Product.recommendedPrice`를 읽지 않는다.**
+
+이건 Day 0 결정 사항으로 남겨뒀던 것인데, 코드를 보니 결정할 게 없었다. 경매 상세의
+`aiEstimatedPrice`가 읽는 `Product.recommendedPrice`는 `ProductRegistrationService`가
+`CreateProductRequest.recommendedPrice()`를 그대로 저장한 값이다 - **클라이언트가 보낸 숫자**다.
+판매자 앱이 추천가를 받아 다시 서버에 보내는 구조라 판매자가 부풀릴 수 있다. Agent의 cap이
+`min(hardMaxAmount, aiEstimatedPrice × CAP_RATIO)`이므로, 그 값을 믿으면 판매자가 구매자 Agent의
+입찰 상한을 예산 끝까지 끌어올리는 경로가 생긴다. 서버가 계산한 값만 써야 한다.
+
+- 시세 없음(3순위)은 `Optional.empty()` - 설계안대로 후보 제외.
+- `lowerBound`/`upperBound`는 실거래 IQR에 상태·구성품 비율을 적용한 값. cap을 보수적으로 잡으려면
+  `lowerBound`를 쓰는 선택지가 있다(팀 결정). `sampleCount`로 표본 얇은 시세를 거를 수 있다.
+- 별칭 표가 아는 모델은 카탈로그 표기로 바꿔 묻는다. "덩크 로우"는 시세 CSV의 "Dunk Low"와
+  문자로 안 맞지만 별칭 표를 거치면 매칭된다.
+- PricingService 캐시(60분 TTL)를 그대로 타므로 scan마다 다시 불러도 비용은 CSV 필터링 수준이다.
+
 ---
 
 ## 2. 측정
@@ -207,7 +232,8 @@ WR993GL 안의 993. 이 두 종류가 LLM Matcher가 값을 해야 할 자리다
 4. **6-2 Matcher 요청에서 `imageKeys` 제거 제안.** v1은 텍스트만(Vision 케이스당 12.6초).
 5. **Matcher 호출 시 변환.** `PurchaseGoal → MatchGoal(modelKey, modelQuery, brand, freeTextConditions)`, `Auction+Product → AuctionListing(auctionId, brand, model, colorway, title, description)`. 등급·예산·사이즈는 넘기지 않는다(pre-filter가 끝냄).
 6. **Matcher 예외 = 후보 제외.** `AiApiException`/`AiResponseFormatException`이 올라오면 그 (goal, auction)은 이번 scan에서 건너뛰고 결과를 저장하지 않는다. 다음 scan에서 다시 부른다.
-7. **`aiEstimatedPrice` 시점.** 등록 시점 `Product.recommendedPrice`(판매자용 추천가, stale)를 쓸지 ENGAGE 시점 재계산할지. (3) 시세 제공에서 provider를 만들어 두고 Day 0에 결정.
+7. **시세는 `PriceEstimateProvider.estimate(PriceEstimateQuery.of(product))`로 ENGAGE 직전에 재계산.** `Product.recommendedPrice`·경매 상세의 `aiEstimatedPrice`를 cap 입력으로 쓰지 말 것 - 클라이언트가 보낸 값이다(1-7). `Optional.empty()`면 후보 제외. ranking의 `discountRate`도 같은 값을 쓴다.
+8. **(별도 이슈 제안) 경매 상세의 `aiEstimatedPrice`도 서버 계산값으로.** Agent와 무관하게, 구매자에게 보이는 "AI 시세"가 판매자 입력값인 건 문제다. 이 provider를 `AuctionQueryService`에서 그대로 쓰면 된다.
 
 ## 4. 코드 지도
 
@@ -217,6 +243,7 @@ WR993GL 안의 993. 이 두 종류가 LLM Matcher가 값을 해야 할 자리다
 | `ai/purchase/model/` | `ModelAliases`, `BrandAliases` |
 | `ai/purchase/parser/` | `GoalParser`, `RuleBasedGoalParser`, `OpenAiGoalParser`, `GoalDraftValidator`, `FallbackGoalParser`, `GoalParserConfig`, `GoalParserProperties` |
 | `ai/purchase/api/` | `GoalParseController`, `GoalParseRequest` |
+| `ai/purchase/price/` | `PriceEstimateProvider`, `PriceEstimate`, `PriceEstimateQuery`, `PricingServiceEstimateProvider` |
 | `ai/purchase/match/` | `ListingMatcher`, `MatchGoal`, `AuctionListing`, `MatchResult`, `RuleBasedListingMatcher`, `OpenAiListingMatcher`, `MatchResultValidator`, `ListingSignals`, `ListingMatcherConfig`, `ListingMatcherProperties` |
 | `ai/vision/client/ChatCompletionClient` | 텍스트/이미지 Structured Outputs 호출 인터페이스 |
 | `resources/prompts/purchase/{goal-parse,listing-match}-v1.{md,schema.json}` | 프롬프트·응답 스키마 |
