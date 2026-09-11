@@ -1,0 +1,166 @@
+# Day5 인프라 스프린트 experiment 스택(API + Worker + MySQL + Redis + LocalStack).
+# docker-compose.yml(dev 배포용, MySQL 없음)/docker-compose.local.yml(로컬 IDE 실행용 infra만)과
+# 역할이 겹치지 않는다 - 이 파일만 SQS 기반 비동기 분석 파이프라인을 LocalStack으로 end-to-end
+# 검증하는 역할을 맡는다. 기존 두 파일은 건드리지 않았다.
+#
+# 기존 autique-local-mysql(3306)/autique-local-redis(6379)와 충돌하지 않도록 host 포트를
+# 전부 다르게 뺐다(내부 서비스 간 통신은 compose 네트워크의 서비스명으로 하므로 무관하다).
+#
+# 사용법: cd backend && docker compose -f docker-compose.experiment.yml up -d --build
+#
+# name을 명시적으로 지정한다 - 지정하지 않으면 Compose 프로젝트명이 디렉터리명("backend")으로
+# 결정되는데, 그러면 같은 디렉터리의 기존 docker-compose.yml/docker-compose.local.yml과
+# 프로젝트 네임스페이스를 공유해서 `docker compose -f 이 파일 down` 같은 명령이 그쪽이 만든
+# 컨테이너(autique-local-mysql 등, 사용자의 기존 로컬 인프라)까지 건드릴 위험이 있다 -
+# 실제로 검증 중 이 위험을 확인해서 고쳤다.
+name: vintic-experiment
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-experimentpw}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-vintic_experiment}
+    ports:
+      - "${EXPERIMENT_MYSQL_PORT:-3308}:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${EXPERIMENT_REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: always
+
+  # S3(업로드 objectKey 대상)/SQS(분석 job 큐 + DLQ) 어댑터. localstack-init/setup.sh가
+  # LocalStack의 init hook(/etc/localstack/init/ready.d)으로 자동 실행되어 bucket/main
+  # queue/DLQ/redrive policy를 만든다 - 이 compose 파일 수준에서는 별도 init 컨테이너를
+  # 두지 않는다.
+  localstack:
+    image: localstack/localstack:3.5
+    environment:
+      SERVICES: s3,sqs
+      DEFAULT_REGION: ${EXPERIMENT_AWS_REGION:-ap-northeast-2}
+      # 기본(domain) 전략은 큐 URL을 sqs.<region>.localhost.localstack.cloud처럼 만드는데,
+      # 이 hostname은 compose 내부 네트워크에서 못 찾는다(호스트 접근 전용 DNS 트릭) - api/worker
+      # 컨테이너 안에서 그대로 쓸 수 있는 path 스타일(http://localstack:4566/<account>/<queue>)로
+      # 강제한다. 실제로 QueueDoesNotExistException을 겪고 나서 고쳤다.
+      SQS_ENDPOINT_STRATEGY: path
+    ports:
+      - "${EXPERIMENT_LOCALSTACK_PORT:-4566}:4566"
+    volumes:
+      - ./localstack-init:/etc/localstack/init/ready.d
+    healthcheck:
+      # localstack 자체 헬스(S3/SQS 엔진 기동) + 이 프로젝트의 init 스크립트 완료(마커 파일)를
+      # 함께 확인한다 - 둘 다 통과해야 api/worker가 기동한다. 고정 sleep을 쓰지 않는다.
+      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/health >/dev/null && test -f /tmp/localstack-init-complete"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    restart: always
+
+  api:
+    build: .
+    image: vintic-backend:experiment
+    ports:
+      - "${EXPERIMENT_API_PORT:-8090}:8080"
+      - "${EXPERIMENT_API_MANAGEMENT_PORT:-8091}:8081"
+    environment:
+      # Day5 3단계: Smoke 1/2가 실제 HTTP round-trip을 타려면 MockAuthWebConfig(@Profile("local")
+      # 전용)가 떠야 X-User-Id 인증이 통과한다 - experiment-api 단독으로는 이 설정이 활성화되지
+      # 않는다는 걸 실제로 겪고 알았다(auth 계층이 아예 등록되지 않아 요청이 항상 401/미인증).
+      # local을 함께 켜되, 아래 SPRING_DATASOURCE_*/SPRING_DATA_REDIS_* 등 이 파일의 기존
+      # env var override들이 local.yml의 localhost 하드코딩보다 우선한다(Spring property source
+      # 우선순위: OS 환경변수 > 프로필별 yml) - 그대로 이 compose 스택(mysql/redis 서비스명)을
+      # 가리킨다. local.yml이 management.server.port를 재정의해서 actuator가 8081이 아니라
+      # 서비스 포트(8080, 호스트 8090)로 합쳐진다 - 아래 healthcheck/EXPERIMENT_API_MANAGEMENT_PORT
+      # 매핑은 이 조합에서는 8090으로 접근해야 한다(실행 시 실제로 확인).
+      SPRING_PROFILES_ACTIVE: local,experiment-api
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-vintic_experiment}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-experimentpw}
+      LOCAL_DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-experimentpw}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      LOCAL_REDIS_HOST: redis
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-unused-in-experiment}
+      # queue URL의 "us-east-1"은 DEFAULT_REGION/ANALYSIS_JOB_QUEUE_REGION 설정과 무관하게
+      # LocalStack이 SQS_ENDPOINT_STRATEGY=path일 때 고정으로 붙이는 값이다(실제로 만들어진
+      # 큐를 list-queues로 조회해서 확인한 값 그대로 씀 - 추측하지 않았다).
+      ANALYSIS_JOB_QUEUE_TYPE: sqs
+      ANALYSIS_JOB_QUEUE_URL: http://localstack:4566/queue/us-east-1/000000000000/analysis-job-queue
+      ANALYSIS_JOB_QUEUE_REGION: ${EXPERIMENT_AWS_REGION:-ap-northeast-2}
+      ANALYSIS_JOB_QUEUE_ENDPOINT: http://localstack:4566
+      # S3Client(GetObject 등, 컨테이너 내부 호출)는 compose 내부 hostname을 쓴다.
+      CLOUD_AWS_S3_ENDPOINT_OVERRIDE: http://localstack:4566
+      # presigned URL은 외부(호스트의 브라우저/curl)가 열어야 하므로 host-reachable 주소를 쓴다 -
+      # 위 값과 의도적으로 다르다(S3Config 주석 참고).
+      ANALYSIS_JOB_UPLOAD_PRESIGN_ENDPOINT: http://localhost:${EXPERIMENT_LOCALSTACK_PORT:-4566}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    healthcheck:
+      # local.yml이 management.server.port를 빈 값으로 재정의해서(로컬 편의를 위한 단일 포트
+      # 병합) experiment-api.yml 단독일 때와 달리 actuator가 8081이 아니라 서비스 포트(8080)로
+      # 합쳐진다 - 실제 기동 후 curl로 8080에서만 응답하는 것을 확인하고 고쳤다.
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/actuator/health/readiness | grep -q '\"status\":\"UP\"'"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: always
+
+  worker:
+    build: .
+    image: vintic-backend:experiment
+    environment:
+      SPRING_PROFILES_ACTIVE: experiment-worker
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-vintic_experiment}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-experimentpw}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-unused-in-experiment}
+      # queue URL의 "us-east-1"은 DEFAULT_REGION/ANALYSIS_JOB_QUEUE_REGION 설정과 무관하게
+      # LocalStack이 SQS_ENDPOINT_STRATEGY=path일 때 고정으로 붙이는 값이다(실제로 만들어진
+      # 큐를 list-queues로 조회해서 확인한 값 그대로 씀 - 추측하지 않았다).
+      ANALYSIS_JOB_QUEUE_TYPE: sqs
+      ANALYSIS_JOB_QUEUE_URL: http://localstack:4566/queue/us-east-1/000000000000/analysis-job-queue
+      ANALYSIS_JOB_QUEUE_REGION: ${EXPERIMENT_AWS_REGION:-ap-northeast-2}
+      ANALYSIS_JOB_QUEUE_ENDPOINT: http://localstack:4566
+      CLOUD_AWS_S3_ENDPOINT_OVERRIDE: http://localstack:4566
+      # application max-receive-count와 Queue(localstack-init/setup.sh) maxReceiveCount를
+      # 반드시 같은 값(3)으로 맞춘다 - 기본값과 같지만 결합관계를 명시적으로 드러낸다.
+      ANALYSIS_WORKER_MAX_RECEIVE_COUNT: "3"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    # Worker는 web-application-type=none이라 HTTP healthcheck를 만들 수 없다(사용자 웹 계층을
+    # 켜지 않는다는 요구사항과 직접 충돌한다) - liveness는 컨테이너 자체의 running 상태로
+    # 표현한다: WorkerQueueTypeGuard가 설정 오류 시 기동 자체를 실패시키고, SqsAnalysisJobPoller는
+    # non-daemon 스레드라 정상 기동되면 프로세스가 계속 살아있다. 즉 "컨테이너가 계속 Up이다"가
+    # 곧 liveness 신호다 - 별도 HEALTHCHECK 지시자를 추가하지 않았다.
+    restart: always
+    stop_grace_period: 90s

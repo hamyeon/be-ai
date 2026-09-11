@@ -1,6 +1,12 @@
 spring:
   profiles:
     include: secret
+  # flyway-mysql를 클래스패스에 추가하면 Spring Boot가 기본으로 Flyway를 활성화한다 -
+  # local/dev는 지금까지처럼 ddl-auto=update만 쓰고 migration을 전혀 모르므로, 여기서 명시적으로
+  # 꺼둔다. experiment-api/experiment-worker 프로필에서만 true로 override한다
+  # (application-experiment-api.yml/application-experiment-worker.yml).
+  flyway:
+    enabled: false
   servlet:
     multipart:
       enabled: true

@@ -1,0 +1,51 @@
+# experiment-worker: SQS 기반 비동기 분석 파이프라인(Day3)에서 SQS 큐를 소비해 분석을
+# 처리하는 프로세스. Controller/Scheduler는 기동하지 않는다.
+#
+# DB/Redis 접속 정보 등 배포 설정은 이 프로필에 없다 - local/dev/prod처럼 실제 인프라를
+# 아는 프로필과 함께 활성화해서 그 프로필의 연결 설정을 그대로 쓴다
+# (예: spring.profiles.active=dev,experiment-worker).
+#
+# web-application-type=none으로 웹 계층 자체를 끈다. Controller를 하나씩 @Profile로
+# 막는 대신, 이 프로세스에는 처음부터 서블릿 컨테이너(내장 Tomcat)가 뜨지 않게 해서
+# 모든 Controller가 한 번에 비활성화되게 하는 방식을 택했다 - 부작용으로 actuator HTTP
+# 엔드포인트도 함께 꺼진다. Day3 범위에서 Worker의 HTTP 헬스체크 요구사항은 없다.
+spring:
+  main:
+    web-application-type: none
+  # Day5 1단계: experiment-api와 동일한 이유로 Flyway를 켜고 Hibernate는 validate만 한다.
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+# 기존 Redis Streams Consumer도 끈다 - 이 프로세스는 SQS만 담당하고, 같은 프로세스에서
+# Redis Streams 파이프라인을 같이 돌리지 않는다.
+#
+# Scheduler는 SchedulingConfig의 @Profile("!experiment-worker")로 별도로 꺼진다
+# (application.yml 기준 개별 스케줄러 enabled 기본값도 모두 false라 이중 방어).
+#
+# processor.fake.delay-ms: FakeAnalysisProcessor의 기본 sleep 초깃값. Real adapter가
+# SKIPPED이라 실측 대신 docs/adr.md §7의 기존 Vision latency(실루엣 4,440ms + 라벨 4,046ms +
+# 컨디션 2,678ms = 11,164ms)를 근거로 썼다(docs/infra-sprint/decisions.md "Fake sleep / AI
+# timeout 근거" 참고). 이 값(11.164초) < AI timeout 60초 < 정상 처리 최대 70초 < SQS
+# Visibility Timeout 90초 이상이라는 관계를 그대로 유지한다. 개별 테스트/장애 주입은
+# FakeAnalysisProcessor의 setDelayMillis()로 이 기본값을 덮어써서 검증한다.
+analysis:
+  stream:
+    consumer:
+      enabled: false
+  processor:
+    fake:
+      delay-ms: 11164
+
+# Day5 2단계: Docker에서는 stdout을 구조화된 JSON으로 남긴다(파일 로깅 없음 - 이 프로젝트
+# 어디에도 파일 appender가 없다). 새 로깅 라이브러리를 추가하지 않고 Spring Boot 3.4+ 내장
+# structured logging(logging.structured.format.console)만 쓴다 - ECS(Elastic Common Schema)
+# 포맷은 MDC(SqsAnalysisJobHandler가 넣는 serverId/workerId/requestId/analysisId)를 자동으로
+# JSON 필드에 포함시킨다(별도 encoder 설정 불필요). 이 프로필에만 적용하고 전역
+# application.yml/local/dev는 건드리지 않는다 - 다른 프로필의 로그 포맷에 영향이 없다.
+logging:
+  structured:
+    format:
+      console: ecs

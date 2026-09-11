@@ -72,6 +72,13 @@ class JwtAuthorizationWiringMySqlIT {
         registry.add("auction.lifecycle.end.enabled", () -> "false");
         registry.add("payment.expiration.enabled", () -> "false");
         registry.add("backup-offer.expiration.enabled", () -> "false");
+        // dev 프로필은 실제 배포에서 analysis.job.queue.type을 명시적으로 설정하는 것을
+        // 전제하는데(application.yml의 fail-fast 주석 참고, 값을 비워두면 컨텍스트 부팅 자체를
+        // 막는 의도된 설계라 건드리지 않는다), application-dev.yml에는 아직 실제 SQS 값이
+        // 채워져 있지 않다 - 이 테스트는 Queue 동작을 전혀 검증하지 않으므로(#75-4E 주석 참고,
+        // JWT wiring만 본다) 부작용 없는 in-memory로 이 테스트 컨텍스트에서만 채워서 컨텍스트가
+        // 뜨게 한다. 실제 application-dev.yml은 건드리지 않는다.
+        registry.add("analysis.job.queue.type", () -> "in-memory");
     }
 
     @Autowired

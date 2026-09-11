@@ -1,0 +1,50 @@
+# experiment-api: SQS 기반 비동기 분석 파이프라인(Day3)에서 Controller만 담당하는 프로세스.
+#
+# DB/Redis 접속 정보 등 배포 설정은 이 프로필에 없다 - local/dev/prod처럼 실제 인프라를
+# 아는 프로필과 함께 활성화해서 그 프로필의 연결 설정을 그대로 쓴다
+# (예: spring.profiles.active=dev,experiment-api).
+#
+# 기존 Redis Streams Consumer(RedisStreamConsumerConfig)를 끈다 - 이 프로세스는 SQS 큐에
+# 발행(SqsQueuePublisher)만 하고, Vision 분석을 직접 소비하지 않는다.
+analysis:
+  stream:
+    consumer:
+      enabled: false
+
+spring:
+  # Day5 1단계: Hibernate가 experiment 스키마를 더 이상 만들지 않게 하고(ddl-auto=validate),
+  # Flyway(V1 baseline + V2 product_analysis_jobs/analysis_result)가 스키마를 관리하게 한다.
+  # local/dev 단독 실행 시의 ddl-auto=update는 그대로 유지된다(application.yml의 flyway.enabled:
+  # false 기본값과 application-{local,dev}.yml의 ddl-auto: update는 이 프로필과 함께 켜졌을 때만
+  # override된다 - spring.profiles.active 목록에서 이 프로필이 뒤에 오므로 우선한다).
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  # Day5 2단계: Spring Boot 내장 graceful shutdown(새 코드 없음) - SIGTERM을 받으면 새 요청을
+  # 거부하고 in-flight 요청이 끝나길 최대 이 시간만큼 기다린 뒤 종료한다. sync 엔드포인트가
+  # FakeAnalysisProcessor(수 초 이내)만 부르므로 Worker(최대 70초 처리)만큼 긴 유예가 필요 없다.
+  lifecycle:
+    timeout-per-shutdown-phase: 10s
+
+server:
+  shutdown: graceful
+
+# Day5 2단계: experiment-worker와 동일하게 stdout을 ECS 구조화 JSON으로 남긴다(새 dependency
+# 없이 Spring Boot 내장 기능만 사용 - application-experiment-worker.yml 주석 참고).
+logging:
+  structured:
+    format:
+      console: ecs
+
+# liveness(/actuator/health/liveness, 프로세스 생존만)와 readiness(/actuator/health/readiness,
+# DB 포함) probe 그룹을 켠다(decisions.md "Health check" 결정). management.server.port는
+# base(application.yml)의 8081 분리를 그대로 유지한다 - local처럼 서비스 포트로 되돌리지
+# 않는다(이 실험은 배포와 같은 포트 분리 조건에서 확인하는 게 목적). show-details도 base
+# 기본값(when-authorized)을 그대로 둔다 - 외부에 상세 컴포넌트 정보를 노출하지 않는다.
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true

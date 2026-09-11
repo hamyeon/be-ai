@@ -22,6 +22,7 @@ import com.vintic.backend.common.exception.AiApiException;
 import com.vintic.backend.common.exception.AiResponseFormatException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -36,8 +37,13 @@ import java.util.List;
 // 나눈 이유는 단계마다 필요한 게 다르기 때문이다. 실루엣은 512px로 줄여도 알아볼 수 있지만
 // 텅 라벨의 작은 글자는 원본 해상도가 필요하다. 한 호출로 묶으면 전체를 비싼 쪽에 맞춰야 한다.
 // 이미지를 세 번 보내는 만큼 비용이 늘어나는데, 그만한 값을 하는지는 하네스로 확인한다.
+//
+// redis-baseline-test 프로필에서는 비활성화한다 - 그 프로필은 실제 OpenAI 호출 없이
+// FakeVisionAnalysisService(@Primary)로 Vision 처리 중 상태를 결정적으로 재현하는
+// Day5 SIGTERM 실험용 harness다. 이 클래스의 분석 로직 자체는 변경하지 않았다.
 @Service
 @Primary
+@Profile("!redis-baseline-test")
 @Slf4j
 public class StagedVisionAnalysisService implements VisionAnalysisService {
 

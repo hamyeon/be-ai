@@ -1,0 +1,24 @@
+# redis-baseline-test: 기존 Redis Streams Consumer만 격리 실행하는 일회성 profile.
+# Day5 SIGTERM 실험(docs/infra-sprint/redis-streams-audit.md의 "Day 5 실제 테스트가 필요한
+# 이유" 참고)의 baseline으로 쓴다.
+#
+# 실제 기동 계약: 단독 실행이 아니라 항상 local과 함께 켠다.
+#   SPRING_PROFILES_ACTIVE=local,redis-baseline-test
+# 단독으로 켜면 이 프로필에는 DB/Redis 연결 정보와 analysis.job.queue.type이 없어(다른
+# analysis.job.queue.type을 비워두면 fail-fast하는 기존 설계, application.yml 참고) 기동하지
+# 않는다 - 필요한 최소 설정을 이 프로필에 중복 정의하지 않고 local의 실제 설정(in-memory
+# QueuePublisher, 로컬 MySQL/Redis 연결 정보)을 그대로 재사용한다.
+#
+# - 기존 Redis Streams Consumer(RedisStreamConsumerConfig)는 아무 것도 건드리지 않는다 -
+#   analysis.stream.consumer.enabled의 기본값(matchIfMissing=true)이 그대로 적용되어 켜진다.
+# - SQS Consumer(Day3 실험 트랙)는 @Profile("experiment-worker")로만 켜지므로, 이 프로필에서는
+#   처음부터 등록 대상이 아니다.
+# - PoC Controller/Scheduler는 experiment-worker와 같은 방식으로 웹 계층 자체를 꺼서 격리한다.
+# - Vision 호출은 FakeVisionAnalysisService(analysis.redis-baseline-test.vision-delay-ms)로
+#   대체된다 - ai/vision/service/FakeVisionAnalysisService.java 참고.
+#
+# experiment-api/experiment-worker와 동시에 켜지 않는다(운영 규약 - 코드로 강제하지 않음,
+# 기존 experiment-api/experiment-worker 오버레이 프로필들과 같은 컨벤션).
+spring:
+  main:
+    web-application-type: none

@@ -36,6 +36,9 @@ dependencies {
 	implementation 'software.amazon.awssdk:s3:2.25.11'
 	implementation 'software.amazon.awssdk:sqs:2.25.11'
 	runtimeOnly 'com.mysql:mysql-connector-j'
+	// experiment-api/experiment-worker 프로필 전용 스키마 migration(V1/V2, db/migration).
+	// local/dev는 spring.flyway.enabled=false(application.yml)로 그대로 ddl-auto=update를 쓴다.
+	implementation 'org.flywaydb:flyway-mysql'
 	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
 	testImplementation 'org.testcontainers:junit-jupiter'
 	testImplementation 'org.testcontainers:mysql'

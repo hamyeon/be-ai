@@ -222,19 +222,39 @@ class ManualBidPerformanceBenchmarkIT {
         }
     }
 
-    private static final Path RAW_DIR = Path.of("..", "docs", "experiments", "concurrency", "raw");
+    // 실제 커밋된 연구 raw CSV(§#36-A 공식 측정 결과)가 있는 경로 - "publication" 모드에서만
+    // 쓴다(-Dconcurrency.performance.publish=true 명시했을 때만). 기본 ./gradlew test는 이
+    // 경로를 절대 건드리지 않는다 - build/ 밑에 별도로 쓴다(일반 빌드 산출물처럼 매번 덮어써도
+    // 무방).
+    private static final Path PUBLISH_RAW_DIR = Path.of("..", "docs", "experiments", "concurrency", "raw");
+    private static final Path DEFAULT_RAW_DIR = Path.of("build", "concurrency-experiments", "raw");
     private static final String CSV_HEADER =
             "batch,requestIndex,concurrency,latencyMs,outcome,exceptionType,batchElapsedMs";
 
-    private String performanceLabel() {
+    // publication 모드(기존 공식 측정 재현) 여부. 기본 false - 이 값이 true일 때만 커밋된
+    // raw CSV 경로/덮어쓰기 방지 guard/기존 50-batch 규모가 그대로 적용된다.
+    private boolean isPublishMode() {
+        String v = System.getProperty("concurrency.performance.publish");
+        if (v == null) {
+            v = System.getenv("CONCURRENCY_PERFORMANCE_PUBLISH");
+        }
+        return Boolean.parseBoolean(v);
+    }
+
+    private String performanceLabel(boolean publish) {
         String label = System.getProperty("concurrency.performance.label");
         if (label == null) {
             label = System.getenv("CONCURRENCY_PERFORMANCE_LABEL");
         }
         if (label == null || label.isBlank()) {
+            if (!publish) {
+                // 기본 회귀 실행 - 공식 라벨(no-lock/pessimistic) 없이도 항상 통과해야 하므로
+                // 안전한 기본 라벨을 쓴다(기존 에러 메시지가 예시로 들던 값 그대로).
+                return "smoketest";
+            }
             throw new IllegalStateException(
-                    "CONCURRENCY_PERFORMANCE_LABEL(또는 -Dconcurrency.performance.label)이 설정되지 않았습니다. "
-                            + "예: no-lock, pessimistic, smoketest"
+                    "publish 모드에서는 CONCURRENCY_PERFORMANCE_LABEL(또는 -Dconcurrency.performance.label)이 "
+                            + "필수입니다. 예: no-lock, pessimistic"
             );
         }
         return label;
@@ -280,38 +300,45 @@ class ManualBidPerformanceBenchmarkIT {
     void concurrency_performance_benchmark를_수행한다() throws Exception {
         logEnvironment();
 
-        String label = performanceLabel();
-        Path csvPath = RAW_DIR.resolve(label + "-performance.csv");
+        boolean publish = isPublishMode();
+        String label = performanceLabel(publish);
+        Path rawDir = publish ? PUBLISH_RAW_DIR : DEFAULT_RAW_DIR;
+        Path csvPath = rawDir.resolve(label + "-performance.csv");
 
-        if (Files.exists(csvPath)) {
+        if (publish && Files.exists(csvPath)) {
             throw new IllegalStateException(
                     "본 측정 raw CSV가 이미 존재합니다(덮어쓰기 방지): " + csvPath.toAbsolutePath()
                             + " — 재측정하려면 기존 파일을 사람이 명시적으로 옮기거나 삭제해야 합니다."
             );
         }
-        Files.createDirectories(RAW_DIR);
+        Files.createDirectories(rawDir);
         writeLine(csvPath, CSV_HEADER, false);
 
         WorkloadConfig config = new WorkloadConfig(8, 10000, 5000);
+        // publish 모드는 §concurrency/protocol.md에 사전 확정된 규모(5 warmup + 50 measured)를
+        // 그대로 유지한다 - 공식 측정 수치의 규모 자체를 바꾸지 않는다. 기본 회귀 실행은 안전한
+        // 축소 규모(1 warmup + 3 measured)로 실제 동시 요청/실패 분류 경로만 진짜로 수행한다.
+        int warmupBatches = publish ? 5 : 1;
+        int measuredBatches = publish ? 50 : 3;
 
-        for (int batch = 1; batch <= 5; batch++) {
+        for (int batch = 1; batch <= warmupBatches; batch++) {
             List<RequestRecord> records = runBatch(-batch, config);
             long success = records.stream().filter(r -> r.outcome().equals("SUCCESS")).count();
-            System.out.println("[perf warmup batch=" + batch + "/5] success=" + success
+            System.out.println("[perf warmup batch=" + batch + "/" + warmupBatches + "] success=" + success
                     + "/" + config.concurrency() + " (폐기, raw에 기록 안 함)");
         }
 
-        for (int batch = 1; batch <= 50; batch++) {
+        for (int batch = 1; batch <= measuredBatches; batch++) {
             List<RequestRecord> records = runBatch(batch, config);
             appendBatch(csvPath, records);
             long success = records.stream().filter(r -> r.outcome().equals("SUCCESS")).count();
             double batchElapsedMs = records.get(0).batchElapsedMs();
-            System.out.println("[perf measured batch=" + batch + "/50] success=" + success
+            System.out.println("[perf measured batch=" + batch + "/" + measuredBatches + "] success=" + success
                     + "/" + config.concurrency() + " batchElapsedMs=" + batchElapsedMs);
         }
 
-        System.out.println("[perf summary] label=" + label
-                + " measuredBatches=50 measuredAttempts=" + (50 * config.concurrency())
+        System.out.println("[perf summary] publish=" + publish + " label=" + label
+                + " measuredBatches=" + measuredBatches + " measuredAttempts=" + (measuredBatches * config.concurrency())
                 + " (raw data: " + csvPath.toAbsolutePath() + ")");
     }
 }

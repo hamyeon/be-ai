@@ -1,0 +1,23 @@
+# Gradle wrapper(gradlew, gradle/wrapper/*, gradlew.bat)와 빌드에 필요한 파일
+# (build.gradle, settings.gradle, src/main)은 제외하지 않는다 - Dockerfile 빌드 스테이지가
+# 그대로 필요로 한다.
+
+.git
+.gradle
+build
+out
+*.log
+
+.idea
+*.iml
+
+.env
+.env.example
+test.http
+
+# 실제 자격증명 - 컨테이너는 환경변수로 값을 받는다(docker-compose.experiment.yml 참고),
+# 이미지 안에 파일로 들어가면 안 된다.
+src/main/resources/application-secret.yml
+
+# bootJar는 test task에 의존하지 않는다 - 테스트 소스/결과물은 이미지 컨텍스트에 불필요하다.
+src/test

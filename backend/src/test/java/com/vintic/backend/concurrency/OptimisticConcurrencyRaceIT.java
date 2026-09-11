@@ -417,9 +417,33 @@ class OptimisticConcurrencyRaceIT {
             "AlreadyHighestBidderException", "BidAmountTooLowException", "PenaltyRestrictedException"
     );
 
-    private static final Path RAW_DIR = Path.of("..", "docs", "experiments", "concurrency", "raw");
-    private static final Path OPTIMISTIC_EXPERIMENT_CSV = RAW_DIR.resolve("optimistic-correctness.csv");
-    private static final Path MAIN_EXPERIMENT_LOG_DIR = RAW_DIR.resolve("logs");
+    // 기본 ./gradlew test는 커밋된 실제 연구 raw CSV(§#74-3 공식 본실험 결과)를 절대 건드리지
+    // 않는다 - build/ 밑에 별도로 쓴다. -Dconcurrency.performance.publish=true(또는
+    // CONCURRENCY_PERFORMANCE_PUBLISH)를 명시했을 때만 커밋된 경로 + 덮어쓰기 방지 guard가
+    // 적용된다(다른 concurrency 실험 클래스들과 동일한 관례).
+    private static final Path PUBLISH_RAW_DIR = Path.of("..", "docs", "experiments", "concurrency", "raw");
+    private static final Path DEFAULT_RAW_DIR = Path.of("build", "concurrency-experiments", "raw");
+
+    private boolean isPublishMode() {
+        String v = System.getProperty("concurrency.performance.publish");
+        if (v == null) {
+            v = System.getenv("CONCURRENCY_PERFORMANCE_PUBLISH");
+        }
+        return Boolean.parseBoolean(v);
+    }
+
+    private Path rawDir() {
+        return isPublishMode() ? PUBLISH_RAW_DIR : DEFAULT_RAW_DIR;
+    }
+
+    private Path optimisticExperimentCsv() {
+        return rawDir().resolve("optimistic-correctness.csv");
+    }
+
+    private Path mainExperimentLogDir() {
+        return rawDir().resolve("logs");
+    }
+
     private static final String CSV_HEADER = String.join(",",
             "run", "workerCount", "bidderCount", "delayMs", "initialPrice", "bidIncrement",
             "totalAttempts", "successCount", "businessRejectionCount", "exhaustedCount",
@@ -479,7 +503,7 @@ class OptimisticConcurrencyRaceIT {
                 String.valueOf(result.invariantViolated()),
                 "\"" + String.join(";", result.violations()) + "\""
         );
-        writeLine(OPTIMISTIC_EXPERIMENT_CSV, row, true);
+        writeLine(optimisticExperimentCsv(), row, true);
     }
 
     private void writeRunLog(WorkloadConfig config, RunResult result) throws IOException {
@@ -514,7 +538,7 @@ class OptimisticConcurrencyRaceIT {
         log.append("violations=").append(result.violations()).append('\n');
         log.append("elapsedMillis=").append(result.elapsedMillis()).append('\n');
 
-        writeLine(MAIN_EXPERIMENT_LOG_DIR.resolve("optimistic-run-" + runId + ".log"), log.toString(), false);
+        writeLine(mainExperimentLogDir().resolve("optimistic-run-" + runId + ".log"), log.toString(), false);
     }
 
     private void writeLine(Path path, String content, boolean append) throws IOException {
@@ -535,15 +559,16 @@ class OptimisticConcurrencyRaceIT {
     void optimistic_lock_retry_상태에서_frozen_workload로_20회_본실험을_수행한다() throws Exception {
         logEnvironment();
 
-        if (Files.exists(OPTIMISTIC_EXPERIMENT_CSV)) {
+        Path optimisticExperimentCsv = optimisticExperimentCsv();
+        if (isPublishMode() && Files.exists(optimisticExperimentCsv)) {
             throw new IllegalStateException(
                     "본 실험 raw CSV가 이미 존재합니다(덮어쓰기 방지): "
-                            + OPTIMISTIC_EXPERIMENT_CSV.toAbsolutePath()
+                            + optimisticExperimentCsv.toAbsolutePath()
                             + " — 재측정하려면 기존 파일을 사람이 명시적으로 옮기거나 삭제해야 합니다."
             );
         }
-        Files.createDirectories(MAIN_EXPERIMENT_LOG_DIR);
-        writeLine(OPTIMISTIC_EXPERIMENT_CSV, CSV_HEADER, false);
+        Files.createDirectories(mainExperimentLogDir());
+        writeLine(optimisticExperimentCsv, CSV_HEADER, false);
 
         WorkloadConfig frozen = new WorkloadConfig(8, 1000, 10000, 5000);
         int violatedRuns = 0;
@@ -562,6 +587,6 @@ class OptimisticConcurrencyRaceIT {
                     + " violations=" + result.violations());
         }
         System.out.println("[optimistic main summary] " + violatedRuns + "/20 runs violated invariants"
-                + " (raw data: " + OPTIMISTIC_EXPERIMENT_CSV.toAbsolutePath() + ")");
+                + " (raw data: " + optimisticExperimentCsv.toAbsolutePath() + ")");
     }
 }

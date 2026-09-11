@@ -4,6 +4,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.connection.stream.Consumer;
 import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.connection.stream.ReadOffset;
@@ -18,7 +19,14 @@ import java.util.UUID;
 
 // 애플리케이션 기동 시 Consumer Group을 만들고(없으면), AnalysisTaskConsumer를 Redis Stream에
 // 구독시킨다. 지금은 별도 Worker 서버가 아니라 같은 Spring 애플리케이션 안의 백그라운드 컴포넌트다.
+//
+// analysis.stream.consumer.enabled가 없으면(matchIfMissing=true) 지금까지와 동일하게 켜진다 -
+// local/dev/prod는 이 프로퍼티를 건드리지 않아 기존 동작이 그대로 유지된다. experiment-api/
+// experiment-worker 프로필에서만 false로 꺼서, SQS 기반 파이프라인과 기존 Redis Streams
+// 파이프라인이 같은 프로세스에서 동시에 돌지 않게 격리한다. 비즈니스 로직(AnalysisTaskConsumer)은
+// 손대지 않는다.
 @Component
+@ConditionalOnProperty(prefix = "analysis.stream.consumer", name = "enabled", matchIfMissing = true)
 @RequiredArgsConstructor
 @Slf4j
 public class RedisStreamConsumerConfig {

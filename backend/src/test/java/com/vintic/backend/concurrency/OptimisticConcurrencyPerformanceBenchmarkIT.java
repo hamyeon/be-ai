@@ -340,8 +340,11 @@ class OptimisticConcurrencyPerformanceBenchmarkIT {
         }
     }
 
-    private static final Path RAW_DIR = Path.of("..", "docs", "experiments", "concurrency", "raw");
-    private static final Path OPTIMISTIC_PERFORMANCE_CSV = RAW_DIR.resolve("optimistic-performance.csv");
+    // publish 모드(-Dconcurrency.performance.publish=true 또는 CONCURRENCY_PERFORMANCE_PUBLISH)
+    // 에서만 커밋된 실제 연구 raw CSV 경로를 쓴다 - ManualBidPerformanceBenchmarkIT과 동일한
+    // 관례. 기본 ./gradlew test는 build/ 밑에 별도로 쓰고 덮어쓰기 방지 guard를 적용하지 않는다.
+    private static final Path PUBLISH_RAW_DIR = Path.of("..", "docs", "experiments", "concurrency", "raw");
+    private static final Path DEFAULT_RAW_DIR = Path.of("build", "concurrency-experiments", "raw");
     static final String CSV_HEADER = String.join(",",
             "batch", "requestIndex", "concurrency", "latencyMs", "outcome", "exceptionType",
             "attemptsUsed", "retryCount", "conflictCount", "exhausted", "batchElapsedMs"
@@ -390,38 +393,55 @@ class OptimisticConcurrencyPerformanceBenchmarkIT {
     // #74-4B 본 측정 예정 메서드. #36-A와 동일한 workload(concurrency=8, warm-up 5 batch 폐기 +
     // measurement 50 batch 기록, delay=0, initialPrice=10000, bidIncrement=5000)로 실행한다.
     // #74-4A(이 단계)에서는 호출하지 않는다 - schema/writer/overwrite guard만 준비된 상태로 둔다.
+    private boolean isPublishMode() {
+        String v = System.getProperty("concurrency.performance.publish");
+        if (v == null) {
+            v = System.getenv("CONCURRENCY_PERFORMANCE_PUBLISH");
+        }
+        return Boolean.parseBoolean(v);
+    }
+
     @Test
     void optimistic_concurrency_performance_benchmark를_수행한다() throws Exception {
         logEnvironment();
 
-        if (Files.exists(OPTIMISTIC_PERFORMANCE_CSV)) {
+        boolean publish = isPublishMode();
+        Path rawDir = publish ? PUBLISH_RAW_DIR : DEFAULT_RAW_DIR;
+        Path csvPath = rawDir.resolve("optimistic-performance.csv");
+
+        if (publish && Files.exists(csvPath)) {
             throw new IllegalStateException(
-                    "본 측정 raw CSV가 이미 존재합니다(덮어쓰기 방지): " + OPTIMISTIC_PERFORMANCE_CSV.toAbsolutePath()
+                    "본 측정 raw CSV가 이미 존재합니다(덮어쓰기 방지): " + csvPath.toAbsolutePath()
                             + " — 재측정하려면 기존 파일을 사람이 명시적으로 옮기거나 삭제해야 합니다."
             );
         }
-        Files.createDirectories(RAW_DIR);
-        writeLine(OPTIMISTIC_PERFORMANCE_CSV, CSV_HEADER, false);
+        Files.createDirectories(rawDir);
+        writeLine(csvPath, CSV_HEADER, false);
 
         WorkloadConfig config = new WorkloadConfig(8, 10000, 5000);
+        // publish 모드는 #74-4B에 확정된 규모(5 warmup + 50 measured)를 그대로 유지한다. 기본
+        // 회귀 실행은 안전한 축소 규모로 실제 동시 요청/retry/conflict 분류 경로만 진짜로 수행한다.
+        int warmupBatches = publish ? 5 : 1;
+        int measuredBatches = publish ? 50 : 3;
 
-        for (int batch = 1; batch <= 5; batch++) {
+        for (int batch = 1; batch <= warmupBatches; batch++) {
             List<RequestRecord> records = runBatch(-batch, config);
             long success = records.stream().filter(r -> r.outcome().equals("SUCCESS")).count();
-            System.out.println("[opt-perf warmup batch=" + batch + "/5] success=" + success
+            System.out.println("[opt-perf warmup batch=" + batch + "/" + warmupBatches + "] success=" + success
                     + "/" + config.concurrency() + " (폐기, raw에 기록 안 함)");
         }
 
-        for (int batch = 1; batch <= 50; batch++) {
+        for (int batch = 1; batch <= measuredBatches; batch++) {
             List<RequestRecord> records = runBatch(batch, config);
-            appendBatch(OPTIMISTIC_PERFORMANCE_CSV, records);
+            appendBatch(csvPath, records);
             long success = records.stream().filter(r -> r.outcome().equals("SUCCESS")).count();
             double batchElapsedMs = records.get(0).batchElapsedMs();
-            System.out.println("[opt-perf measured batch=" + batch + "/50] success=" + success
+            System.out.println("[opt-perf measured batch=" + batch + "/" + measuredBatches + "] success=" + success
                     + "/" + config.concurrency() + " batchElapsedMs=" + batchElapsedMs);
         }
 
-        System.out.println("[opt-perf summary] measuredBatches=50 measuredAttempts=" + (50 * config.concurrency())
-                + " (raw data: " + OPTIMISTIC_PERFORMANCE_CSV.toAbsolutePath() + ")");
+        System.out.println("[opt-perf summary] publish=" + publish
+                + " measuredBatches=" + measuredBatches + " measuredAttempts=" + (measuredBatches * config.concurrency())
+                + " (raw data: " + csvPath.toAbsolutePath() + ")");
     }
 }

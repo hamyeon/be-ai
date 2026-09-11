@@ -48,6 +48,12 @@ class KakaoUserFindOrCreateConcurrencyMySqlIT {
         registry.add("spring.datasource.username", mysql::getUsername);
         registry.add("spring.datasource.password", mysql::getPassword);
         registry.add("jwt.secret", () -> "kakao-concurrency-it-test-secret-32-bytes-minimum!!");
+        // JwtAuthorizationWiringMySqlIT와 동일한 이유 - dev 프로필은 실제 배포에서
+        // analysis.job.queue.type을 명시 설정하는 것을 전제하는데(application.yml의
+        // fail-fast는 의도된 설계라 건드리지 않는다) application-dev.yml에는 아직 실제 SQS
+        // 값이 없다. 이 테스트는 Queue 동작과 무관하므로(카카오 로그인 동시성만 본다)
+        // in-memory로 이 컨텍스트에서만 채운다 - 실제 application-dev.yml은 무변경.
+        registry.add("analysis.job.queue.type", () -> "in-memory");
     }
 
     @Autowired

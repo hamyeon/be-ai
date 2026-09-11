@@ -50,6 +50,15 @@ public class ProductAnalysisJob {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    // Day4 lease/fencing 소유권. 미선점 상태(PENDING/QUEUED/PUBLISH_FAILED)에서는 null이다.
+    // claim 성공 시에만 두 값을 함께 채우고, 이후 상태 전이에서 임의로 지우지 않는다 -
+    // COMPLETED/FAILED로 넘어간 뒤에도 "누가 마지막으로 처리했는지" 추적 정보로 남겨둔다.
+    @Column(name = "processing_started_at")
+    private LocalDateTime processingStartedAt;
+
+    @Column(name = "worker_id")
+    private String workerId;
+
     protected ProductAnalysisJob() {
     }
 

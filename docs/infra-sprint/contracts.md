@@ -70,20 +70,30 @@ public interface AnalysisProcessor {
 
 초기값이며 Day 3의 실제 AI 소량 측정 후 조정한다.
 
+Day 4 2단계에서 `stale threshold >= Visibility Timeout`이 잘못된 관계임을 발견해 바로잡았다.
+SQS Visibility는 메시지 **수신** 시점부터 시작하지만 `processing_started_at`은 그보다 뒤인
+DB claim 시점에 기록된다. `stale threshold >= Visibility Timeout`이면 첫 재노출 시점의 처리
+나이가 stale threshold보다 항상 짧아 stale 조건을 통과하지 못하고, 선점 실패한 delivery만
+`ApproximateReceiveCount`를 계속 소모하며 stale 재선점이 실질적으로 일어나지 않는다.
+`stale threshold`는 `정상 처리 최대시간`과 `Visibility Timeout` 사이여야 재노출 시점에
+안전하게 stale로 판정된다.
+
 ```
+Fake 처리시간(delay-ms)      11.164초
 AI timeout                  60초
 정상 Worker 최대 처리시간    70초
-docker stop timeout         80~90초
-SQS Visibility Timeout      90초 이상
-stale threshold             Visibility Timeout 이상
+shutdown wait                75초
+stale threshold              80초
+SQS Visibility Timeout       90초 이상
 ```
 
 항상 지켜야 하는 관계:
 
 ```
-Visibility Timeout > 정상 처리 최대시간
-stale threshold >= Visibility Timeout
+Fake 처리시간 < AI timeout < 정상 처리 최대시간 < shutdown wait < stale threshold < Visibility Timeout
 docker stop timeout > 정상 처리 최대시간
 ```
 
-테스트 Profile에서는 Visibility/stale 값을 약 5초로 줄인다.
+테스트 Profile에서는 Visibility/stale 값을 약 5초 단위로 줄이되, 이 `stale < Visibility`
+관계는 테스트 값에서도 반드시 유지한다 - Day 4 3단계(LocalStack 통합 검증)에서 짧은 테스트
+값을 고를 때의 전제로 그대로 적용한다.
