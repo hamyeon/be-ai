@@ -1,0 +1,187 @@
+alias,brand,model_key,model_display
+# 사용자 입력·매물 제목의 모델 표기(한/영)를 시세 CSV(used_market_prices.csv)의 model_key로 접는 표.
+# crawler/calibration/model_aliases.py와 같은 역할이지만 키 체계는 시세 CSV를 따른다 -
+# 파서·Matcher·pre-filter·시세 조회가 전부 이 키 하나로 만나야 한다.
+# 매칭 규칙: 별칭·입력 모두 소문자 + 영숫자/한글만 남긴 뒤 "긴 별칭부터" 포함 검사한다.
+# 숫자만 있는 모델(530/574/990/1461...)은 브랜드 표기가 붙은 별칭만 둔다 - 가격·사이즈 숫자에 붙는 오탐 방지.
+# --- Nike ---
+에어포스1,Nike,airforce1,Air Force 1
+에어포스원,Nike,airforce1,Air Force 1
+에어포스,Nike,airforce1,Air Force 1
+air force 1,Nike,airforce1,Air Force 1
+airforce1,Nike,airforce1,Air Force 1
+af1,Nike,airforce1,Air Force 1
+에어맥스90,Nike,airmax90,Air Max 90
+air max 90,Nike,airmax90,Air Max 90
+am90,Nike,airmax90,Air Max 90
+에어맥스95,Nike,airmax95,Air Max 95
+air max 95,Nike,airmax95,Air Max 95
+am95,Nike,airmax95,Air Max 95
+에어맥스97,Nike,airmax97,Air Max 97
+air max 97,Nike,airmax97,Air Max 97
+am97,Nike,airmax97,Air Max 97
+에어맥스 코코,Nike,airmaxkoko,Air Max Koko
+에어맥스코코,Nike,airmaxkoko,Air Max Koko
+air max koko,Nike,airmaxkoko,Air Max Koko
+코코 샌들,Nike,airmaxkoko,Air Max Koko
+블레이저,Nike,blazer,Blazer
+blazer,Nike,blazer,Blazer
+코르테즈,Nike,cortez,Cortez
+cortez,Nike,cortez,Cortez
+덩크하이,Nike,dunkhigh,Dunk High
+dunk high,Nike,dunkhigh,Dunk High
+덩크로우,Nike,dunklow,Dunk Low
+덩크로,Nike,dunklow,Dunk Low
+dunk low,Nike,dunklow,Dunk Low
+덩크,Nike,dunklow,Dunk Low
+dunk,Nike,dunklow,Dunk Low
+조던1,Nike,jordan1,Jordan 1
+에어조던1,Nike,jordan1,Jordan 1
+조던 원,Nike,jordan1,Jordan 1
+air jordan 1,Nike,jordan1,Jordan 1
+jordan 1,Nike,jordan1,Jordan 1
+aj1,Nike,jordan1,Jordan 1
+조던3,Nike,jordan3,Jordan 3
+에어조던3,Nike,jordan3,Jordan 3
+air jordan 3,Nike,jordan3,Jordan 3
+jordan 3,Nike,jordan3,Jordan 3
+aj3,Nike,jordan3,Jordan 3
+조던4,Nike,jordan4,Jordan 4
+에어조던4,Nike,jordan4,Jordan 4
+air jordan 4,Nike,jordan4,Jordan 4
+jordan 4,Nike,jordan4,Jordan 4
+aj4,Nike,jordan4,Jordan 4
+페가수스,Nike,pegasus,Pegasus
+pegasus,Nike,pegasus,Pegasus
+v2k,Nike,v2krun,V2K Run
+브이투케이,Nike,v2krun,V2K Run
+보메로,Nike,vomero,Vomero
+vomero,Nike,vomero,Vomero
+# --- Adidas ---
+가젤,Adidas,gazelle,Gazelle
+gazelle,Adidas,gazelle,Gazelle
+삼바,Adidas,sambaog,Samba
+samba,Adidas,sambaog,Samba
+스페지알,Adidas,spezial,Handball Spezial
+스페치알,Adidas,spezial,Handball Spezial
+핸드볼 스페지알,Adidas,spezial,Handball Spezial
+spezial,Adidas,spezial,Handball Spezial
+스탠스미스,Adidas,stansmith,Stan Smith
+stan smith,Adidas,stansmith,Stan Smith
+슈퍼스타,Adidas,superstar,Superstar
+superstar,Adidas,superstar,Superstar
+# --- New Balance (숫자 모델은 브랜드/라인 표기가 붙은 형태만) ---
+뉴발란스 1906,New Balance,nb1906,1906
+뉴발 1906,New Balance,nb1906,1906
+nb 1906,New Balance,nb1906,1906
+new balance 1906,New Balance,nb1906,1906
+1906r,New Balance,nb1906,1906
+1906a,New Balance,nb1906,1906
+뉴발란스 2002,New Balance,nb2002r,2002R
+뉴발 2002,New Balance,nb2002r,2002R
+nb 2002,New Balance,nb2002r,2002R
+new balance 2002,New Balance,nb2002r,2002R
+2002r,New Balance,nb2002r,2002R
+뉴발란스 327,New Balance,nb327,327
+뉴발 327,New Balance,nb327,327
+nb 327,New Balance,nb327,327
+new balance 327,New Balance,nb327,327
+뉴발란스 530,New Balance,nb530,530
+뉴발 530,New Balance,nb530,530
+nb 530,New Balance,nb530,530
+new balance 530,New Balance,nb530,530
+뉴발란스 550,New Balance,nb550,550
+뉴발 550,New Balance,nb550,550
+nb 550,New Balance,nb550,550
+new balance 550,New Balance,nb550,550
+뉴발란스 574,New Balance,nb574,574
+뉴발 574,New Balance,nb574,574
+nb 574,New Balance,nb574,574
+new balance 574,New Balance,nb574,574
+뉴발란스 990,New Balance,nb990,990
+뉴발 990,New Balance,nb990,990
+nb 990,New Balance,nb990,990
+new balance 990,New Balance,nb990,990
+990v4,New Balance,nb990,990
+990v5,New Balance,nb990,990
+990v6,New Balance,nb990,990
+뉴발란스 993,New Balance,nb993,993
+뉴발 993,New Balance,nb993,993
+nb 993,New Balance,nb993,993
+new balance 993,New Balance,nb993,993
+# --- Asics ---
+젤카야노14,Asics,gelkayano14,Gel-Kayano 14
+젤 카야노 14,Asics,gelkayano14,Gel-Kayano 14
+카야노14,Asics,gelkayano14,Gel-Kayano 14
+gel kayano 14,Asics,gelkayano14,Gel-Kayano 14
+gel-kayano 14,Asics,gelkayano14,Gel-Kayano 14
+# --- Birkenstock ---
+보스턴,Birkenstock,boston,Boston
+버켄스탁 보스톤,Birkenstock,boston,Boston
+boston,Birkenstock,boston,Boston
+# --- Converse ---
+척70,Converse,chuck70,Chuck 70
+척 70,Converse,chuck70,Chuck 70
+chuck 70,Converse,chuck70,Chuck 70
+척테일러,Converse,chucktaylor,Chuck Taylor
+척 테일러,Converse,chucktaylor,Chuck Taylor
+chuck taylor,Converse,chucktaylor,Chuck Taylor
+컨버스 올스타,Converse,chucktaylor,Chuck Taylor
+# --- Crocs ---
+크록스 클래식,Crocs,classicclog,Classic Clog
+클래식 클로그,Crocs,classicclog,Classic Clog
+classic clog,Crocs,classicclog,Classic Clog
+# --- Dr. Martens (숫자 모델은 브랜드 표기가 붙은 형태만) ---
+닥터마틴 1460,Dr. Martens,dm1460,1460
+닥마 1460,Dr. Martens,dm1460,1460
+마틴 1460,Dr. Martens,dm1460,1460
+dr martens 1460,Dr. Martens,dm1460,1460
+dr. martens 1460,Dr. Martens,dm1460,1460
+닥터마틴 1461,Dr. Martens,dm1461,1461
+닥마 1461,Dr. Martens,dm1461,1461
+마틴 1461,Dr. Martens,dm1461,1461
+dr martens 1461,Dr. Martens,dm1461,1461
+dr. martens 1461,Dr. Martens,dm1461,1461
+닥터마틴 2976,Dr. Martens,dm2976,2976 Chelsea
+닥마 2976,Dr. Martens,dm2976,2976 Chelsea
+닥터마틴 첼시,Dr. Martens,dm2976,2976 Chelsea
+2976 chelsea,Dr. Martens,dm2976,2976 Chelsea
+닥터마틴 아드리안,Dr. Martens,dmadrian,Adrian
+아드리안 로퍼,Dr. Martens,dmadrian,Adrian
+adrian,Dr. Martens,dmadrian,Adrian
+# --- Hunter ---
+헌터 부츠,Hunter,hunteroriginal,Original Rain Boot
+헌터 레인부츠,Hunter,hunteroriginal,Original Rain Boot
+헌터 오리지널,Hunter,hunteroriginal,Original Rain Boot
+hunter original,Hunter,hunteroriginal,Original Rain Boot
+헌터,Hunter,hunteroriginal,Original Rain Boot
+hunter,Hunter,hunteroriginal,Original Rain Boot
+# --- Rockfish ---
+락피쉬 레인부츠,Rockfish,rockfishrain,Weatherwear Rain Boot
+락피시 레인부츠,Rockfish,rockfishrain,Weatherwear Rain Boot
+락피쉬 부츠,Rockfish,rockfishrain,Weatherwear Rain Boot
+rockfish rain,Rockfish,rockfishrain,Weatherwear Rain Boot
+락피쉬,Rockfish,rockfishrain,Weatherwear Rain Boot
+락피시,Rockfish,rockfishrain,Weatherwear Rain Boot
+rockfish,Rockfish,rockfishrain,Weatherwear Rain Boot
+# --- Salomon ---
+xt6,Salomon,xt6,XT-6
+xt-6,Salomon,xt6,XT-6
+xt 6,Salomon,xt6,XT-6
+살로몬 xt,Salomon,xt6,XT-6
+# --- Skechers ---
+고워크,Skechers,gowalk,Go Walk
+go walk,Skechers,gowalk,Go Walk
+# --- UGG ---
+태즈먼,UGG,tasman,Tasman
+타스만,UGG,tasman,Tasman
+tasman,UGG,tasman,Tasman
+# --- Vans ---
+어센틱,Vans,authentic,Authentic
+authentic,Vans,authentic,Authentic
+올드스쿨,Vans,oldskool,Old Skool
+old skool,Vans,oldskool,Old Skool
+oldskool,Vans,oldskool,Old Skool
+슬립온,Vans,slipon,Slip-On
+slip-on,Vans,slipon,Slip-On
+slip on,Vans,slipon,Slip-On

@@ -6,5 +6,6 @@ package com.vintic.backend.ai.observability.domain;
 // 섞이면 안 되므로 호출 종류를 남긴다.
 public enum AiCallType {
     VISION,     // /v1/chat/completions - 이미지 분석
-    EMBEDDING   // /v1/embeddings - 텍스트 임베딩
+    EMBEDDING,  // /v1/embeddings - 텍스트 임베딩
+    CHAT        // /v1/chat/completions - 이미지 없는 텍스트 전용 호출 (Goal 파싱, 매물 적합도)
 }

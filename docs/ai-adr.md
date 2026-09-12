@@ -2,7 +2,7 @@
 
 AI·조회·비동기 트랙에서 내린 설계 결정과 그 근거를 남긴다.
 
-기존 문서(`ai-infra-design.md`, `vision-agent.md`, `pricing-agent.md` 등)에 이미 정리된
+기존 문서(`ai-infra-design.md`, `ai-vision-agent.md`, `ai-pricing-agent.md` 등)에 이미 정리된
 결정은 여기서 되풀이하지 않고 참조만 건다. **코드 주석과 커밋 메시지에만 흩어져 있던
 결정**을 모으는 것이 이 문서의 목적이다.
 
@@ -54,7 +54,7 @@ MySQL에 `LONGBLOB`으로 저장한다. 유사도 계산은 애플리케이션�
 
 > **주의**: `@Lob`만 붙이면 MySQL에서 `TINYBLOB`(255바이트)으로 생성돼 6,144바이트 벡터가
 > 저장되지 않는다. `columnDefinition = "LONGBLOB"`을 명시해야 한다.
-> 자세한 경위는 `troubleshooting.md` 1번.
+> 자세한 경위는 `ai-troubleshooting.md` 1번.
 
 ---
 
@@ -142,7 +142,7 @@ class XxxService {
 
 `ProductVectorService`, `AiCallLogWriter`, `UserActivityLogWriter`가 이 형태를 따른다.
 "예외를 던지지 않는다"는 계약은 **그 계약을 검증하는 테스트가 있을 때만** 지켜진다.
-자세한 경위는 `troubleshooting.md` 2번.
+자세한 경위는 `ai-troubleshooting.md` 2번.
 
 ---
 
@@ -289,9 +289,9 @@ Week 5 항목에 "상태/구성품/**희소성** 보정"이 있었다. 매물 �
 부호가 반대인 두 신호라 그대로 곱하면 서로 상쇄되거나 엉뚱한 방향으로 움직인다.
 
 제대로 하려면 체결 속도(등록 후 팔리기까지 걸린 시간)가 필요한데, KREAM 체결 이력 수집이
-소프트 차단으로 막혀 있다(`troubleshooting.md` 4번).
+소프트 차단으로 막혀 있다(`ai-troubleshooting.md` 4번).
 
-자세한 산출 결과는 `pricing-agent.md` §2.
+자세한 산출 결과는 `ai-pricing-agent.md` §2.
 
 ---
 
@@ -445,7 +445,7 @@ KREAM 색상 프리미엄)으로만 반영한다.
 | `ai-infra-design.md` | Buyer Agent 재정의, Vector DB 후보 비교, 프롬프트 관리 방식 |
 | `ai-async-analysis.md` | Redis Streams 기반 비동기 파이프라인, ACK 정책 |
 | `ai-search-poc.md` | 청킹 전략, EmbeddingStore 추상화, 문자열 검색과의 결합 |
-| `vision-agent.md` | 3단계 프롬프트, 평가 하네스, detail 해상도 측정 |
-| `pricing-agent.md` | 가격 계산 캐싱, 희소성 지표 산출 결과 |
+| `ai-vision-agent.md` | 3단계 프롬프트, 평가 하네스, detail 해상도 측정 |
+| `ai-pricing-agent.md` | 가격 계산 캐싱, 희소성 지표 산출 결과 |
 | `deployment-config.md` | 배포 환경변수, 지표 확인 방법 |
-| `troubleshooting.md` | 막혔던 문제 7건의 증상·진단·원인·해결 |
+| `ai-troubleshooting.md` | 막혔던 문제 7건의 증상·진단·원인·해결 |

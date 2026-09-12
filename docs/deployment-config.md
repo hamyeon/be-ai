@@ -59,7 +59,7 @@
 | `VISION_DETAIL_CONDITION` | `high` | 3단계(오염/마모) 해상도 |
 
 해상도는 정확도와 비용을 맞바꾸는 값이라 재배포 없이 조정할 수 있게 빼뒀다.
-측정 근거는 `docs/vision-agent.md` 참고.
+측정 근거는 `docs/ai-vision-agent.md` 참고.
 
 ## 지표 확인 방법
 

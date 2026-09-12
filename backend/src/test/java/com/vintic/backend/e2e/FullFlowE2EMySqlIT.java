@@ -52,7 +52,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 // 상품 등록부터 결제까지 전 구간을 한 흐름으로 이어본다.
 //
 // 두 사람이 각자 만든 구간이 처음으로 한 테스트에서 만난다. 조각별 테스트가 전부
-// 초록불인데 이어붙이면 깨지는 경우를 이미 두 번 겪었고(docs/troubleshooting.md 1·2번),
+// 초록불인데 이어붙이면 깨지는 경우를 이미 두 번 겪었고(docs/ai-troubleshooting.md 1·2번),
 // 지금은 그 사이에 스케줄러와 트랜잭션 경계가 여러 번 끼어 있어 위험이 더 크다.
 //
 // AiTrackE2EMySqlIT와 나눈 이유:

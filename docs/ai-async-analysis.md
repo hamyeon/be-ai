@@ -93,7 +93,7 @@ Vision 분석 결과를 확인하려면 응답으로 받은 `analysisId`로 `GET
 `warnings`와 `needsUserConfirmation`이 실려 나가는 이유는 #21의 근거 검증 때문이다. Vision이 근거
 없이 채운 값은 저장 전에 제거되는데(`VisionEvidenceValidator`), 그러면 프론트 입장에서는 그냥 `null`로만
 보인다. 위 예시처럼 `size`가 비었을 때 **왜 비었고 사용자에게 뭘 요청해야 하는지**는 `warnings`에만
-들어 있다. 자세한 내용은 `docs/vision-agent.md` 참고.
+들어 있다. 자세한 내용은 `docs/ai-vision-agent.md` 참고.
 
 판단 근거(`evidence`)는 일부러 응답에 넣지 않았다. 항목마다 한국어 문장이 붙어 응답이 커지는데 폴링으로
 반복 호출되는 API이고, 사용자에게 보여줄 정보도 아니다. 필요하면 `vision_result_json`에 그대로 있다.
