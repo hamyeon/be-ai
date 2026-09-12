@@ -98,6 +98,31 @@ MODELS = [
     ("Converse", "chucktaylor", "Chuck Taylor", ["척테일러", "척 테일러", "chuck taylor"], None),
     ("Birkenstock", "boston", "Boston", ["보스턴"], ["버켄", "birkenstock"]),
     ("Nike", "jordan3", "Jordan 3", ["조던3", "조던 3", "jordan 3"], None),
+    # --- #97 3차 확대: 크롤링 원본 재분석(제목 기준 20건+ 후보). 새 크롤링 없이 별칭만 추가 ---
+    # SB 덩크는 일반 덩크와 가격대가 다른 별개 라인이라 분리한다. "sb 덩크 로우"가 "덩크 로우"보다
+    # 길어 먼저 검사되므로 SB 매물이 dunklow로 새지 않는다.
+    ("Nike", "dunksb", "SB Dunk", ["sb 덩크 로우", "sb덩크로우", "sb 덩크 하이", "sb덩크하이", "덩크 로우 sb", "덩크로우 sb", "sb 덩크", "sb덩크", "덩크 sb", "sb dunk", "dunk sb"], None),
+    ("Nike", "jordan11", "Jordan 11", ["조던11", "조던 11", "jordan 11"], None),
+    ("Nike", "airmax1", "Air Max 1", ["에어맥스1 ", "에어맥스 1 ", "에어맥스1(", "air max 1 ", "에어맥스 1'", "에어맥스1'"], None),
+    ("Adidas", "campus", "Campus", ["캠퍼스", "campus"], ["아디다스", "adidas"]),
+    ("Adidas", "forum", "Forum", ["포럼", "forum"], ["아디다스", "adidas"]),
+    ("Adidas", "sl72", "SL 72", ["sl72", "sl 72"], None),
+    ("Adidas", "ozweego", "Ozweego", ["오즈위고", "ozweego"], None),
+    ("Converse", "onestar", "One Star", ["원스타", "one star"], ["컨버스", "converse"]),
+    ("Converse", "runstar", "Run Star", ["런스타", "run star"], None),
+    ("Vans", "sk8hi", "Sk8-Hi", ["sk8-hi", "sk8 hi", "sk8hi", "스케이트 하이", "스케이트하이"], None),
+    ("Asics", "novablast", "Novablast", ["노바블라스트", "novablast"], None),
+    ("Salomon", "xt4", "XT-4", ["xt-4", "xt4", "xt 4"], None),
+    ("Hoka", "bondi", "Bondi", ["본디", "bondi"], None),
+    ("Puma", "speedcat", "Speedcat", ["스피드캣", "speedcat"], None),
+    ("Puma", "palermo", "Palermo", ["팔레르모", "palermo"], None),
+    ("Puma", "pumasuede", "Suede", ["푸마 스웨이드", "puma suede"], None),
+    ("Onitsuka Tiger", "mexico66", "Mexico 66", ["멕시코66", "멕시코 66", "mexico 66"], None),
+    ("Birkenstock", "arizona", "Arizona", ["아리조나", "arizona"], ["버켄", "birkenstock"]),
+    ("UGG", "uggultramini", "Ultra Mini", ["울트라 미니", "울트라미니", "ultra mini"], ["어그", "ugg"]),
+    ("UGG", "uggclassicmini", "Classic Mini", ["클래식 미니", "클래식미니", "classic mini"], ["어그", "ugg"]),
+    ("New Balance", "nb480", "480", ["480"], ["뉴발", "뉴 발", "new balance", "nb"]),
+    ("New Balance", "nb860", "860", ["860"], ["뉴발", "뉴 발", "new balance", "nb"]),
 ]
 
 # 긴 별칭부터 검사해야 "에어맥스95"가 "에어맥스 9x" 계열끼리 먹히지 않는다

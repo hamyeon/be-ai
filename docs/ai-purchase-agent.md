@@ -28,7 +28,7 @@ POST /api/purchase-goals/parse  { "text": "뉴발 990, A급 이상, 15만원 이
         │
         ▼
 GoalParser (인터페이스, 설계안 6-4)
-  ├ OpenAiGoalParser   시스템 프롬프트에 시세 카탈로그(45개 모델·별칭)를 실어 Structured Outputs로 받음
+  ├ OpenAiGoalParser   시스템 프롬프트에 시세 카탈로그(65개 모델·별칭, #97 이후)를 실어 Structured Outputs로 받음
   │     └ GoalDraftValidator   카탈로그 밖 키·비정상 금액·사이즈를 걷어내고 warnings 부착
   ├ RuleBasedGoalParser 별칭 표 + 정규식. API 없음. 결정적
   └ FallbackGoalParser  OpenAI 실패 시 규칙 기반으로 대체 (경고 + confidence ≤ 0.5)
@@ -209,7 +209,7 @@ goal은 그 매물에 사용자가 걸었을 법한 목표다. 일치 31 / 불�
 WR993GL 안의 993. 이 두 종류가 LLM Matcher가 값을 해야 할 자리다.
 
 파서와 달리 이 픽스처는 작성자가 지어낸 문장이 아니라 실제 매물이라 숫자를 좀 더 믿을 수 있다.
-다만 59건이고 모델 수가 45개라 모델당 한두 건이다.
+다만 59건이고 모델 수가 65개(#97 이후)라 모델당 한 건이 안 된다.
 
 **OpenAI 파서·Matcher**: 미측정. 유료 호출이라 자동으로 돌리지 않았다 - `GoalParsePromptHarnessTest`를
 키가 있는 환경에서 명시적으로 실행해야 한다. 규칙 기반이 픽스처를 다 맞추므로 LLM의 가치는 픽스처 밖 표현(오타, 신조어, 카탈로그 밖
