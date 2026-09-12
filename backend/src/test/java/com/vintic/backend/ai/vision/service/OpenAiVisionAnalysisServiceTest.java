@@ -2,9 +2,10 @@ package com.vintic.backend.ai.vision.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.ai.prompt.PromptTemplateLoader;
-import com.vintic.backend.ai.vision.client.OpenAiVisionClient;
+import com.vintic.backend.ai.vision.client.ChatCompletionClient;
 import com.vintic.backend.ai.vision.client.VisionChatRequest;
 import com.vintic.backend.ai.vision.client.VisionChatResponse;
+import com.vintic.backend.ai.vision.client.VisionProviderProperties;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisRequest;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
 import com.vintic.backend.common.exception.AiApiException;
@@ -27,13 +28,13 @@ import static org.mockito.Mockito.when;
 class OpenAiVisionAnalysisServiceTest {
 
     @Mock
-    private OpenAiVisionClient visionClient;
+    private ChatCompletionClient visionClient;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final PromptTemplateLoader promptTemplateLoader = new PromptTemplateLoader();
 
     private OpenAiVisionAnalysisService newService() {
-        return new OpenAiVisionAnalysisService(visionClient, objectMapper, promptTemplateLoader);
+        return new OpenAiVisionAnalysisService(visionClient, objectMapper, promptTemplateLoader, new VisionProviderProperties());
     }
 
     private VisionChatResponse responseOf(String content) {

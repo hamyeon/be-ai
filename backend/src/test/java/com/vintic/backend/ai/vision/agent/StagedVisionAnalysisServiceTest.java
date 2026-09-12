@@ -5,10 +5,11 @@ import com.vintic.backend.ai.observability.domain.AiCallFailureType;
 import com.vintic.backend.ai.observability.domain.AiCallLog;
 import com.vintic.backend.ai.observability.service.AiCallLogger;
 import com.vintic.backend.ai.prompt.PromptTemplateLoader;
-import com.vintic.backend.ai.vision.client.OpenAiVisionClient;
+import com.vintic.backend.ai.vision.client.ChatCompletionClient;
 import com.vintic.backend.ai.vision.client.VisionChatRequest;
 import com.vintic.backend.ai.vision.client.VisionChatResponse;
 import com.vintic.backend.ai.vision.client.VisionImageDetail;
+import com.vintic.backend.ai.vision.client.VisionProviderProperties;
 import com.vintic.backend.ai.vision.dto.ConditionGrade;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisRequest;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
@@ -34,7 +35,7 @@ class StagedVisionAnalysisServiceTest {
     private static final List<String> IMAGE_URLS = List.of("https://example.com/a.jpg");
 
     @Mock
-    private OpenAiVisionClient visionClient;
+    private ChatCompletionClient visionClient;
 
     @Mock
     private AiCallLogger aiCallLogger;
@@ -46,7 +47,7 @@ class StagedVisionAnalysisServiceTest {
     private StagedVisionAnalysisService newService(VisionStageProperties stageProperties) {
         return new StagedVisionAnalysisService(
                 visionClient, new ObjectMapper(), new VisionEvidenceValidator(),
-                new PromptTemplateLoader(), stageProperties, aiCallLogger);
+                new PromptTemplateLoader(), stageProperties, new VisionProviderProperties(), aiCallLogger);
     }
 
     private VisionChatResponse responseOf(String content) {

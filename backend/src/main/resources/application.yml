@@ -26,11 +26,27 @@ openai:
   api:
     key: ${OPENAI_API_KEY}
 
-# Vision 3단계 분석의 단계별 호출 옵션.
-# detail은 정확도와 비용을 정면으로 맞바꾸는 값이다 - low는 이미지를 512px로 줄여 고정 비용만 쓰고,
-# high는 512px 타일로 쪼개 타일당 추가 비용을 쓴다. 실루엣은 줄여도 알아볼 수 있어 low로 두고,
-# 라벨 글자를 읽어야 하는 2·3단계만 high로 둔다. (이 설정이 값을 하는지는 하네스로 측정 중)
+# Claude(Anthropic) 클라이언트. 키가 없어도 기동은 되고, Claude를 실제로 부르는 첫 호출에서 실패한다.
+# output-token-allowance: Claude의 max_tokens는 thinking 토큰까지 세므로 호출부 값에 이만큼 더해 보낸다.
+# effort: 비우면 API 기본값(high). low/medium이 Vision에 충분한지는 하네스로 잰다.
+anthropic:
+  api:
+    key: ${ANTHROPIC_API_KEY:}
+  max-retries: 4
+  output-token-allowance: ${ANTHROPIC_OUTPUT_TOKEN_ALLOWANCE:3000}
+  effort: ${ANTHROPIC_EFFORT:}
+
+# Vision 분석이 부를 벤더와 모델. provider: openai | claude. model을 비우면 provider별 기준 모델
+# (openai=gpt-4o, claude=claude-opus-5). 하네스 비교가 끝나기 전까지 운영 기본값은 openai다.
 vision:
+  provider: ${VISION_PROVIDER:openai}
+  model: ${VISION_MODEL:}
+
+  # 3단계 분석의 단계별 호출 옵션.
+  # detail은 정확도와 비용을 정면으로 맞바꾸는 값이다 - low는 이미지를 512px로 줄여 고정 비용만 쓰고,
+  # high는 512px 타일로 쪼개 타일당 추가 비용을 쓴다. 실루엣은 줄여도 알아볼 수 있어 low로 두고,
+  # 라벨 글자를 읽어야 하는 2·3단계만 high로 둔다. (이 설정이 값을 하는지는 하네스로 측정 중)
+  # OpenAI 전용 개념이다 - Claude에는 대응 파라미터가 없어 무시된다(ClaudeChatClient 주석 참고).
   stage:
     silhouette:
       detail: ${VISION_DETAIL_SILHOUETTE:low}

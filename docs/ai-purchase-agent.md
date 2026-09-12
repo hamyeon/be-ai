@@ -98,6 +98,12 @@ stage=`goal-parse`, promptVersion=`v1`로 `AiCallLog`에 남는다. Vision 클�
 더 만들고 빈만 바꾸면 된다. 응답 스키마 파일은 표준 JSON Schema라 그대로 쓰고, 프롬프트는
 모델마다 반응이 달라 하네스로 다시 잰다.
 
+2026-09-13에 두 번째 구현체 `ClaudeChatClient`가 생겼다(`ai-vision-agent.md` 마지막 절). 다만
+파서·Matcher는 아직 OpenAI에 묶여 있다 - 이름 없이 `ChatCompletionClient`를 주입받으면
+`@Primary`인 OpenAI 빈이 오고, `purchase-agent.*.model` 기본값(gpt-4o-mini)도 OpenAI 기준이다.
+파서·Matcher를 Claude로 재려면 provider 설정에 `claude`를 추가하고 하네스에 스위치를 여는 후속
+작업이 필요하다.
+
 ### 1-6. 매물 적합도 Matcher (설계안 6-2)
 
 ```

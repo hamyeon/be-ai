@@ -6,13 +6,18 @@ import com.vintic.backend.ai.prompt.PromptTemplateLoader;
 import com.vintic.backend.ai.vision.agent.StagedVisionAnalysisService;
 import com.vintic.backend.ai.vision.agent.VisionEvidenceValidator;
 import com.vintic.backend.ai.vision.agent.VisionStageProperties;
+import com.vintic.backend.ai.vision.client.ChatCompletionClient;
+import com.vintic.backend.ai.vision.client.ClaudeChatClient;
+import com.vintic.backend.ai.vision.client.ClaudeClientProperties;
+import com.vintic.backend.ai.vision.client.OpenAiVisionClient;
 import com.vintic.backend.ai.vision.client.VisionImageDetail;
+import com.vintic.backend.ai.vision.client.VisionProviderProperties;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisRequest;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
 import com.vintic.backend.ai.vision.service.OpenAiVisionAnalysisService;
 import com.vintic.backend.ai.vision.service.VisionAnalysisService;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestTemplate;
@@ -27,8 +32,8 @@ import java.util.List;
 import java.util.function.Function;
 
 /**
- * 실제 OpenAI Vision API를 호출해 프롬프트 성능을 재는 하네스.
- * OPENAI_API_KEY가 설정된 환경에서만 실행된다. (CI에서는 자동으로 건너뛴다)
+ * 실제 Vision API(OpenAI 또는 Claude)를 호출해 프롬프트 성능을 재는 하네스.
+ * 선택한 provider의 API 키(OPENAI_API_KEY / ANTHROPIC_API_KEY)가 있는 환경에서만 실행된다. (CI에서는 자동으로 건너뛴다)
  *
  * 통과/실패를 가르는 게 목적이 아니라 비교 가능한 수치를 남기는 게 목적이다.
  * 프롬프트나 호출 옵션을 바꿀 때마다 돌려서 build/vision-harness/에 쌓이는 리포트를 비교한다.
@@ -36,20 +41,29 @@ import java.util.function.Function;
  * 실행 (PowerShell에서는 -D 인자를 따옴표로 감싸야 한다):
  *   ./gradlew test --tests '*VisionPromptHarnessTest' -Dvision.harness=true \
  *     -Dvision.harness.fixtures=fruitsfamily -Dvision.harness.agents=V1,V2
+ *   ./gradlew test --tests '*VisionPromptHarnessTest' -Dvision.harness=true \
+ *     -Dvision.harness.provider=claude -Dvision.harness.model=claude-sonnet-5
  *
+ * provider openai | claude (기본값: openai). 같은 픽스처·프롬프트·스키마로 벤더를 비교한다.
+ * model    provider별 기준 모델(gpt-4o / claude-opus-5)을 덮어쓴다. 리포트 파일명에 들어간다.
+ * effort   Claude 전용. output_config.effort(low/medium/high). 비우면 API 기본값.
  * fixtures daangn = 이미지 1장, 해상도 A/B 가능 / fruitsfamily = 여러 장, 사이즈 판독 측정 가능
  *          (기본값: daangn)
  * agents   V1 = 한 번에 다 묻는 기존 방식, V2 = 3단계로 나눈 방식 (기본값: 둘 다)
  * variants ORIGIN = 원본 해상도, THUMBNAIL_300 = 크롤러가 저장한 300x300 (기본값: ORIGIN)
  *          daangn 셋에서만 의미가 있다
+ * detail   OpenAI 전용. Claude에는 대응 파라미터가 없어 원본 해상도로 간다 - 벤더를 공정하게 비교하려면
+ *          OpenAI 쪽을 -Dvision.harness.detail=high로 맞춘다.
  *
  * 키가 있는 것만으로는 실행되지 않고 -Dvision.harness=true를 줘야 돈다.
  * 평가 셋 한 바퀴가 유료 호출 수십 번이라, 평범한 ./gradlew test에 딸려 들어가면 안 된다.
  */
-@EnabledIfEnvironmentVariable(named = "OPENAI_API_KEY", matches = ".+")
 @EnabledIfSystemProperty(named = "vision.harness", matches = "true")
 class VisionPromptHarnessTest {
 
+    private static final String PROVIDER_PROPERTY = "vision.harness.provider";
+    private static final String MODEL_PROPERTY = "vision.harness.model";
+    private static final String EFFORT_PROPERTY = "vision.harness.effort";
     private static final String FIXTURES_PROPERTY = "vision.harness.fixtures";
     private static final String AGENTS_PROPERTY = "vision.harness.agents";
     private static final String VARIANTS_PROPERTY = "vision.harness.variants";
@@ -62,12 +76,13 @@ class VisionPromptHarnessTest {
 
     @Test
     void 픽스처_전체를_돌려_필드별_정확도와_비용을_측정한다() throws IOException {
+        VisionProviderProperties providerProperties = providerProperties();
         String fixtureSet = System.getProperty(FIXTURES_PROPERTY, VisionHarnessFixtures.DAANGN);
         VisionHarnessFixtures.Document fixtures = VisionHarnessFixtures.load(fixtureSet);
-        TokenCountingVisionClient visionClient = createVisionClient();
+        TokenCountingVisionClient visionClient = createVisionClient(providerProperties);
 
         for (Agent agent : selected(AGENTS_PROPERTY, Agent::valueOf, List.of(Agent.V1, Agent.V2))) {
-            VisionAnalysisService service = createService(agent, visionClient);
+            VisionAnalysisService service = createService(agent, visionClient, providerProperties);
 
             for (VisionHarnessImageVariant variant : variantsFor(fixtures)) {
 
@@ -75,7 +90,8 @@ class VisionPromptHarnessTest {
                 List<VisionHarnessScorer.CaseScore> caseScores = new ArrayList<>();
                 int caseCount = fixtures.cases().size();
 
-                System.out.printf("[하네스] agent=%s image=%s - %d건 시작%n", agent, variant, caseCount);
+                System.out.printf("[하네스] provider=%s model=%s agent=%s image=%s - %d건 시작%n",
+                        providerProperties.getProvider(), providerProperties.resolvedModel(), agent, variant, caseCount);
 
                 for (int i = 0; i < caseCount; i++) {
                     VisionHarnessCase harnessCase = fixtures.cases().get(i);
@@ -97,11 +113,12 @@ class VisionPromptHarnessTest {
                 }
 
                 String detailLabel = System.getProperty(DETAIL_PROPERTY, "기본(low/high/high)");
-                String label = "set=%s, agent=%s, image=%s, detail=%s"
-                        .formatted(fixtureSet, agent, variant, detailLabel);
+                String label = "provider=%s, model=%s, set=%s, agent=%s, image=%s, detail=%s"
+                        .formatted(providerProperties.getProvider(), providerProperties.resolvedModel(),
+                                fixtureSet, agent, variant, detailLabel);
                 VisionHarnessReport report = VisionHarnessReport.aggregate(label, caseScores, visionClient.usage());
                 System.out.println(report.toText());
-                writeReport(fixtureSet, agent, variant, report);
+                writeReport(providerProperties, fixtureSet, agent, variant, report);
             }
         }
     }
@@ -133,22 +150,49 @@ class VisionPromptHarnessTest {
                 .toList();
     }
 
-    // @SpringBootTest가 아니라서 @Value("${openai.api.key}")가 주입되지 않는다.
-    // 임베딩 PoC 테스트와 같은 방식으로 환경변수에서 읽어 리플렉션으로 채운다.
-    private TokenCountingVisionClient createVisionClient() {
-        TokenCountingVisionClient client = new TokenCountingVisionClient(new ObjectMapper(), new RestTemplate());
-        ReflectionTestUtils.setField(client, "apiKey", System.getenv("OPENAI_API_KEY"));
-        return client;
+    private VisionProviderProperties providerProperties() {
+        VisionProviderProperties properties = new VisionProviderProperties();
+        String provider = System.getProperty(PROVIDER_PROPERTY);
+        if (provider != null && !provider.isBlank()) {
+            properties.setProvider(VisionProviderProperties.Provider.valueOf(provider.trim().toUpperCase()));
+        }
+        properties.setModel(System.getProperty(MODEL_PROPERTY));
+        return properties;
     }
 
-    private VisionAnalysisService createService(Agent agent, TokenCountingVisionClient visionClient) {
+    // @SpringBootTest가 아니라서 @Value / @ConfigurationProperties가 주입되지 않는다.
+    // 임베딩 PoC 테스트와 같은 방식으로 환경변수에서 읽어 직접 채운다.
+    // 선택한 provider의 키가 없으면 실패가 아니라 건너뛴다 - 다른 벤더 키만 있는 환경에서 빨간불이 나면 안 된다.
+    private TokenCountingVisionClient createVisionClient(VisionProviderProperties providerProperties) {
+        ChatCompletionClient client = switch (providerProperties.getProvider()) {
+            case OPENAI -> {
+                String apiKey = System.getenv("OPENAI_API_KEY");
+                Assumptions.assumeTrue(apiKey != null && !apiKey.isBlank(), "OPENAI_API_KEY가 없어 하네스를 건너뜁니다.");
+                OpenAiVisionClient openAi = new OpenAiVisionClient(new ObjectMapper(), new RestTemplate());
+                ReflectionTestUtils.setField(openAi, "apiKey", apiKey);
+                yield openAi;
+            }
+            case CLAUDE -> {
+                String apiKey = System.getenv("ANTHROPIC_API_KEY");
+                Assumptions.assumeTrue(apiKey != null && !apiKey.isBlank(), "ANTHROPIC_API_KEY가 없어 하네스를 건너뜁니다.");
+                ClaudeClientProperties claudeProperties = new ClaudeClientProperties();
+                claudeProperties.getApi().setKey(apiKey);
+                claudeProperties.setEffort(System.getProperty(EFFORT_PROPERTY));
+                yield new ClaudeChatClient(new ObjectMapper(), claudeProperties);
+            }
+        };
+        return new TokenCountingVisionClient(client);
+    }
+
+    private VisionAnalysisService createService(Agent agent, TokenCountingVisionClient visionClient,
+                                                VisionProviderProperties providerProperties) {
         ObjectMapper objectMapper = new ObjectMapper();
         PromptTemplateLoader promptTemplateLoader = new PromptTemplateLoader();
         return switch (agent) {
-            case V1 -> new OpenAiVisionAnalysisService(visionClient, objectMapper, promptTemplateLoader);
+            case V1 -> new OpenAiVisionAnalysisService(visionClient, objectMapper, promptTemplateLoader, providerProperties);
             case V2 -> new StagedVisionAnalysisService(
                     visionClient, objectMapper, new VisionEvidenceValidator(), promptTemplateLoader,
-                    stageProperties(), org.mockito.Mockito.mock(AiCallLogger.class));
+                    stageProperties(), providerProperties, org.mockito.Mockito.mock(AiCallLogger.class));
         };
     }
 
@@ -171,13 +215,17 @@ class VisionPromptHarnessTest {
         return System.currentTimeMillis() - startedAt;
     }
 
-    private void writeReport(String fixtureSet, Agent agent, VisionHarnessImageVariant variant,
-                             VisionHarnessReport report) throws IOException {
+    private void writeReport(VisionProviderProperties providerProperties, String fixtureSet, Agent agent,
+                             VisionHarnessImageVariant variant, VisionHarnessReport report) throws IOException {
         Files.createDirectories(REPORT_DIRECTORY);
-        // detail을 파일명에 넣지 않으면 low/high 실행이 서로를 덮어써서 비교할 게 남지 않는다.
+        // detail·모델을 파일명에 넣지 않으면 low/high, OpenAI/Claude 실행이 서로를 덮어써서 비교할 게 남지 않는다.
+        // 기존 OpenAI gpt-4o 리포트 이름은 그대로 유지한다(과거 리포트와 이어 붙여 볼 수 있게).
         String detailSuffix = System.getProperty(DETAIL_PROPERTY, "default").toLowerCase();
-        Path reportPath = REPORT_DIRECTORY.resolve("%s-%s-%s-detail_%s.txt".formatted(
-                fixtureSet, agent.name().toLowerCase(), variant.name().toLowerCase(), detailSuffix));
+        boolean legacyOpenAi = providerProperties.getProvider() == VisionProviderProperties.Provider.OPENAI
+                && "gpt-4o".equals(providerProperties.resolvedModel());
+        String modelPrefix = legacyOpenAi ? "" : providerProperties.resolvedModel().toLowerCase() + "-";
+        Path reportPath = REPORT_DIRECTORY.resolve("%s%s-%s-%s-detail_%s.txt".formatted(
+                modelPrefix, fixtureSet, agent.name().toLowerCase(), variant.name().toLowerCase(), detailSuffix));
         Files.writeString(reportPath, report.toText(), StandardCharsets.UTF_8);
         System.out.println("리포트 저장: " + reportPath.toAbsolutePath());
     }

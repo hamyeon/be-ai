@@ -8,10 +8,12 @@ import com.vintic.backend.ai.observability.service.AiCallLogger;
 import com.vintic.backend.ai.observability.service.AiCallRequestSummary;
 import com.vintic.backend.ai.prompt.PromptTemplate;
 import com.vintic.backend.ai.prompt.PromptTemplateLoader;
-import com.vintic.backend.ai.vision.client.OpenAiVisionClient;
+import com.vintic.backend.ai.vision.client.ChatCompletionClient;
 import com.vintic.backend.ai.vision.client.VisionChatRequest;
 import com.vintic.backend.ai.vision.client.VisionChatResponse;
+import com.vintic.backend.ai.vision.client.VisionClientConfig;
 import com.vintic.backend.ai.vision.client.VisionImageDetail;
+import com.vintic.backend.ai.vision.client.VisionProviderProperties;
 import com.vintic.backend.ai.vision.dto.ConditionGrade;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisRequest;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
@@ -21,6 +23,7 @@ import com.vintic.backend.ai.vision.service.VisionAnalysisService;
 import com.vintic.backend.common.exception.AiApiException;
 import com.vintic.backend.common.exception.AiResponseFormatException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
@@ -36,16 +39,19 @@ import java.util.List;
 // 나눈 이유는 단계마다 필요한 게 다르기 때문이다. 실루엣은 512px로 줄여도 알아볼 수 있지만
 // 텅 라벨의 작은 글자는 원본 해상도가 필요하다. 한 호출로 묶으면 전체를 비싼 쪽에 맞춰야 한다.
 // 이미지를 세 번 보내는 만큼 비용이 늘어나는데, 그만한 값을 하는지는 하네스로 확인한다.
+//
+// 어느 벤더·모델을 부를지는 여기서 모른다. ChatCompletionClient는 VisionClientConfig가 vision.provider로
+// 고른 빈이고, 모델명은 vision.model이다. 같은 코드로 OpenAI와 Claude를 하네스에서 비교하기 위해서다.
 @Service
 @Primary
 @Slf4j
 public class StagedVisionAnalysisService implements VisionAnalysisService {
 
-    private static final String MODEL_NAME = "gpt-4o";
     private static final String PROMPT_CATEGORY = "vision";
     private static final String PROMPT_VERSION = "v2";
 
-    private final OpenAiVisionClient visionClient;
+    private final ChatCompletionClient visionClient;
+    private final String modelName;
     private final ObjectMapper objectMapper;
     private final VisionEvidenceValidator evidenceValidator;
     private final AiCallLogger aiCallLogger;
@@ -55,14 +61,16 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
     private final Stage conditionStage;
 
     public StagedVisionAnalysisService(
-            OpenAiVisionClient visionClient,
+            @Qualifier(VisionClientConfig.VISION_CHAT_CLIENT) ChatCompletionClient visionClient,
             ObjectMapper objectMapper,
             VisionEvidenceValidator evidenceValidator,
             PromptTemplateLoader promptTemplateLoader,
             VisionStageProperties stageProperties,
+            VisionProviderProperties providerProperties,
             AiCallLogger aiCallLogger
     ) {
         this.visionClient = visionClient;
+        this.modelName = providerProperties.resolvedModel();
         this.objectMapper = objectMapper;
         this.evidenceValidator = evidenceValidator;
         this.aiCallLogger = aiCallLogger;
@@ -72,8 +80,8 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
         this.labelStage = loadStage(promptTemplateLoader, "label", stageProperties.getLabel());
         this.conditionStage = loadStage(promptTemplateLoader, "condition", stageProperties.getCondition());
 
-        log.info("Vision 단계 설정 - silhouette={}, label={}, condition={}",
-                silhouetteStage.detail().value(), labelStage.detail().value(), conditionStage.detail().value());
+        log.info("Vision 단계 설정 - model={}, silhouette={}, label={}, condition={}",
+                modelName, silhouetteStage.detail().value(), labelStage.detail().value(), conditionStage.detail().value());
     }
 
     @Override
@@ -81,7 +89,7 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
         List<String> imageUrls = request.imageUrls();
         Long analysisId = request.analysisId();
         log.info("Vision 분석 요청 - promptVersion={}, modelName={}, imageCount={}",
-                PROMPT_VERSION, MODEL_NAME, imageUrls.size());
+                PROMPT_VERSION, modelName, imageUrls.size());
 
         SilhouetteStageResult silhouette =
                 call(silhouetteStage, null, imageUrls, analysisId, SilhouetteStageResult.class);
@@ -109,7 +117,7 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
 
     private <T> T call(Stage stage, String userText, List<String> imageUrls, Long analysisId, Class<T> resultType) {
         VisionChatRequest request = new VisionChatRequest(
-                MODEL_NAME,
+                modelName,
                 stage.template().content(),
                 userText,
                 imageUrls,
@@ -165,7 +173,7 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
     }
 
     private AiCallLog.Builder logBuilder(Stage stage, Long analysisId, String requestSummary) {
-        return AiCallLog.builder(AiCallType.VISION, MODEL_NAME)
+        return AiCallLog.builder(AiCallType.VISION, modelName)
                 .stage(stage.template().name())
                 .promptVersion(PROMPT_VERSION)
                 .analysisId(analysisId)
