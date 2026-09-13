@@ -126,7 +126,8 @@ src/test/java/com/vintic/backend/ai/vision/harness/
   VisionHarnessReport.java        집계 + 표 출력
   VisionHarnessScorerTest.java    채점 로직 단위 테스트 (CI에서 항상 실행)
   VisionHarnessFixturesTest.java  픽스처 무결성 테스트 (CI에서 항상 실행)
-  VisionPromptHarnessTest.java    실제 API 호출 (OPENAI_API_KEY 있을 때만 실행)
+  TokenCountingVisionClient.java  호출 횟수·토큰 누적 (ChatCompletionClient 위임 - OpenAI/Claude 공용)
+  VisionPromptHarnessTest.java    실제 API 호출 (선택한 provider의 키가 있을 때만 실행)
 ```
 
 채점 로직을 API 호출과 분리해 둬서, 키 없는 환경에서도 채점 규칙 자체는 계속 검증된다.
@@ -455,3 +456,55 @@ color는 사용자 확인 화면에 노출되고 2순위 가격 매칭 조건에
 
 프롬프트·detail 옵션을 바꿀 때 이 표를 다시 뽑아 비교한다. 정확도가 떨어지거나,
 지금 0건인 "계열 근사"가 늘어나면(표기가 흐려짐) 색상 판정이 나빠진 것이다.
+
+
+## 벤더 교체: Claude 클라이언트와 비교 하네스 (2026-09-13)
+
+`ChatCompletionClient` 인터페이스(#95)는 있었지만 Vision 서비스가 `OpenAiVisionClient` 구체 클래스를
+주입받고 모델명 `gpt-4o`를 상수로 박고 있어서, 실제로는 벤더를 바꿔 잴 수 없었다. 그걸 풀고
+두 번째 구현체를 넣었다. 새 측정은 아직 없다 - 이 절은 "무엇을 어떻게 잴 수 있게 됐는가"다.
+
+### 바뀐 것
+
+| 위치 | 내용 |
+|---|---|
+| `ClaudeChatClient` | Claude Messages API 구현체. 공식 Java SDK(`com.anthropic:anthropic-java`) 사용. 스키마 파일은 `output_config.format`에 그대로 싣는다 |
+| `ClaudeClientProperties` | `anthropic.api.key`, `max-retries`, `output-token-allowance`, `effort` |
+| `VisionProviderProperties` | `vision.provider`(openai/claude), `vision.model`(비우면 gpt-4o / claude-opus-5) |
+| `VisionClientConfig` | `vision.provider`로 고른 빈을 `"visionChatClient"` 이름으로 제공. Vision 서비스 둘만 이 이름으로 주입받는다 |
+| `OpenAiVisionClient` | `@Primary`. Goal 파서·Matcher처럼 이름 없이 주입받는 곳은 계속 OpenAI |
+| 하네스 | `-Dvision.harness.provider`, `-Dvision.harness.model`, `-Dvision.harness.effort`(Claude 전용). 키가 없으면 실패가 아니라 건너뛴다 |
+
+운영 기본값은 `openai`다. 하네스 비교 결과가 나오기 전에는 바꾸지 않는다.
+
+### 같은 조건이 아닌 것 (비교할 때 반드시 감안)
+
+- **이미지 해상도.** OpenAI의 `detail: low`는 512px로 줄이고 `high`는 타일로 쪼갠다. Claude에는
+  대응 파라미터가 없다 - 긴 변 약 1568px로 자동 축소되고 토큰은 픽셀 수에 비례한다. 그래서
+  Claude는 세 단계 모두 원본급 해상도를 본다. 공정하게 비교하려면 OpenAI 쪽을
+  `-Dvision.harness.detail=high`로 맞춘다. 서버에서 리사이즈해 base64로 보내는 방식은
+  당근 이미지가 webp라 `ImageIO`로는 안 되고 의존성이 필요해서 이번엔 넣지 않았다.
+- **thinking.** Claude Opus 5·Sonnet 5는 기본으로 생각하고, 그 토큰이 `max_tokens`와 출력 토큰
+  집계에 들어간다. 호출부의 `maxOutputTokens`(900/900/1400)는 JSON 본문 기준이라 그대로 보내면
+  생각하다 잘린다. `anthropic.output-token-allowance`(기본 3000)를 더해 보낸다. 리포트의
+  completionTokens에는 thinking이 포함되므로 OpenAI 숫자와 같은 의미가 아니다 - 비용은 단가를
+  곱해 따로 봐야 한다.
+- **effort.** `anthropic.effort`를 비우면 API 기본값(high)이다. Vision 3단계는 분류에 가까워
+  low/medium으로 충분할 수 있다. 하네스에서 `-Dvision.harness.effort=low`로 같이 잰다.
+- **v1(한 번에 다 묻기)의 `json_object` 모드.** Claude에는 없다. 스키마가 null이면 형식 강제 없이
+  부르고, v1 프롬프트가 JSON을 요구하는 것에 기댄다.
+- **거절.** Claude는 안전 분류기가 요청을 거절하면 HTTP 200에 `stop_reason: refusal`을 준다.
+  OpenAI의 `refusal` 필드와 같은 자리에서 `AiApiException`으로 올린다.
+
+### 첫 실행 때 확인할 것
+
+- 응답 스키마가 그대로 먹는가. 스키마 파일은 OpenAI strict 규칙(`additionalProperties: false`,
+  전 필드 `required`)에 맞춰져 있고 Claude도 같은 규칙을 요구한다. `"type": ["string", "null"]`
+  같은 배열 타입이 거부되면 `anyOf`로 바꾸는 변환을 클라이언트에 넣는다.
+- 이미지 URL 접근. S3 URL은 공개 읽기 또는 presigned여야 Claude가 가져올 수 있다(OpenAI와 동일).
+
+### 판정 기준
+
+4단계(detail)와 같다. 1순위 `CONDITION_GRADE` 오답 수, 2순위 브랜드·모델 응답 정확도,
+3순위 케이스당 비용(토큰 × 단가). 표본이 18/14건이라 1건 차이로 뒤집히는 크기라는 점도 같다 -
+벤더를 바꾸는 결정을 내리기 전에 평가 셋을 먼저 키워야 한다.

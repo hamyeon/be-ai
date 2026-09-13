@@ -6,6 +6,7 @@ import com.vintic.backend.common.exception.AiApiException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -28,7 +29,12 @@ import java.util.regex.Pattern;
 //
 // 이 클래스는 "한 번 호출하고 본문을 꺼내는 것"까지만 한다. 몇 단계로 나눠 부를지, 어떤 스키마를 쓸지는
 // 호출하는 쪽(VisionAnalysisService 구현체)이 정한다.
+//
+// @Primary: ChatCompletionClient 구현체가 둘(여기와 ClaudeChatClient)이라, 이름 없이 인터페이스로
+// 주입받는 곳(Goal 파서, Matcher)은 이 빈을 받는다. Vision 분석만 VisionClientConfig가 vision.provider로
+// 고른 빈("visionChatClient")을 받는다.
 @Service
+@Primary
 @RequiredArgsConstructor
 @Slf4j
 public class OpenAiVisionClient implements ChatCompletionClient {
