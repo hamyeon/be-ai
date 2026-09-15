@@ -77,5 +77,7 @@ class VisionHarnessFixturesTest {
         assertThat(VisionHarnessImageVariant.ORIGIN.apply(baseUrls)).containsExactly("https://example.com/a.webp");
         assertThat(VisionHarnessImageVariant.THUMBNAIL_300.apply(baseUrls))
                 .containsExactly("https://example.com/a.webp?q=82&s=300x300&t=crop&service=webapp&f=webp");
+        assertThat(VisionHarnessImageVariant.RESIZED_768.apply(baseUrls))
+                .containsExactly("https://example.com/a.webp?q=82&s=768x768&t=crop&service=webapp&f=webp");
     }
 }

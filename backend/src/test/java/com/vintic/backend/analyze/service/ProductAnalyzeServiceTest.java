@@ -67,7 +67,9 @@ class ProductAnalyzeServiceTest {
 
         MultipartFile image = new MockMultipartFile("images", "shoe.jpg", "image/jpeg", new byte[]{1, 2, 3});
         List<String> uploadedUrls = List.of("https://bucket.s3.amazonaws.com/shoe.jpg");
-        when(s3UploaderService.uploadImages(List.of(image))).thenReturn(uploadedUrls);
+        List<S3UploaderService.UploadedImage> uploaded = List.of(new S3UploaderService.UploadedImage(
+                uploadedUrls.get(0), "https://bucket.s3.amazonaws.com/analysis/shoe.jpg"));
+        when(s3UploaderService.uploadImages(List.of(image))).thenReturn(uploaded);
 
         AnalyzeAcceptedResponse response = newService().submitForAnalysis(List.of(image));
 
@@ -113,7 +115,9 @@ class ProductAnalyzeServiceTest {
 
         MultipartFile image = new MockMultipartFile("images", "shoe.jpg", "image/jpeg", new byte[]{1, 2, 3});
         List<String> uploadedUrls = List.of("https://bucket.s3.amazonaws.com/shoe.jpg");
-        when(s3UploaderService.uploadImages(List.of(image))).thenReturn(uploadedUrls);
+        List<S3UploaderService.UploadedImage> uploaded = List.of(new S3UploaderService.UploadedImage(
+                uploadedUrls.get(0), "https://bucket.s3.amazonaws.com/analysis/shoe.jpg"));
+        when(s3UploaderService.uploadImages(List.of(image))).thenReturn(uploaded);
         doThrow(new AnalysisQueueException("Redis 연결 실패"))
                 .when(analysisTaskProducer).enqueue(any());
 
@@ -146,7 +150,9 @@ class ProductAnalyzeServiceTest {
 
         MultipartFile image = new MockMultipartFile("images", "shoe.jpg", "image/jpeg", new byte[]{1, 2, 3});
         List<String> uploadedUrls = List.of("https://bucket.s3.amazonaws.com/shoe.jpg");
-        when(s3UploaderService.uploadImages(List.of(image))).thenReturn(uploadedUrls);
+        List<S3UploaderService.UploadedImage> uploaded = List.of(new S3UploaderService.UploadedImage(
+                uploadedUrls.get(0), "https://bucket.s3.amazonaws.com/analysis/shoe.jpg"));
+        when(s3UploaderService.uploadImages(List.of(image))).thenReturn(uploaded);
         doThrow(new AnalysisQueueException("원래 Queue 실패"))
                 .when(analysisTaskProducer).enqueue(any());
 
