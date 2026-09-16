@@ -63,7 +63,7 @@ class AnalysisTaskConsumerTest {
 
     private MapRecord<String, String, String> recordFor(Long analysisId, List<String> imageUrls) {
         try {
-            String payload = objectMapper.writeValueAsString(new AnalysisTaskMessage(analysisId, imageUrls));
+            String payload = objectMapper.writeValueAsString(new AnalysisTaskMessage(analysisId, imageUrls, null));
             return StreamRecords.<String, String, String>mapBacked(Map.of("payload", payload))
                     .withStreamKey(properties.getKey())
                     .withId(RecordId.of("1-0"));

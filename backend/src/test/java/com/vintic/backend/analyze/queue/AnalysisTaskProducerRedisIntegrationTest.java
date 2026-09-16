@@ -68,7 +68,7 @@ class AnalysisTaskProducerRedisIntegrationTest {
     @Test
     void Producer가_적재한_메시지를_ConsumerGroup으로_읽고_XACK하면_미처리_목록에서_사라진다() {
         AnalysisTaskProducer producer = new AnalysisTaskProducer(redisTemplate, objectMapper, properties);
-        AnalysisTaskMessage message = new AnalysisTaskMessage(42L, List.of("https://example.com/a.jpg", "https://example.com/b.jpg"));
+        AnalysisTaskMessage message = new AnalysisTaskMessage(42L, List.of("https://example.com/a.jpg", "https://example.com/b.jpg"), null);
 
         producer.enqueue(message);
 

@@ -49,19 +49,24 @@ public class ProductAnalyzeService {
         ProductAnalysisSession session = ProductAnalysisSession.create();
         sessionRepository.save(session);
 
-        List<String> imageUrls;
+        List<S3UploaderService.UploadedImage> uploaded;
         try {
-            imageUrls = s3Service.uploadImages(imageFiles);
+            uploaded = s3Service.uploadImages(imageFiles);
         } catch (RuntimeException e) {
             recordFailureSafely(() -> failureRecorder.recordImageUploadFailure(session.getId(), truncate(e.getMessage())));
             throw e;
         }
 
+        // #102: 세션에는 표시용 원본만 남긴다. 상태 조회 응답과 상품 등록으로 이어지는 값이라
+        // 축소본이 새어 나가면 구매자가 보는 사진 화질이 떨어진다.
+        List<String> imageUrls = uploaded.stream().map(S3UploaderService.UploadedImage::originalUrl).toList();
+        List<String> analysisImageUrls = uploaded.stream().map(S3UploaderService.UploadedImage::analysisUrl).toList();
+
         session.markImageUploaded(imageUrls);
         sessionRepository.save(session);
 
         try {
-            analysisTaskProducer.enqueue(new AnalysisTaskMessage(session.getId(), imageUrls));
+            analysisTaskProducer.enqueue(new AnalysisTaskMessage(session.getId(), imageUrls, analysisImageUrls));
         } catch (RuntimeException e) {
             recordFailureSafely(() -> failureRecorder.recordQueueingFailure(session.getId(), truncate(e.getMessage())));
             throw e;

@@ -19,6 +19,10 @@ repositories {
 
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+	// 이미지 리사이즈(#102). EXIF 회전 보정과 단계적 축소를 함께 제공한다 -
+	// ImageIO만으로는 EXIF를 직접 파싱해야 하고, 한 번에 줄이면 계단 현상이 생긴다.
+	implementation 'net.coobird:thumbnailator:0.4.20'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'

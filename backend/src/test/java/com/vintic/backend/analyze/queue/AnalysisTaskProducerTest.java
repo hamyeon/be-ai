@@ -36,7 +36,7 @@ class AnalysisTaskProducerTest {
         when(redisTemplate.opsForStream()).thenReturn(streamOperations);
 
         AnalysisTaskProducer sut = new AnalysisTaskProducer(redisTemplate, objectMapper, properties);
-        AnalysisTaskMessage message = new AnalysisTaskMessage(1L, List.of("https://example.com/a.jpg"));
+        AnalysisTaskMessage message = new AnalysisTaskMessage(1L, List.of("https://example.com/a.jpg"), null);
 
         sut.enqueue(message);
 
@@ -57,7 +57,7 @@ class AnalysisTaskProducerTest {
 
         AnalysisTaskProducer sut = new AnalysisTaskProducer(redisTemplate, objectMapper, properties);
 
-        assertThatThrownBy(() -> sut.enqueue(new AnalysisTaskMessage(1L, List.of("https://example.com/a.jpg"))))
+        assertThatThrownBy(() -> sut.enqueue(new AnalysisTaskMessage(1L, List.of("https://example.com/a.jpg"), null)))
                 .isInstanceOf(AnalysisQueueException.class)
                 .hasCauseInstanceOf(RuntimeException.class);
     }
