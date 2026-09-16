@@ -25,6 +25,7 @@
 #      비싼 매물이기 때문이다(판정군 비율 중앙값 0.506 vs 미판정군 0.333).
 #      그래서 이 계수는 "구성품 상태 간 상대 보정"이지 가격 수준을 올리는 값이 아니다.
 #      미판정 매물의 구성품 분포는 알 수 없으므로 수준은 건드리지 않는다.
+import hashlib
 import json
 import statistics
 import sys
@@ -104,9 +105,60 @@ def collect():
             if status is None:
                 continue
             classified += 1
-            cells[(brand, grade)].append((status, price))
+            # 분할 검증용 꼬리표. 매물 URL 해시라 실행할 때마다 같은 편에 들어간다.
+            half = hash_half(d.get("item_url") or blob)
+            cells[(brand, grade)].append((status, price, half))
 
     return cells, seen, classified, no_brand
+
+
+def hash_half(key):
+    """매물을 두 편으로 가르는 결정적 해시. random을 쓰면 실행마다 결과가 달라진다."""
+    return hashlib.md5(key.encode("utf-8")).digest()[0] % 2
+
+
+def factors_from(cells, half=None):
+    """셀별 계수와 표본 수를 낸다. half를 주면 그 편의 매물만 쓴다."""
+    factors = defaultdict(list)
+    samples = defaultdict(int)
+    per_cell = {}
+    for key, rows in cells.items():
+        values = [r for r in rows if half is None or r[2] == half]
+        if len(values) < MIN_CELL:
+            continue
+        base = statistics.median([v[1] for v in values])
+        cell_row = {}
+        for status in STATUSES:
+            prices = [v[1] for v in values if v[0] == status]
+            if len(prices) < MIN_PER_STATUS:
+                cell_row[status] = (None, len(prices))
+                continue
+            factor = statistics.median(prices) / base
+            factors[status].append(factor)
+            samples[status] += len(prices)
+            cell_row[status] = (factor, len(prices))
+        per_cell[key] = (len(values), cell_row)
+    return factors, samples, per_cell
+
+
+def validate(cells):
+    """표본을 반으로 갈라 각각 산출한다.
+
+    두 편의 값이 크게 다르면 그 계수는 표본에 우연히 실린 값이다. 채택 기준(표본 수,
+    셀별 편차)은 한 표본 안에서만 보는 검사라, 다른 표본에서 재현되는지는 따로 봐야 한다.
+    가르는 기준이 랜덤이면 실행마다 결론이 달라지므로 매물 URL 해시로 고정한다.
+    """
+    print("\n[분할 검증]  표본을 절반씩 나눠 각각 산출")
+    halves = [factors_from(cells, half) for half in (0, 1)]
+    for status in STATUSES:
+        parts = []
+        for factors, samples, _ in halves:
+            values = factors[status]
+            parts.append(f"{statistics.median(values):.3f}(셀{len(values)},n{samples[status]})"
+                         if values else "셀 부족")
+        medians = [statistics.median(f[status]) for f, _, _ in halves if f[status]]
+        gap = f"  차이 {abs(medians[0] - medians[1]):.3f}" if len(medians) == 2 else ""
+        print(f"  {status:<8} A={parts[0]}  B={parts[1]}{gap}")
 
 
 def relative_iqr(values):
@@ -121,31 +173,20 @@ def main():
     cells, seen, classified, no_brand = collect()
     print(f"필터 통과 {seen}건 / 브랜드 미상으로 제외 {no_brand}건 / 구성품 판정 {classified}건")
 
-    factors = defaultdict(list)
-    samples = defaultdict(int)
-    used_cells = 0
+    factors, samples, per_cell = factors_from(cells)
 
     print(f"\n[셀별 계수]  셀 최소 {MIN_CELL}건, 상태별 최소 {MIN_PER_STATUS}건")
-    for key, values in sorted(cells.items(), key=lambda kv: -len(kv[1])):
-        if len(values) < MIN_CELL:
-            continue
-        base = statistics.median([v[1] for v in values])
+    for key, (size, cell_row) in sorted(per_cell.items(), key=lambda kv: -kv[1][0]):
         row = []
-        hit = False
         for status in STATUSES:
-            prices = [v[1] for v in values if v[0] == status]
-            if len(prices) < MIN_PER_STATUS:
-                row.append(f"{status}=n{len(prices)}")
-                continue
-            factor = statistics.median(prices) / base
-            factors[status].append(factor)
-            samples[status] += len(prices)
-            row.append(f"{status}={factor:.3f}(n={len(prices)})")
-            hit = True
-        used_cells += hit
+            factor, count = cell_row[status]
+            row.append(f"{status}=n{count}" if factor is None
+                       else f"{status}={factor:.3f}(n={count})")
         brand, grade = key
-        print(f"  {brand:<12} {grade:<8} n={len(values):>4}  " + "  ".join(row))
-    print(f"  -> 사용된 셀 {used_cells}개")
+        print(f"  {brand:<12} {grade:<8} n={size:>4}  " + "  ".join(row))
+    print(f"  -> 사용된 셀 {len(per_cell)}개")
+
+    validate(cells)
 
     print("\n[채택 판정]")
     measured = {}
