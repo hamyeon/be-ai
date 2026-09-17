@@ -32,9 +32,13 @@ class PriceCalculationServiceTest {
     // 상태 계수는 실측 CSV까지 실제로 읽어야 비율(#61 값)이 의미를 갖는다
     private final ConditionRateProvider conditionRateProvider = new ConditionRateProvider();
 
+    // 구성품 계수도 같은 이유로 실측 CSV를 읽는다(#104)
+    private final ComponentRateProvider componentRateProvider = new ComponentRateProvider();
+
     private PriceCalculationService newService() {
         return new PriceCalculationService(
-                marketPriceDataLoader, conditionRateProvider, usedMarketPriceProvider, colorPremiumProvider);
+                marketPriceDataLoader, conditionRateProvider, usedMarketPriceProvider,
+                colorPremiumProvider, componentRateProvider);
     }
 
     private CalculatePriceRequest request(String brand, String model, String grade) {
@@ -222,5 +226,84 @@ class PriceCalculationServiceTest {
         // 참고용으로는 보여준다
         assertThat(response.ebayAveragePrice()).isEqualTo(300_000);
         assertThat(response.ebayMatches()).hasSize(1);
+    }
+
+    private CalculatePriceRequest componentRequest(String componentStatus) {
+        return new CalculatePriceRequest(1L, "Nike", "Dunk Low", "Panda", 270, "UNKNOWN", componentStatus);
+    }
+
+    @Test
+    void 구성품이_없으면_전체_매물_시세보다_낮게_추천한다() {
+        // #104: 계수가 실측값(NONE 0.900)으로 바뀌었다. 기존 기본값은 0.95로, 실제 갭의
+        // 절반만 반영하고 있었다.
+        when(usedMarketPriceProvider.find("Nike", "Dunk Low"))
+                .thenReturn(Optional.of(dunkLowMarket()));
+
+        CalculatePriceResponse response = newService().calculate(componentRequest("NONE"));
+
+        assertThat(response.recommendedPrice()).isEqualTo(36_000);
+        assertThat(response.reason()).contains("당근마켓 실거래");
+    }
+
+    @Test
+    void 구성품_미상은_보정없이_전체_매물_중앙값을_쓴다() {
+        // #104 문제 3: 그 전에는 PARTIAL도 미상도 0.97이라 계산이 같았다.
+        // 미상은 "판매자가 안 적음"이지 "구성품이 일부"라는 판단이 아니다 - 상태 UNKNOWN과 같은 처리.
+        when(usedMarketPriceProvider.find("Nike", "Dunk Low"))
+                .thenReturn(Optional.of(dunkLowMarket()));
+
+        PriceCalculationService service = newService();
+        CalculatePriceResponse unknown = service.calculate(componentRequest(null));
+        CalculatePriceResponse partial = service.calculate(componentRequest("PARTIAL"));
+
+        assertThat(unknown.recommendedPrice()).isEqualTo(40_000);
+        assertThat(unknown.reason()).contains("판단하기 어려워");
+        // 계수가 같더라도 문구와 경로는 갈라져 있어야 한다
+        assertThat(partial.reason()).contains("일부 포함");
+    }
+
+    @Test
+    void 구성품_계수는_서열을_지킨다() {
+        when(usedMarketPriceProvider.find("Nike", "Dunk Low"))
+                .thenReturn(Optional.of(dunkLowMarket()));
+
+        PriceCalculationService service = newService();
+        int full = service.calculate(componentRequest("FULL")).recommendedPrice();
+        int partial = service.calculate(componentRequest("PARTIAL")).recommendedPrice();
+        int none = service.calculate(componentRequest("NONE")).recommendedPrice();
+
+        assertThat(full).isGreaterThanOrEqualTo(partial);
+        assertThat(partial).isGreaterThan(none);
+    }
+
+    @Test
+    void 구성품_반영률도_실측인지_기본값인지_밝힌다() {
+        when(usedMarketPriceProvider.find("Nike", "Dunk Low"))
+                .thenReturn(Optional.of(dunkLowMarket()));
+
+        PriceCalculationService service = newService();
+
+        // NONE은 실측(n=1195), FULL은 셀별 편차가 커 미채택이라 기본값이다
+        assertThat(service.calculate(componentRequest("NONE")).reason())
+                .contains("당근마켓 실거래").contains("건으로 산출한 값입니다");
+        assertThat(service.calculate(componentRequest("FULL")).reason())
+                .contains("기본값을 사용했습니다");
+    }
+
+    @Test
+    void KREAM_경로는_풀박스_기준가라_구성품_계수를_그대로_쓰지_않는다() {
+        // KREAM은 새제품 시세라 기준 모집단이 풀박스다. 중고 시세 경로의 계수(전체 대비)를
+        // 그대로 곱하면 모든 매물을 풀박스로 계산하게 된다.
+        when(usedMarketPriceProvider.find(anyString(), anyString())).thenReturn(Optional.empty());
+        when(marketPriceDataLoader.loadKreamRows()).thenReturn(List.of(row("KREAM", 100_000)));
+        when(marketPriceDataLoader.loadEbayRows()).thenReturn(List.of());
+
+        PriceCalculationService service = newService();
+        CalculatePriceResponse full = service.calculate(
+                new CalculatePriceRequest(1L, "Nike", "없는모델", "Panda", 270, "DS", "FULL"));
+
+        // 풀박스는 기준가를 그대로 받는다(계수 1.00)
+        assertThat(full.recommendedPrice()).isEqualTo(
+                (int) Math.round(100_000 * conditionRateProvider.resolve("없는모델", "DS").rate() / 1000.0) * 1000);
     }
 }

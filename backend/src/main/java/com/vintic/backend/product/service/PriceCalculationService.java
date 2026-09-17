@@ -22,22 +22,26 @@ public class PriceCalculationService {
     private static final String UNKNOWN_CONDITION_GRADE = "UNKNOWN";
     // 상태 불문 전체 매물의 계수. 중고 시세 경로에서 상태 비율의 분모(기준선)가 된다.
     private static final String ALL_CONDITION_GRADE = "ALL";
+    private static final String UNKNOWN_COMPONENT_STATUS = "UNKNOWN";
 
     private final MarketPriceDataLoader marketPriceDataLoader;
     private final ConditionRateProvider conditionRateProvider;
     private final UsedMarketPriceProvider usedMarketPriceProvider;
     private final ColorPremiumProvider colorPremiumProvider;
+    private final ComponentRateProvider componentRateProvider;
 
     public PriceCalculationService(
             MarketPriceDataLoader marketPriceDataLoader,
             ConditionRateProvider conditionRateProvider,
             UsedMarketPriceProvider usedMarketPriceProvider,
-            ColorPremiumProvider colorPremiumProvider
+            ColorPremiumProvider colorPremiumProvider,
+            ComponentRateProvider componentRateProvider
     ) {
         this.marketPriceDataLoader = marketPriceDataLoader;
         this.conditionRateProvider = conditionRateProvider;
         this.usedMarketPriceProvider = usedMarketPriceProvider;
         this.colorPremiumProvider = colorPremiumProvider;
+        this.componentRateProvider = componentRateProvider;
     }
 
     public CalculatePriceResponse calculate(CalculatePriceRequest request) {
@@ -98,9 +102,13 @@ public class PriceCalculationService {
         ConditionRateProvider.ConditionRate rate =
                 conditionRateProvider.resolve(request.modelName(), normalizedConditionGrade);
         double conditionRate = rate.rate();
-        double componentRate = getComponentRate(request.componentStatus());
+        // KREAM 기준가는 새제품이라 기준 모집단이 풀박스다. 실측 계수는 "구성품 불문 전체
+        // 대비" 값이므로 그대로 곱하면 모든 매물을 풀박스로 계산하게 된다 - FULL 대비로 환산한다.
+        ComponentRateProvider.ComponentRate componentRate =
+                componentRateProvider.resolveAgainstFull(request.componentStatus());
 
-        int calculatedPrice = (int) Math.round(baseMarketPrice * conditionRate * componentRate);
+        int calculatedPrice =
+                (int) Math.round(baseMarketPrice * conditionRate * componentRate.rate());
         int recommendedPrice = roundToNearestThousand(calculatedPrice);
 
         int minRecommendedPrice = calculateMinRecommendedPrice(recommendedPrice);
@@ -188,14 +196,30 @@ public class PriceCalculationService {
         double conditionRatio = UNKNOWN_CONDITION_GRADE.equals(normalizedConditionGrade)
                 ? 1.0
                 : gradeRate.rate() / baselineRate.rate();
-        double componentRate = getComponentRate(request.componentStatus());
+
+        // 구성품도 상태와 같은 이유로 "전체 매물 대비 비율"이다(#104).
+        //
+        // 시세 중앙값이 구성품을 가리지 않고 뽑은 값이라(build_used_market_prices.py는 박스를
+        // 보지 않는다) 여기 곱할 계수의 분모도 같은 모집단이어야 한다. 절대 계수(FULL=1.00)를
+        // 쓰면 풀박스 매물이 "박스 없는 매물까지 섞인 중앙값"을 그대로 받아 저평가된다.
+        // 상태 계수에서 #86이 고친 것과 같은 함정이었다.
+        //
+        // 구성품을 모르면 전체 매물 중앙값을 그대로 쓴다. 미상 계수를 적용하면 "판매자가
+        // 안 적음"과 "Vision이 못 읽음"을 같은 신호로 취급하게 된다 - 상태 UNKNOWN과 같은 판단이다.
+        // 이 분기가 PARTIAL과 미상을 갈라준다(그 전까지 둘 다 0.97이라 계산이 같았다).
+        String normalizedComponentStatus = normalizeComponentStatus(request.componentStatus());
+        ComponentRateProvider.ComponentRate componentRate =
+                componentRateProvider.resolve(normalizedComponentStatus);
+        double componentRatio = UNKNOWN_COMPONENT_STATUS.equals(normalizedComponentStatus)
+                ? 1.0
+                : componentRate.rate();
 
         int recommendedPrice =
-                roundToNearestThousand((int) Math.round(baseMedian * conditionRatio * componentRate));
+                roundToNearestThousand((int) Math.round(baseMedian * conditionRatio * componentRatio));
         int minRecommendedPrice =
-                roundToNearestThousand((int) Math.round(baseQ1 * conditionRatio * componentRate));
+                roundToNearestThousand((int) Math.round(baseQ1 * conditionRatio * componentRatio));
         int maxRecommendedPrice =
-                roundToNearestThousand((int) Math.round(baseQ3 * conditionRatio * componentRate));
+                roundToNearestThousand((int) Math.round(baseQ3 * conditionRatio * componentRatio));
         String priceRange = makePriceRange(minRecommendedPrice, maxRecommendedPrice);
 
         // UNKNOWN은 비율을 1.0으로 고정하므로 계수 출처를 밝힐 것이 없다.
@@ -234,7 +258,11 @@ public class PriceCalculationService {
                 getConditionDescription(normalizedConditionGrade),
                 conditionRatio * 100,
                 rateBasisText,
-                makeComponentText(request.componentStatus(), componentRate),
+                // 실제로 곱한 값(미상이면 1.0)을 문구에도 그대로 쓴다. 계수 출처는 그대로 넘긴다.
+                makeComponentText(
+                        request.componentStatus(),
+                        new ComponentRateProvider.ComponentRate(
+                                componentRatio, componentRate.basis(), componentRate.sampleSize())),
                 recommendedPrice,
                 priceRange
         );
@@ -282,19 +310,6 @@ public class PriceCalculationService {
         return conditionGrade.trim().toUpperCase();
     }
 
-    private double getComponentRate(String componentStatus) {
-        if (componentStatus == null || componentStatus.isBlank()) {
-            return 0.97;
-        }
-
-        return switch (componentStatus.trim().toUpperCase()) {
-            case "FULL" -> 1.00;
-            case "PARTIAL" -> 0.97;
-            case "NONE" -> 0.95;
-            default -> 0.97;
-        };
-    }
-
     private int roundToNearestThousand(int price) {
         return (int) Math.round(price / 1000.0) * 1000;
     }
@@ -321,7 +336,7 @@ public class PriceCalculationService {
             String normalizedConditionGrade,
             ConditionRateProvider.ConditionRate rate,
             String componentStatus,
-            double componentRate,
+            ComponentRateProvider.ComponentRate componentRate,
             String priceRange
     ) {
         String marketPriceText = makeMarketPriceText(
@@ -431,26 +446,46 @@ public class PriceCalculationService {
         };
     }
 
-    private String makeComponentText(String componentStatus, double componentRate) {
-        String normalizedStatus = componentStatus == null ? "UNKNOWN" : componentStatus.trim().toUpperCase();
+    private String makeComponentText(
+            String componentStatus, ComponentRateProvider.ComponentRate componentRate) {
+        String normalizedStatus = normalizeComponentStatus(componentStatus);
+        double percent = componentRate.rate() * 100;
+        // 미상은 보정 없이 전체 매물 시세를 그대로 쓰므로 계수 출처를 밝힐 것이 없다.
+        String basis = UNKNOWN_COMPONENT_STATUS.equals(normalizedStatus)
+                ? ""
+                : makeComponentBasisText(componentRate);
 
         return switch (normalizedStatus) {
             case "FULL" -> String.format(
-                    "구성품이 모두 포함되어 있어 %.0f%% 반영률을 적용했습니다.",
-                    componentRate * 100
-            );
+                    "구성품이 모두 포함되어 있어 %.0f%% 반영률을 적용했습니다.%s", percent, basis);
             case "PARTIAL" -> String.format(
-                    "구성품이 일부 포함되어 있어 %.0f%% 반영률을 적용했습니다.",
-                    componentRate * 100
-            );
+                    "구성품이 일부 포함되어 있어 %.0f%% 반영률을 적용했습니다.%s", percent, basis);
             case "NONE" -> String.format(
-                    "구성품이 없어 %.0f%% 반영률을 적용했습니다.",
-                    componentRate * 100
-            );
+                    "구성품이 없어 %.0f%% 반영률을 적용했습니다.%s", percent, basis);
             default -> String.format(
-                    "구성품 상태를 명확히 판단하기 어려워 %.0f%% 반영률을 적용했습니다.",
-                    componentRate * 100
-            );
+                    "구성품 상태를 명확히 판단하기 어려워 %.0f%% 반영률을 적용했습니다.", percent);
+        };
+    }
+
+    // 구성품 반영률이 실측에서 나온 값인지 밝힌다. 상태 계수의 makeRateBasisText와 같은 이유다 -
+    // 실측 계수와 기본값이 구분되지 않으면 사용자는 둘을 같은 신뢰도로 받아들인다.
+    private String makeComponentBasisText(ComponentRateProvider.ComponentRate componentRate) {
+        return switch (componentRate.basis()) {
+            case MEASURED -> String.format(
+                    " (당근마켓 실거래 %d건으로 산출한 값입니다)", componentRate.sampleSize());
+            case DEFAULT -> " (실거래 표본이 부족해 기본값을 사용했습니다)";
+        };
+    }
+
+    private String normalizeComponentStatus(String componentStatus) {
+        if (componentStatus == null || componentStatus.isBlank()) {
+            return UNKNOWN_COMPONENT_STATUS;
+        }
+        String normalized = componentStatus.trim().toUpperCase();
+        return switch (normalized) {
+            case "FULL", "PARTIAL", "NONE" -> normalized;
+            // 정의되지 않은 값은 미상으로 본다. 임의 문자열이 와도 계산은 돌아야 한다.
+            default -> UNKNOWN_COMPONENT_STATUS;
         };
     }
 
