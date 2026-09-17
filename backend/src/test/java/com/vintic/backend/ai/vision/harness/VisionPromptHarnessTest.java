@@ -28,7 +28,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 
 /**
@@ -37,6 +39,7 @@ import java.util.function.Function;
  *
  * 통과/실패를 가르는 게 목적이 아니라 비교 가능한 수치를 남기는 게 목적이다.
  * 프롬프트나 호출 옵션을 바꿀 때마다 돌려서 build/vision-harness/에 쌓이는 리포트를 비교한다.
+ * 리포트(.txt)에는 단계별 평균 지연·토큰이, 옆의 -calls.csv에는 호출 한 번당 한 줄씩 원자료가 남는다.
  *
  * 실행 (PowerShell에서는 -D 인자를 따옴표로 감싸야 한다):
  *   ./gradlew test --tests '*VisionPromptHarnessTest' -Dvision.harness=true \
@@ -88,6 +91,7 @@ class VisionPromptHarnessTest {
 
                 visionClient.reset();
                 List<VisionHarnessScorer.CaseScore> caseScores = new ArrayList<>();
+                Map<String, List<VisionHarnessReport.Call>> callsByCase = new LinkedHashMap<>();
                 int caseCount = fixtures.cases().size();
 
                 System.out.printf("[하네스] provider=%s model=%s agent=%s image=%s - %d건 시작%n",
@@ -96,6 +100,7 @@ class VisionPromptHarnessTest {
                 for (int i = 0; i < caseCount; i++) {
                     VisionHarnessCase harnessCase = fixtures.cases().get(i);
                     List<String> imageUrls = variant.apply(harnessCase.imageBaseUrls());
+                    int firstCallIndex = visionClient.callCount();
                     long startedAt = System.currentTimeMillis();
                     try {
                         VisionAnalysisResult result = service.analyze(new VisionAnalysisRequest(imageUrls));
@@ -110,13 +115,16 @@ class VisionPromptHarnessTest {
                         System.out.printf("  [%d/%d] %s - 실패: %s%n",
                                 i + 1, caseCount, harnessCase.id(), e.getMessage());
                     }
+                    // 실패한 케이스도 실패 전까지 성공한 단계는 남긴다(예: 1단계 성공 후 2단계에서 429).
+                    callsByCase.put(harnessCase.id(), visionClient.callsSince(firstCallIndex));
                 }
 
                 String detailLabel = System.getProperty(DETAIL_PROPERTY, "기본(low/high/high)");
                 String label = "provider=%s, model=%s, set=%s, agent=%s, image=%s, detail=%s"
                         .formatted(providerProperties.getProvider(), providerProperties.resolvedModel(),
                                 fixtureSet, agent, variant, detailLabel);
-                VisionHarnessReport report = VisionHarnessReport.aggregate(label, caseScores, visionClient.usage());
+                VisionHarnessReport report = VisionHarnessReport.aggregate(
+                        label, caseScores, visionClient.usage(), callsByCase);
                 System.out.println(report.toText());
                 writeReport(providerProperties, fixtureSet, agent, variant, report);
             }
@@ -224,9 +232,14 @@ class VisionPromptHarnessTest {
         boolean legacyOpenAi = providerProperties.getProvider() == VisionProviderProperties.Provider.OPENAI
                 && "gpt-4o".equals(providerProperties.resolvedModel());
         String modelPrefix = legacyOpenAi ? "" : providerProperties.resolvedModel().toLowerCase() + "-";
-        Path reportPath = REPORT_DIRECTORY.resolve("%s%s-%s-%s-detail_%s.txt".formatted(
-                modelPrefix, fixtureSet, agent.name().toLowerCase(), variant.name().toLowerCase(), detailSuffix));
+        String baseName = "%s%s-%s-%s-detail_%s".formatted(
+                modelPrefix, fixtureSet, agent.name().toLowerCase(), variant.name().toLowerCase(), detailSuffix);
+        Path reportPath = REPORT_DIRECTORY.resolve(baseName + ".txt");
         Files.writeString(reportPath, report.toText(), StandardCharsets.UTF_8);
         System.out.println("리포트 저장: " + reportPath.toAbsolutePath());
+
+        Path callsPath = REPORT_DIRECTORY.resolve(baseName + "-calls.csv");
+        Files.writeString(callsPath, report.toCallsCsv(), StandardCharsets.UTF_8);
+        System.out.println("호출 원자료 저장: " + callsPath.toAbsolutePath());
     }
 }
