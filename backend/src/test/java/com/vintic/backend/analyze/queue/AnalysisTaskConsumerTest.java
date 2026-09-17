@@ -8,8 +8,12 @@ import com.vintic.backend.ai.vision.service.VisionAnalysisService;
 import com.vintic.backend.analyze.domain.AnalysisStatus;
 import com.vintic.backend.analyze.domain.ProductAnalysisSession;
 import com.vintic.backend.analyze.domain.ProductAnalysisSessionRepository;
+import com.vintic.backend.ai.vision.dto.VisionProgress;
+import com.vintic.backend.ai.vision.service.VisionProgressListener;
 import com.vintic.backend.analyze.service.AnalysisFailureRecorder;
+import com.vintic.backend.analyze.service.AnalysisProgressRecorder;
 import com.vintic.backend.common.exception.AiApiException;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -48,6 +52,9 @@ class AnalysisTaskConsumerTest {
     private AnalysisFailureRecorder failureRecorder;
 
     @Mock
+    private AnalysisProgressRecorder progressRecorder;
+
+    @Mock
     private StringRedisTemplate redisTemplate;
 
     @Mock
@@ -58,7 +65,8 @@ class AnalysisTaskConsumerTest {
 
     private AnalysisTaskConsumer newConsumer() {
         return new AnalysisTaskConsumer(
-                sessionRepository, visionAnalysisService, failureRecorder, objectMapper, redisTemplate, properties
+                sessionRepository, visionAnalysisService, failureRecorder, progressRecorder, objectMapper,
+                redisTemplate, properties
         );
     }
 
@@ -92,7 +100,7 @@ class AnalysisTaskConsumerTest {
                 "Nike", "Dunk Low", "Panda", 270, "설명", ConditionGrade.B,
                 true, 0.9, false, List.of(), List.of(), List.of(), List.of()
         );
-        when(visionAnalysisService.analyze(new VisionAnalysisRequest(imageUrls))).thenReturn(result);
+        when(visionAnalysisService.analyze(eq(new VisionAnalysisRequest(imageUrls)), any())).thenReturn(result);
 
         newConsumer().onMessage(recordFor(1L, imageUrls));
 
@@ -102,13 +110,33 @@ class AnalysisTaskConsumerTest {
     }
 
     @Test
+    void 단계가_끝날_때마다_잠정_결과를_세션에_남긴다() {
+        // #106: 폴링 중인 사용자가 3단계가 다 끝나기 전에 브랜드·모델을 먼저 볼 수 있게 한다.
+        when(redisTemplate.opsForStream()).thenReturn(streamOperations);
+        List<String> imageUrls = List.of("https://example.com/a.jpg");
+        when(sessionRepository.findById(1L)).thenReturn(Optional.of(queuedSession(imageUrls)));
+        when(sessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        VisionProgress stageOne = new VisionProgress(1, 3, "Nike", "Dunk Low", "Panda", null);
+        when(visionAnalysisService.analyze(any(), any())).thenAnswer(inv -> {
+            inv.<VisionProgressListener>getArgument(1).onStageCompleted(stageOne);
+            return new VisionAnalysisResult("Nike", "Dunk Low", "Panda", 270, "설명", ConditionGrade.B,
+                    true, 0.9, false, List.of(), List.of(), List.of(), List.of());
+        });
+
+        newConsumer().onMessage(recordFor(1L, imageUrls));
+
+        // 세션은 저장을 거치지 않아 id가 null이다
+        verify(progressRecorder).recordVisionProgress(any(), eq(stageOne));
+    }
+
+    @Test
     void Vision_호출이_실패하면_실패_기록_후_ACK한다() {
         when(redisTemplate.opsForStream()).thenReturn(streamOperations);
         List<String> imageUrls = List.of("https://example.com/a.jpg");
         ProductAnalysisSession session = queuedSession(imageUrls);
         when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
         when(sessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(visionAnalysisService.analyze(any())).thenThrow(new AiApiException("OpenAI 오류"));
+        when(visionAnalysisService.analyze(any(), any())).thenThrow(new AiApiException("OpenAI 오류"));
 
         newConsumer().onMessage(recordFor(1L, imageUrls));
 
@@ -123,7 +151,7 @@ class AnalysisTaskConsumerTest {
         ProductAnalysisSession session = queuedSession(imageUrls);
         when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
         when(sessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(visionAnalysisService.analyze(any())).thenThrow(new AiApiException("OpenAI 오류"));
+        when(visionAnalysisService.analyze(any(), any())).thenThrow(new AiApiException("OpenAI 오류"));
         doThrow(new RuntimeException("DB 오류")).when(failureRecorder).recordVisionFailure(anyLong(), anyString());
 
         newConsumer().onMessage(recordFor(1L, imageUrls));
@@ -138,7 +166,7 @@ class AnalysisTaskConsumerTest {
 
         newConsumer().onMessage(recordFor(1L, List.of("https://example.com/a.jpg")));
 
-        verify(visionAnalysisService, never()).analyze(any());
+        verify(visionAnalysisService, never()).analyze(any(), any());
         verify(streamOperations).acknowledge(eq(properties.getKey()), eq(properties.getGroup()), eq(RecordId.of("1-0")));
     }
 
@@ -153,7 +181,7 @@ class AnalysisTaskConsumerTest {
 
         newConsumer().onMessage(recordFor(1L, imageUrls));
 
-        verify(visionAnalysisService, never()).analyze(any());
+        verify(visionAnalysisService, never()).analyze(any(), any());
         verify(streamOperations).acknowledge(eq(properties.getKey()), eq(properties.getGroup()), eq(RecordId.of("1-0")));
     }
 
@@ -166,7 +194,7 @@ class AnalysisTaskConsumerTest {
 
         newConsumer().onMessage(recordFor(1L, imageUrls));
 
-        verify(visionAnalysisService, never()).analyze(any());
+        verify(visionAnalysisService, never()).analyze(any(), any());
         verify(redisTemplate, never()).opsForStream();
     }
 
@@ -183,7 +211,7 @@ class AnalysisTaskConsumerTest {
                 "Nike", "Dunk Low", "Panda", 270, "설명", ConditionGrade.B,
                 true, 0.9, false, List.of(), List.of(), List.of(), List.of()
         );
-        when(visionAnalysisService.analyze(any())).thenReturn(result);
+        when(visionAnalysisService.analyze(any(), any())).thenReturn(result);
 
         newConsumer().onMessage(recordFor(1L, imageUrls));
 
@@ -210,7 +238,7 @@ class AnalysisTaskConsumerTest {
         assertThatCode(() -> newConsumer().onMessage(recordFor(1L, List.of("https://example.com/a.jpg"))))
                 .doesNotThrowAnyException();
 
-        verify(visionAnalysisService, never()).analyze(any());
+        verify(visionAnalysisService, never()).analyze(any(), any());
         verify(redisTemplate, never()).opsForStream();
     }
 

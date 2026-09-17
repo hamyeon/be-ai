@@ -18,8 +18,10 @@ import com.vintic.backend.ai.vision.dto.ConditionGrade;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisRequest;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
 import com.vintic.backend.ai.vision.dto.VisionEvidence;
+import com.vintic.backend.ai.vision.dto.VisionProgress;
 import com.vintic.backend.ai.vision.dto.VisionUnreadable;
 import com.vintic.backend.ai.vision.service.VisionAnalysisService;
+import com.vintic.backend.ai.vision.service.VisionProgressListener;
 import com.vintic.backend.common.exception.AiApiException;
 import com.vintic.backend.common.exception.AiResponseFormatException;
 import lombok.extern.slf4j.Slf4j;
@@ -49,6 +51,7 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
 
     private static final String PROMPT_CATEGORY = "vision";
     private static final String PROMPT_VERSION = "v2";
+    private static final int TOTAL_STAGES = 3;
 
     private final ChatCompletionClient visionClient;
     private final String modelName;
@@ -86,6 +89,11 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
 
     @Override
     public VisionAnalysisResult analyze(VisionAnalysisRequest request) {
+        return analyze(request, VisionProgressListener.NONE);
+    }
+
+    @Override
+    public VisionAnalysisResult analyze(VisionAnalysisRequest request, VisionProgressListener progressListener) {
         List<String> imageUrls = request.imageUrls();
         Long analysisId = request.analysisId();
         log.info("Vision 분석 요청 - promptVersion={}, modelName={}, imageCount={}",
@@ -93,13 +101,50 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
 
         SilhouetteStageResult silhouette =
                 call(silhouetteStage, null, imageUrls, analysisId, SilhouetteStageResult.class);
+        notifyProgress(progressListener, 1, silhouette, null, imageUrls.size());
+
         LabelStageResult label = call(labelStage, contextOf("1단계(전체 형태) 결과", silhouette),
                 imageUrls, analysisId, LabelStageResult.class);
+        notifyProgress(progressListener, 2, silhouette, label, imageUrls.size());
+
         ConditionStageResult condition = call(conditionStage,
                 contextOf("1단계(전체 형태) 결과", silhouette) + contextOf("2단계(라벨/로고) 결과", label),
                 imageUrls, analysisId, ConditionStageResult.class);
 
         return evidenceValidator.enforce(merge(silhouette, label, condition), imageUrls.size());
+    }
+
+    // 끝난 단계까지의 결과로 잠정값을 만들어 알린다(#106). 최종 결과와 같은 규칙을 쓴다 -
+    // 라벨이 추정을 이기고, 근거 없는 값은 검증기가 지운다. 검증 전 값을 먼저 보여주면
+    // 사용자는 나중에 사라질 브랜드를 보게 된다.
+    private void notifyProgress(VisionProgressListener listener, int completedStages,
+                                SilhouetteStageResult silhouette, LabelStageResult label, int imageCount) {
+        if (listener == VisionProgressListener.NONE) {
+            return;
+        }
+        try {
+            List<VisionEvidence> evidence = new ArrayList<>();
+            addAll(evidence, silhouette.evidence());
+            String brand = silhouette.brand();
+            String modelName = silhouette.modelName();
+            Integer size = null;
+            if (label != null) {
+                addAll(evidence, label.evidence());
+                brand = firstNonNull(label.brand(), brand);
+                modelName = firstNonNull(label.modelName(), modelName);
+                size = label.size();
+            }
+
+            VisionAnalysisResult validated = evidenceValidator.enforce(new VisionAnalysisResult(
+                    brand, modelName, silhouette.color(), size, null, null, null, null, null,
+                    List.of(), List.of(), List.of(), List.copyOf(evidence)), imageCount);
+
+            listener.onStageCompleted(new VisionProgress(completedStages, TOTAL_STAGES,
+                    validated.brand(), validated.modelName(), validated.color(), validated.size()));
+        } catch (RuntimeException e) {
+            // 진행 표시가 실패했다고 이미 비용을 낸 분석을 버리지 않는다.
+            log.warn("Vision 진행 상황 전달 실패 - 분석은 계속합니다. stage={}, 원인: {}", completedStages, e.getMessage());
+        }
     }
 
     private Stage loadStage(PromptTemplateLoader loader, String name, VisionStageProperties.Stage settings) {

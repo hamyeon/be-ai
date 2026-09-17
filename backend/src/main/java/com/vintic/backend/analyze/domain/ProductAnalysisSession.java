@@ -45,6 +45,11 @@ public class ProductAnalysisSession {
     @Column(name = "vision_result_json", columnDefinition = "LONGTEXT")
     private String visionResultJson;
 
+    // #106: 3단계 분석 도중의 잠정 결과(VisionProgress). VISION_PROCESSING 동안만 채워지고 끝나면 비운다.
+    @Lob
+    @Column(name = "vision_progress_json", columnDefinition = "LONGTEXT")
+    private String visionProgressJson;
+
     // 판매자가 Vision 결과를 확인/수정해 Pricing 요청에 실제로 전달한 최종 입력값
     @Lob
     @Column(name = "confirmed_input_json", columnDefinition = "LONGTEXT")
@@ -105,13 +110,25 @@ public class ProductAnalysisSession {
         this.status = AnalysisStatus.VISION_PROCESSING;
     }
 
+    // 분석 도중 끝난 단계까지의 잠정 결과를 남긴다(#106). 분석 중일 때만 받는다 - 늦게 도착한 진행 기록이
+    // 이미 끝났거나 실패로 정리된 세션에 섞이면 안 된다. 받았으면 true.
+    public boolean recordVisionProgress(String visionProgressJson) {
+        if (status != AnalysisStatus.VISION_PROCESSING) {
+            return false;
+        }
+        this.visionProgressJson = visionProgressJson;
+        return true;
+    }
+
     public void completeVision(String visionResultJson) {
         this.visionResultJson = visionResultJson;
+        this.visionProgressJson = null; // 최종 결과가 생기면 잠정 결과는 의미가 없다
         this.status = AnalysisStatus.AWAITING_USER_CONFIRMATION;
     }
 
     public void failVision(String message) {
         this.status = AnalysisStatus.VISION_FAILED;
+        this.visionProgressJson = null;
         this.failureStage = AnalysisFailureStage.VISION;
         this.failureMessage = message;
     }

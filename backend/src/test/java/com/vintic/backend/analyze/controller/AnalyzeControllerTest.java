@@ -50,6 +50,8 @@ class AnalyzeControllerTest {
                 1L,
                 "AWAITING_USER_CONFIRMATION",
                 List.of("https://bucket.s3.amazonaws.com/shoe.jpg"),
+                null,
+                null,
                 "Nike",
                 "Air Jordan 1 Retro High OG",
                 "Chicago Lost and Found",

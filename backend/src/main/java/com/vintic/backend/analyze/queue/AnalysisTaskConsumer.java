@@ -7,6 +7,7 @@ import com.vintic.backend.ai.vision.service.VisionAnalysisService;
 import com.vintic.backend.analyze.domain.ProductAnalysisSession;
 import com.vintic.backend.analyze.domain.ProductAnalysisSessionRepository;
 import com.vintic.backend.analyze.service.AnalysisFailureRecorder;
+import com.vintic.backend.analyze.service.AnalysisProgressRecorder;
 import com.vintic.backend.common.exception.InvalidAnalysisStatusException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,7 @@ public class AnalysisTaskConsumer implements StreamListener<String, MapRecord<St
     private final ProductAnalysisSessionRepository sessionRepository;
     private final VisionAnalysisService visionAnalysisService;
     private final AnalysisFailureRecorder failureRecorder;
+    private final AnalysisProgressRecorder progressRecorder;
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate redisTemplate;
     private final AnalysisStreamProperties properties;
@@ -77,8 +79,11 @@ public class AnalysisTaskConsumer implements StreamListener<String, MapRecord<St
         VisionAnalysisResult result;
         try {
             // 세션 ID를 같이 넘긴다. 이 분석이 부른 3단계 호출을 나중에 세션 기준으로 묶어 보려면 필요하다.
+            Long sessionId = session.getId();
+            // 단계가 끝날 때마다 잠정 결과를 남겨 폴링 중인 사용자가 먼저 볼 수 있게 한다(#106).
             result = visionAnalysisService.analyze(
-                    new VisionAnalysisRequest(message.visionImageUrls(), session.getId()));
+                    new VisionAnalysisRequest(message.visionImageUrls(), sessionId),
+                    progress -> progressRecorder.recordVisionProgress(sessionId, progress));
         } catch (RuntimeException visionError) {
             if (tryRecordVisionFailure(session.getId(), visionError)) {
                 acknowledge(record);

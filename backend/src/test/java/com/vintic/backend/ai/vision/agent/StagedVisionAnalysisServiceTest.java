@@ -13,6 +13,7 @@ import com.vintic.backend.ai.vision.client.VisionProviderProperties;
 import com.vintic.backend.ai.vision.dto.ConditionGrade;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisRequest;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
+import com.vintic.backend.ai.vision.dto.VisionProgress;
 import com.vintic.backend.common.exception.AiApiException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,6 +21,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -235,6 +237,51 @@ class StagedVisionAnalysisServiceTest {
         // 2단계가 근거와 함께 읽어낸 값은 남는다
         assertThat(result.modelName()).isEqualTo("Air Force 1 '07");
         assertThat(result.size()).isEqualTo(270);
+    }
+
+    @Test
+    void 단계가_끝날_때마다_검증된_잠정_결과를_알린다() {
+        // #106: 1단계 후에는 실루엣 추정, 2단계 후에는 라벨로 보정한 값과 사이즈. 3단계 후에는 알리지 않는다(최종 결과가 대신한다).
+        stubAllStages();
+        List<VisionProgress> progress = new ArrayList<>();
+
+        newService().analyze(new VisionAnalysisRequest(IMAGE_URLS), progress::add);
+
+        assertThat(progress).containsExactly(
+                new VisionProgress(1, 3, "Nike", "Air Force 1", "White", null),
+                new VisionProgress(2, 3, "Nike", "Air Force 1 '07", "White", 270));
+    }
+
+    @Test
+    void 잠정_결과도_근거_없는_값은_지운_뒤에_알린다() {
+        // 나중에 검증기에서 사라질 브랜드를 사용자가 먼저 보면 안 된다.
+        String silhouetteWithoutEvidence = """
+                {
+                  "silhouette": "sneaker", "brand": "Nike", "modelName": "Air Force 1", "color": "White",
+                  "candidates": [], "evidence": [], "unreadable": []
+                }
+                """;
+        when(visionClient.complete(any()))
+                .thenReturn(responseOf(silhouetteWithoutEvidence))
+                .thenReturn(responseOf(LABEL_JSON))
+                .thenReturn(responseOf(CONDITION_JSON));
+        List<VisionProgress> progress = new ArrayList<>();
+
+        newService().analyze(new VisionAnalysisRequest(IMAGE_URLS), progress::add);
+
+        assertThat(progress.get(0)).isEqualTo(new VisionProgress(1, 3, null, null, null, null));
+    }
+
+    @Test
+    void 진행_알림이_실패해도_분석은_끝까지_간다() {
+        stubAllStages();
+
+        VisionAnalysisResult result = newService().analyze(new VisionAnalysisRequest(IMAGE_URLS), progress -> {
+            throw new RuntimeException("진행 기록 저장 실패");
+        });
+
+        verify(visionClient, times(3)).complete(any());
+        assertThat(result.conditionGrade()).isEqualTo(ConditionGrade.B);
     }
 
     @Test
