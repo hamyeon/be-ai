@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component;
 // Redis Stream에서 분석 작업 메시지를 받아 Vision 분석을 실행하는 Consumer.
 // DB 저장(완료/실패)이 성공한 뒤에만 XACK한다 - 저장 자체가 실패하면 ack하지 않고
 // 미처리 메시지(Pending Entries List)로 남겨 나중에 재처리할 수 있게 한다.
-// 자동 재시도/pending 회수/DLQ는 이번 이슈 범위 밖 - docs/ai-async-analysis.md 참고.
+// PEL에 남은 메시지는 AnalysisStreamRecovery가 일정 시간 뒤 회수해 정리한다(#106).
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -36,6 +36,17 @@ public class AnalysisTaskConsumer implements StreamListener<String, MapRecord<St
 
     @Override
     public void onMessage(MapRecord<String, String, String> record) {
+        // 여기서 예외가 새면 컨테이너 폴링 루프까지 올라간다. 구독은 끊기지 않게 해뒀지만(#106)
+        // 예상 못 한 예외(세션 조회 중 DB 장애, ACK 중 Redis 장애)도 이 메시지 한 건의 실패로만 끝낸다.
+        // ACK하지 않았으므로 메시지는 PEL에 남고 회수 작업이 정리한다.
+        try {
+            process(record);
+        } catch (RuntimeException e) {
+            log.error("분석 작업 처리 중 예상하지 못한 오류 - ack하지 않고 미처리로 남깁니다. recordId={}", record.getId(), e);
+        }
+    }
+
+    private void process(MapRecord<String, String, String> record) {
         AnalysisTaskMessage message = parseMessage(record);
         if (message == null) {
             return; // 메시지 자체가 파싱이 안 됨 - ack 안 하고 미처리로 남김

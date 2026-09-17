@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -199,5 +200,28 @@ class AnalysisTaskConsumerTest {
 
         verify(sessionRepository, never()).findById(any());
         verify(redisTemplate, never()).opsForStream();
+    }
+
+    @Test
+    void 예상하지_못한_예외도_밖으로_던지지_않고_ACK하지_않는다() {
+        // #106: 여기서 예외가 새면 컨테이너 폴링 루프로 올라간다. 세션 조회 중 DB 장애가 대표적이다.
+        when(sessionRepository.findById(1L)).thenThrow(new RuntimeException("DB 커넥션 풀 고갈"));
+
+        assertThatCode(() -> newConsumer().onMessage(recordFor(1L, List.of("https://example.com/a.jpg"))))
+                .doesNotThrowAnyException();
+
+        verify(visionAnalysisService, never()).analyze(any());
+        verify(redisTemplate, never()).opsForStream();
+    }
+
+    @Test
+    void ACK_중_Redis_오류가_나도_밖으로_던지지_않는다() {
+        when(redisTemplate.opsForStream()).thenReturn(streamOperations);
+        when(sessionRepository.findById(1L)).thenReturn(Optional.empty());
+        when(streamOperations.acknowledge(anyString(), anyString(), any(RecordId[].class)))
+                .thenThrow(new RuntimeException("Redis 연결 끊김"));
+
+        assertThatCode(() -> newConsumer().onMessage(recordFor(1L, List.of("https://example.com/a.jpg"))))
+                .doesNotThrowAnyException();
     }
 }

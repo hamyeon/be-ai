@@ -84,6 +84,19 @@ analysis:
     key: ${ANALYSIS_STREAM_KEY:ai:analysis:requests}
     group: ${ANALYSIS_STREAM_GROUP:ai-analysis-workers}
     consumer-prefix: ${ANALYSIS_STREAM_CONSUMER_PREFIX:worker}
+    # 인스턴스 하나가 동시에 처리하는 분석 수(#106). 올리기 전에 OpenAI 조직의 분당 토큰 한도(TPM)를 확인한다.
+    # 분석 한 건이 약 15초에 9천 토큰이라 1건씩만 처리해도 분당 약 3.6만 토큰이다. 기록된 한도(30,000)
+    # 그대로면 동시 처리를 늘려도 429 재시도 대기만 늘어 빨라지지 않는다. 한도가 올라간 만큼만 올린다.
+    concurrency: ${ANALYSIS_STREAM_CONCURRENCY:1}
+    # XADD 때 스트림을 대략 이 길이로 자른다. ACK해도 엔트리가 지워지지 않아 두면 계속 쌓인다. 0이면 안 자른다.
+    max-length: ${ANALYSIS_STREAM_MAX_LENGTH:10000}
+    # ACK되지 못한 메시지 회수(AnalysisStreamRecovery). 처리 도중 재시작돼 멈춘 분석을 정리한다.
+    recovery:
+      fixed-delay-ms: ${ANALYSIS_STREAM_RECOVERY_DELAY_MS:60000}
+      # 정상 분석 + 429 재시도 대기보다 길어야 한다. 짧으면 처리 중인 분석을 실패로 정리한다.
+      pending-idle-timeout: ${ANALYSIS_STREAM_PENDING_IDLE_TIMEOUT:10m}
+      batch-size: 50
+      idle-consumer-timeout: ${ANALYSIS_STREAM_IDLE_CONSUMER_TIMEOUT:1d}
 
 # 추천용 상품 벡터 백필.
 #

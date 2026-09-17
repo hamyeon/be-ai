@@ -120,6 +120,68 @@ Consumer 이름은 기동할 때마다 `{consumer-prefix}-{UUID}`로 생성돼�
 - 세션이 아예 없거나(`analysisId`가 잘못됨), 이미 `QUEUED`가 아닌 상태(중복 전달)면 재처리할 이유가
   없으므로 바로 ack하고 버린다.
 - 메시지 자체가 파싱이 안 되면(손상된 JSON) ack하지 않고 남긴다.
+- ack하지 않고 남긴 메시지는 `AnalysisStreamRecovery`가 일정 시간 뒤 회수해 정리한다(아래 #106 절).
+
+## 구독 안정화 · 동시 처리 · 미처리 회수 (#106)
+
+### 문제: 예외 한 번에 구독이 영구히 끊겼다
+
+Spring Data Redis 3.5.11의 `StreamPollTask`는 Redis 읽기와 리스너 호출을 같은 `try`로 감싸고,
+`RuntimeException`이 나면 `cancelSubscriptionOnError`를 검사한다. 그 기본값이 `t -> true`다(바이트코드로
+확인). 즉 **Redis가 잠깐 재시작되거나, 리스너에서 예외가 한 번만 새도 구독이 취소되고 다시 살아나지 않는다.**
+서버는 정상으로 떠 있는데 분석 요청만 전부 `QUEUED`에서 멈추고, 남는 신호는 로그 한 줄뿐이었다.
+
+게다가 Consumer는 새 메시지만 읽어서(`ReadOffset.lastConsumed()`), 처리 도중 서버가 재시작되면 그 메시지는
+PEL에 남은 채 아무도 다시 읽지 않았다. 세션은 `VISION_PROCESSING`에 멈추고 프론트는 끝나지 않는 폴링을 했다.
+
+### 바꾼 것
+
+| 위치 | 내용 |
+| --- | --- |
+| `RedisStreamConsumerConfig` | `cancelOnError(e -> false)`로 구독을 유지한다. `concurrency`만큼 Consumer(`{prefix}-{인스턴스UUID}-{번호}`)를 등록하고 `batchSize(1)`로 한 건씩 읽는다 |
+| `StreamPollErrorHandler` | 폴링 실패 시 스레드를 1초부터 두 배씩 최대 30초까지 재운다. Redis가 내려가 있을 때 루프가 쉬지 않고 도는 걸 막는다. `NOGROUP`이면 그룹을 다시 만든다 |
+| `AnalysisTaskConsumer` | 처리 전체를 감싸 예상 못 한 예외(세션 조회 중 DB 장애, ACK 중 Redis 장애)도 이 메시지 한 건의 실패로 끝낸다. ACK하지 않으므로 PEL에 남는다 |
+| `AnalysisTaskProducer` | `XADD MAXLEN ~ max-length`. ACK해도 엔트리는 지워지지 않아 두면 계속 쌓였다 |
+| `AnalysisStreamRecovery` | 1분마다 `pending-idle-timeout`(기본 10분) 넘게 방치된 메시지를 `XCLAIM`으로 가져와 정리한다. 미처리가 없고 하루 넘게 조용한 다른 인스턴스의 Consumer는 그룹에서 지운다 |
+
+회수한 메시지는 세션 상태로 판단한다.
+
+| 세션 상태 | 의미 | 처리 |
+| --- | --- | --- |
+| `QUEUED` | 분석을 시작도 못 했다 | 새 메시지로 다시 넣고 옛 메시지 ACK (Vision 비용이 아직 안 들었다) |
+| `VISION_PROCESSING` | 분석 도중 멈췄다 | `VISION_FAILED`로 기록하고 ACK. 유료 호출이 반복될 수 있어 자동 재시도는 하지 않는다 |
+| 그 밖의 상태 | 이미 끝났는데 ACK만 못 했다 | ACK |
+| 세션 없음 · 파싱 불가 | 다시 해도 소용없다 | ACK하고 버림 |
+
+인스턴스가 여러 대면 모두 회수 작업을 돌린다. `XCLAIM`은 min-idle 조건을 다시 확인하므로 먼저 가져간
+인스턴스만 성공한다. 다시 넣기가 실패하면 ACK하지 않고 다음 주기에 다시 본다.
+
+### 동시 처리 수는 벤더 한도가 정한다
+
+`concurrency` 기본값은 1이다. 분석 한 건이 약 15초에 9천 토큰이라 1건씩만 처리해도 분당 약 3.6만 토큰이다.
+기록된 조직 한도(TPM 30,000, `ai-vision-agent.md`)가 그대로면 동시 처리를 늘려도 429 재시도 대기만 늘어
+빨라지지 않는다. **OpenAI 대시보드에서 현재 한도를 확인하고 그만큼만 올린다.**
+
+```yaml
+analysis:
+  stream:
+    concurrency: ${ANALYSIS_STREAM_CONCURRENCY:1}
+    max-length: ${ANALYSIS_STREAM_MAX_LENGTH:10000}
+    recovery:
+      fixed-delay-ms: ${ANALYSIS_STREAM_RECOVERY_DELAY_MS:60000}
+      pending-idle-timeout: ${ANALYSIS_STREAM_PENDING_IDLE_TIMEOUT:10m}
+      batch-size: 50
+      idle-consumer-timeout: ${ANALYSIS_STREAM_IDLE_CONSUMER_TIMEOUT:1d}
+```
+
+### 남은 구멍
+
+- **Redis 데이터 자체가 사라지면 회수할 메시지도 없다.** 배포용 `docker-compose.yml`의 Redis에는 볼륨·AOF가
+  없어 컨테이너가 재시작되면 대기 중인 메시지가 사라지고, 해당 세션은 `QUEUED`에 남는다. Redis 영속화는
+  인프라 설정이라 백엔드와 따로 정한다.
+- **실제 Redis로 재현하지 못했다.** 작업 환경에서 Docker가 꺼져 있어, 구독이 끊기는 동작은 라이브러리
+  바이트코드로, 고친 동작은 단위 테스트(설정 값·분기)로만 확인했다. Docker를 켠 환경에서 "앱 실행 중
+  `docker restart` redis → 분석 요청이 처리되는가"를 한 번 확인해야 한다.
 
 ## 로컬 개발 환경
 
@@ -150,13 +212,9 @@ docker compose up -d redis   # Redis만 띄우기 (healthcheck 포함)
 ## 이번 이슈 범위 밖 — 후속 확장 항목
 
 - **자동 재시도**: 지금은 실패해도 재시도 로직이 없다. 실패 상태(`*_FAILED`)로 남을 뿐이다.
-- **Pending 메시지 회수(claim)**: `XPENDING`으로 오래 미처리 상태인 메시지를 찾아서 다른 Consumer가
-  `XCLAIM`으로 가져가 재처리하는 로직이 없다. 지금은 Consumer가 죽으면 그 메시지는 ack될 때까지 그
-  Consumer 이름으로 계속 pending 상태로 남는다.
-- **DLQ(Dead Letter Queue)**: 계속 실패하는 메시지(예: 파싱조차 안 되는 메시지)를 별도 큐로 옮겨서
-  격리하는 처리가 없다. 지금은 그냥 pending 목록에 무기한 남는다.
-- **알려진 구멍 하나**: Consumer가 `startVisionProcessing()` 저장에는 성공했지만 그 직후(Vision 호출 전)
-  크래시하면, 세션은 `VISION_PROCESSING`에 멈춘 채로 남는다. 이 메시지가 재전달되면 현재 로직은
-  "QUEUED가 아니니 이미 처리된 중복 메시지"로 오인해서 ack하고 버려버린다 — 사실은 Vision이 한 번도
-  안 돌았는데도. Pending 회수 로직을 나중에 설계할 때 이 케이스(QUEUED도 아니고 완료/실패도 아닌 상태로
-  오래 멈춰있는 세션)를 같이 다뤄야 한다.
+  #106의 회수 작업도 `VISION_PROCESSING`에서 멈춘 분석은 재시도하지 않고 실패로 정리한다(유료 호출 반복 방지).
+- ~~**Pending 메시지 회수(claim)**~~: #106에서 `AnalysisStreamRecovery`로 구현했다.
+- **DLQ(Dead Letter Queue)**: 별도 큐로 격리하지 않는다. #106 이후 파싱조차 안 되는 메시지는 회수 시점에
+  에러 로그를 남기고 ACK해 버린다 - 무기한 PEL에 남지는 않지만 원본은 로그로만 남는다.
+- ~~**알려진 구멍: `VISION_PROCESSING`에 멈춘 세션**~~: #106 회수 작업이 방치 시간 기준으로 `VISION_FAILED`로
+  정리한다. 재전달로 처리하지 않으므로 "중복 메시지로 오인해 버리는" 경로도 타지 않는다.
