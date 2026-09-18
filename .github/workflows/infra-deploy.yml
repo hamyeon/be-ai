@@ -16,6 +16,17 @@ concurrency:
 jobs:
   test-build-deploy:
     runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     timeout-minutes: 60
     env:
       AWS_REGION: ap-northeast-2
