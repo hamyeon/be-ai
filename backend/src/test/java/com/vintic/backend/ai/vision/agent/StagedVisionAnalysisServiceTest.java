@@ -23,6 +23,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -49,7 +50,17 @@ class StagedVisionAnalysisServiceTest {
     private StagedVisionAnalysisService newService(VisionStageProperties stageProperties) {
         return new StagedVisionAnalysisService(
                 visionClient, new ObjectMapper(), new VisionEvidenceValidator(),
-                new PromptTemplateLoader(), stageProperties, new VisionProviderProperties(), aiCallLogger);
+                new PromptTemplateLoader(), stageProperties, new VisionProviderProperties(), aiCallLogger,
+                stageExecutor);
+    }
+
+    // 기본은 호출한 스레드에서 그대로 돌린다. 진짜 동시 실행이 필요한 테스트만 스레드 풀을 넣는다.
+    private Executor stageExecutor = Runnable::run;
+
+    private VisionStageProperties parallelStageProperties() {
+        VisionStageProperties properties = new VisionStageProperties();
+        properties.setParallel(true);
+        return properties;
     }
 
     private VisionChatResponse responseOf(String content) {
@@ -282,6 +293,38 @@ class StagedVisionAnalysisServiceTest {
 
         verify(visionClient, times(3)).complete(any());
         assertThat(result.conditionGrade()).isEqualTo(ConditionGrade.B);
+    }
+
+    @Test
+    void 동시_실행을_켜면_3단계가_라벨_결과를_기다리지_않는다() {
+        // #106: 2·3단계를 겹쳐 분석 한 건을 2단계 시간만큼 줄인다. 대신 3단계 맥락에 라벨 결과가 없다.
+        stubAllStages();
+
+        VisionAnalysisResult result = newService(parallelStageProperties()).analyze(new VisionAnalysisRequest(IMAGE_URLS));
+
+        List<VisionChatRequest> requests = capturedRequests();
+        assertThat(requests.get(2).userText())
+                .contains("1단계(전체 형태) 결과")
+                .doesNotContain("2단계(라벨/로고) 결과");
+        // 합쳐진 결과는 순차 실행과 같아야 한다
+        assertThat(result.modelName()).isEqualTo("Air Force 1 '07");
+        assertThat(result.size()).isEqualTo(270);
+        assertThat(result.conditionGrade()).isEqualTo(ConditionGrade.B);
+    }
+
+    @Test
+    void 동시_실행_중_한_단계가_실패해도_다른_단계를_끝까지_기다린_뒤_예외를_던진다() {
+        // 먼저 끝난 쪽에서 바로 던지면 남은 호출이 비용만 쓰고 기록도 안 남는다.
+        stageExecutor = java.util.concurrent.Executors.newFixedThreadPool(2);
+        when(visionClient.complete(any()))
+                .thenReturn(responseOf(SILHOUETTE_JSON))
+                .thenThrow(new AiApiException("OpenAI Vision API 오류 (status=429)"))
+                .thenReturn(responseOf(CONDITION_JSON));
+
+        assertThatThrownBy(() -> newService(parallelStageProperties()).analyze(new VisionAnalysisRequest(IMAGE_URLS)))
+                .isInstanceOf(AiApiException.class);
+
+        verify(visionClient, times(3)).complete(any());
     }
 
     @Test

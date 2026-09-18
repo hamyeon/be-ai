@@ -31,6 +31,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executor;
 
 // 한 번에 다 묻지 않고 3단계로 나눠 묻는 Vision 분석.
 //
@@ -58,6 +61,8 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
     private final ObjectMapper objectMapper;
     private final VisionEvidenceValidator evidenceValidator;
     private final AiCallLogger aiCallLogger;
+    private final boolean parallel;
+    private final Executor stageExecutor;
 
     private final Stage silhouetteStage;
     private final Stage labelStage;
@@ -70,21 +75,25 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
             PromptTemplateLoader promptTemplateLoader,
             VisionStageProperties stageProperties,
             VisionProviderProperties providerProperties,
-            AiCallLogger aiCallLogger
+            AiCallLogger aiCallLogger,
+            @Qualifier(VisionStageExecutorConfig.VISION_STAGE_EXECUTOR) Executor stageExecutor
     ) {
         this.visionClient = visionClient;
         this.modelName = providerProperties.resolvedModel();
         this.objectMapper = objectMapper;
         this.evidenceValidator = evidenceValidator;
         this.aiCallLogger = aiCallLogger;
+        this.parallel = stageProperties.isParallel();
+        this.stageExecutor = stageExecutor;
 
         // 프롬프트/스키마는 배포 중에 바뀌지 않으므로 기동 시 한 번만 읽어서 들고 있는다.
         this.silhouetteStage = loadStage(promptTemplateLoader, "silhouette", stageProperties.getSilhouette());
         this.labelStage = loadStage(promptTemplateLoader, "label", stageProperties.getLabel());
         this.conditionStage = loadStage(promptTemplateLoader, "condition", stageProperties.getCondition());
 
-        log.info("Vision 단계 설정 - model={}, silhouette={}, label={}, condition={}",
-                modelName, silhouetteStage.detail().value(), labelStage.detail().value(), conditionStage.detail().value());
+        log.info("Vision 단계 설정 - model={}, silhouette={}, label={}, condition={}, 2·3단계 동시 실행={}",
+                modelName, silhouetteStage.detail().value(), labelStage.detail().value(),
+                conditionStage.detail().value(), parallel);
     }
 
     @Override
@@ -103,6 +112,16 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
                 call(silhouetteStage, null, imageUrls, analysisId, SilhouetteStageResult.class);
         notifyProgress(progressListener, 1, silhouette, null, imageUrls.size());
 
+        StageResults rest = parallel
+                ? runLabelAndConditionTogether(silhouette, imageUrls, analysisId, progressListener)
+                : runLabelThenCondition(silhouette, imageUrls, analysisId, progressListener);
+
+        return evidenceValidator.enforce(
+                merge(silhouette, rest.label(), rest.condition()), imageUrls.size());
+    }
+
+    private StageResults runLabelThenCondition(SilhouetteStageResult silhouette, List<String> imageUrls,
+                                               Long analysisId, VisionProgressListener progressListener) {
         LabelStageResult label = call(labelStage, contextOf("1단계(전체 형태) 결과", silhouette),
                 imageUrls, analysisId, LabelStageResult.class);
         notifyProgress(progressListener, 2, silhouette, label, imageUrls.size());
@@ -110,8 +129,48 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
         ConditionStageResult condition = call(conditionStage,
                 contextOf("1단계(전체 형태) 결과", silhouette) + contextOf("2단계(라벨/로고) 결과", label),
                 imageUrls, analysisId, ConditionStageResult.class);
+        return new StageResults(label, condition);
+    }
 
-        return evidenceValidator.enforce(merge(silhouette, label, condition), imageUrls.size());
+    // 2·3단계를 동시에 부른다(#106). 분석 한 건이 2단계 시간(약 3~4초)만큼 빨라지는 대신,
+    // 3단계는 2단계가 읽어낸 라벨 값을 못 받고 1단계 결과만 맥락으로 받는다.
+    // 3단계는 사진에 보이는 마모만 판정하게 돼 있어 의존이 약하지만, 등급 정확도 비교는 하네스 몫이다.
+    private StageResults runLabelAndConditionTogether(SilhouetteStageResult silhouette, List<String> imageUrls,
+                                                      Long analysisId, VisionProgressListener progressListener) {
+        String silhouetteContext = contextOf("1단계(전체 형태) 결과", silhouette);
+
+        CompletableFuture<LabelStageResult> labelFuture = CompletableFuture.supplyAsync(() -> {
+            LabelStageResult label = call(labelStage, silhouetteContext, imageUrls, analysisId, LabelStageResult.class);
+            notifyProgress(progressListener, 2, silhouette, label, imageUrls.size());
+            return label;
+        }, stageExecutor);
+
+        CompletableFuture<ConditionStageResult> conditionFuture = CompletableFuture.supplyAsync(
+                () -> call(conditionStage, silhouetteContext, imageUrls, analysisId, ConditionStageResult.class),
+                stageExecutor);
+
+        // 한쪽이 실패해도 다른 쪽이 끝날 때까지 기다린다. 먼저 예외를 던지면 남은 호출이 결과 없이 비용만 쓰고,
+        // 그 호출 기록(AiCallLog)도 남지 않는다.
+        CompletableFuture.allOf(labelFuture, conditionFuture)
+                .exceptionally(error -> null)
+                .join();
+
+        return new StageResults(join(labelFuture), join(conditionFuture));
+    }
+
+    private <T> T join(CompletableFuture<T> future) {
+        try {
+            return future.join();
+        } catch (CompletionException e) {
+            // 호출부는 AiApiException/AiResponseFormatException을 기대한다. 감싼 예외를 벗겨 그대로 올린다.
+            if (e.getCause() instanceof RuntimeException cause) {
+                throw cause;
+            }
+            throw e;
+        }
+    }
+
+    private record StageResults(LabelStageResult label, ConditionStageResult condition) {
     }
 
     // 끝난 단계까지의 결과로 잠정값을 만들어 알린다(#106). 최종 결과와 같은 규칙을 쓴다 -

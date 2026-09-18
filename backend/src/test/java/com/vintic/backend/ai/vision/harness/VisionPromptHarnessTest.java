@@ -31,6 +31,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
 import java.util.function.Function;
 
 /**
@@ -55,6 +56,8 @@ import java.util.function.Function;
  * agents   V1 = 한 번에 다 묻는 기존 방식, V2 = 3단계로 나눈 방식 (기본값: 둘 다)
  * variants ORIGIN = 원본 해상도, THUMBNAIL_300 = 크롤러가 저장한 300x300 (기본값: ORIGIN)
  *          daangn 셋에서만 의미가 있다
+ * parallel 2·3단계를 동시에 부른다(true/false, 기본 false). 분석 시간이 2단계만큼 줄어드는 대신
+ *          3단계가 라벨 결과를 못 받는다 - 등급 정확도가 유지되는지 이 하네스로 본다.
  * detail   OpenAI 전용. Claude에는 대응 파라미터가 없어 원본 해상도로 간다 - 벤더를 공정하게 비교하려면
  *          OpenAI 쪽을 -Dvision.harness.detail=high로 맞춘다.
  *
@@ -71,6 +74,7 @@ class VisionPromptHarnessTest {
     private static final String AGENTS_PROPERTY = "vision.harness.agents";
     private static final String VARIANTS_PROPERTY = "vision.harness.variants";
     private static final String DETAIL_PROPERTY = "vision.harness.detail";
+    private static final String PARALLEL_PROPERTY = "vision.harness.parallel";
     private static final Path REPORT_DIRECTORY = Path.of("build", "vision-harness");
 
     private enum Agent {
@@ -120,9 +124,10 @@ class VisionPromptHarnessTest {
                 }
 
                 String detailLabel = System.getProperty(DETAIL_PROPERTY, "기본(low/high/high)");
-                String label = "provider=%s, model=%s, set=%s, agent=%s, image=%s, detail=%s"
+                String label = "provider=%s, model=%s, set=%s, agent=%s, image=%s, detail=%s, 2·3단계동시=%s"
                         .formatted(providerProperties.getProvider(), providerProperties.resolvedModel(),
-                                fixtureSet, agent, variant, detailLabel);
+                                fixtureSet, agent, variant, detailLabel,
+                                System.getProperty(PARALLEL_PROPERTY, "false"));
                 VisionHarnessReport report = VisionHarnessReport.aggregate(
                         label, caseScores, visionClient.usage(), callsByCase);
                 System.out.println(report.toText());
@@ -200,7 +205,9 @@ class VisionPromptHarnessTest {
             case V1 -> new OpenAiVisionAnalysisService(visionClient, objectMapper, promptTemplateLoader, providerProperties);
             case V2 -> new StagedVisionAnalysisService(
                     visionClient, objectMapper, new VisionEvidenceValidator(), promptTemplateLoader,
-                    stageProperties(), providerProperties, org.mockito.Mockito.mock(AiCallLogger.class));
+                    stageProperties(), providerProperties, org.mockito.Mockito.mock(AiCallLogger.class),
+                    // 2·3단계 동시 실행을 잴 때 실제로 겹쳐서 돌아야 하므로 진짜 스레드를 쓴다.
+                    Executors.newFixedThreadPool(2));
         };
     }
 
@@ -208,6 +215,7 @@ class VisionPromptHarnessTest {
     // 지정하지 않으면 application.yml의 기본값(1단계 low, 2·3단계 high)과 같은 조합으로 돈다.
     private VisionStageProperties stageProperties() {
         VisionStageProperties properties = new VisionStageProperties();
+        properties.setParallel(Boolean.parseBoolean(System.getProperty(PARALLEL_PROPERTY, "false")));
         String configured = System.getProperty(DETAIL_PROPERTY);
         if (configured == null || configured.isBlank()) {
             return properties;
@@ -232,8 +240,11 @@ class VisionPromptHarnessTest {
         boolean legacyOpenAi = providerProperties.getProvider() == VisionProviderProperties.Provider.OPENAI
                 && "gpt-4o".equals(providerProperties.resolvedModel());
         String modelPrefix = legacyOpenAi ? "" : providerProperties.resolvedModel().toLowerCase() + "-";
-        String baseName = "%s%s-%s-%s-detail_%s".formatted(
-                modelPrefix, fixtureSet, agent.name().toLowerCase(), variant.name().toLowerCase(), detailSuffix);
+        // 순차/동시 실행 리포트가 서로를 덮어쓰면 비교할 게 남지 않는다.
+        String parallelSuffix = Boolean.parseBoolean(System.getProperty(PARALLEL_PROPERTY, "false")) ? "-parallel" : "";
+        String baseName = "%s%s-%s-%s-detail_%s%s".formatted(
+                modelPrefix, fixtureSet, agent.name().toLowerCase(), variant.name().toLowerCase(),
+                detailSuffix, parallelSuffix);
         Path reportPath = REPORT_DIRECTORY.resolve(baseName + ".txt");
         Files.writeString(reportPath, report.toText(), StandardCharsets.UTF_8);
         System.out.println("리포트 저장: " + reportPath.toAbsolutePath());

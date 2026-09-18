@@ -19,6 +19,9 @@ cloud:
       secret-key: ${AWS_SECRET_ACCESS_KEY}
     s3:
       bucket: vintic-mvp-bucket-123
+      # 사진을 동시에 올리는 수(#106). 한 장당 원본+분석용 사본 두 번을 올려서 순차로 하면
+      # 그 시간이 분석 대기 시간에 그대로 더해진다.
+      upload-concurrency: ${S3_UPLOAD_CONCURRENCY:4}
     region:
       static: ap-northeast-2
 
@@ -54,6 +57,11 @@ vision:
   # 라벨 글자를 읽어야 하는 2·3단계만 high로 둔다. (이 설정이 값을 하는지는 하네스로 측정 중)
   # OpenAI 전용 개념이다 - Claude에는 대응 파라미터가 없어 무시된다(ClaudeChatClient 주석 참고).
   stage:
+    # 2·3단계를 동시에 부를지(#106). 켜면 분석 한 건이 2단계 시간(약 3~4초)만큼 빨라지는 대신
+    # 3단계가 라벨 판독 결과를 맥락으로 못 받는다. 등급 정확도가 유지되는지 하네스로 잰 뒤 켠다
+    # (-Dvision.harness.parallel=true로 비교).
+    parallel: ${VISION_STAGE_PARALLEL:false}
+    parallel-pool-size: ${VISION_STAGE_PARALLEL_POOL_SIZE:4}
     silhouette:
       detail: ${VISION_DETAIL_SILHOUETTE:low}
       max-output-tokens: 900

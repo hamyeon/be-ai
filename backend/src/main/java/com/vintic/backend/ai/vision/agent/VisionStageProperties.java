@@ -24,6 +24,15 @@ public class VisionStageProperties {
     private Stage label = new Stage(VisionImageDetail.HIGH, 900);
     private Stage condition = new Stage(VisionImageDetail.HIGH, 1400);
 
+    // 2·3단계를 동시에 부를지(#106). 켜면 3단계가 2단계 결과를 못 받는 대신 분석 한 건이 2단계 시간만큼 빨라진다.
+    //
+    // 3단계 프롬프트는 앞 단계 결과를 참고 텍스트로만 받고 "앞 단계가 추론했지만 사진에 없는 것은 쓰지 말라"고
+    // 못박고 있어서 의존이 약하다. 그래도 등급 정확도가 떨어지는지는 하네스로 재야 하므로 기본값은 끈 상태다.
+    private boolean parallel = false;
+
+    // 병렬 실행에 쓰는 스레드 수. 분석 한 건이 스레드 하나를 더 쓰므로 분석 동시 처리 수(analysis.stream.concurrency)에 맞춘다.
+    private int parallelPoolSize = 4;
+
     @Getter
     @Setter
     public static class Stage {
