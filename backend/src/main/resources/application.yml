@@ -21,10 +21,13 @@ spring:
 cloud:
   aws:
     credentials:
-      access-key: ${AWS_ACCESS_KEY_ID}
-      secret-key: ${AWS_SECRET_ACCESS_KEY}
+      # 실제 AWS 배포 컨테이너에는 이 두 값을 넣지 않는다(EC2 IAM Role만 사용, S3Config 참고) -
+      # 그래서 기본값을 빈 문자열로 둬서 값이 없어도 기동이 실패하지 않게 한다. LocalStack에서만
+      # docker-compose.experiment.yml이 실제 값("test")을 채워 넣는다.
+      access-key: ${AWS_ACCESS_KEY_ID:}
+      secret-key: ${AWS_SECRET_ACCESS_KEY:}
     s3:
-      bucket: vintic-mvp-bucket-123
+      bucket: ${S3_BUCKET_NAME:vintic-mvp-bucket-123}
       # Presigned PUT URL 발급(S3Presigner) 전용 설정. S3Client(S3UploaderService)는 기존
       # static credentials를 그대로 쓰고, 이 presigner만 DefaultCredentialsProvider를 쓴다.
       presign:
@@ -37,6 +40,14 @@ cloud:
 openai:
   api:
     key: ${OPENAI_API_KEY}
+
+# Day7 AWS 수동 배포 실험 전용 mock 인증 게이트. experiment-api profile이어도 이 값이
+# true가 아니면 ExperimentMockAuthWebConfig가 등록되지 않는다(profile 하나만으로는 활성화
+# 안 되는 이중 게이트 - 실수로 인터넷에 노출된 환경에서 켜지는 것을 막기 위함). local의
+# MockAuthWebConfig/dev·prod의 JwtSecurityConfig와는 무관하다.
+experiment:
+  auth:
+    mock-enabled: ${EXPERIMENT_AUTH_MOCK_ENABLED:false}
 
 # Vision 3단계 분석의 단계별 호출 옵션.
 # detail은 정확도와 비용을 정면으로 맞바꾸는 값이다 - low는 이미지를 512px로 줄여 고정 비용만 쓰고,

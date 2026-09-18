@@ -48,6 +48,73 @@ class ExperimentProfileContextTest {
     }
 
     @Test
+    void experiment_api_단독으로는_mock_auth가_등록되지_않는다() {
+        // experiment.auth.mock-enabled를 아예 지정하지 않는다 - profile 하나만으로는 이중
+        // 게이트를 통과하지 못한다는 것이 이 테스트의 관심사다(ExperimentMockAuthWebConfig 참고).
+        ConfigurableApplicationContext context = new SpringApplicationBuilder(BackendApplication.class)
+                .profiles("experiment-api")
+                .run("--analysis.job.queue.type=in-memory", "--server.port=0",
+                        "--spring.flyway.enabled=false", "--spring.jpa.hibernate.ddl-auto=update");
+
+        try {
+            assertThat(context.getBeansOfType(ExperimentMockAuthWebConfig.class)).isEmpty();
+        } finally {
+            context.close();
+        }
+    }
+
+    @Test
+    void experiment_api_mock_enabled_false면_mock_auth가_등록되지_않는다() {
+        ConfigurableApplicationContext context = new SpringApplicationBuilder(BackendApplication.class)
+                .profiles("experiment-api")
+                .run("--analysis.job.queue.type=in-memory", "--server.port=0",
+                        "--spring.flyway.enabled=false", "--spring.jpa.hibernate.ddl-auto=update",
+                        "--experiment.auth.mock-enabled=false");
+
+        try {
+            assertThat(context.getBeansOfType(ExperimentMockAuthWebConfig.class)).isEmpty();
+        } finally {
+            context.close();
+        }
+    }
+
+    @Test
+    void experiment_api_profile과_mock_enabled_true가_모두_있어야_mock_auth가_등록된다() {
+        ConfigurableApplicationContext context = new SpringApplicationBuilder(BackendApplication.class)
+                .profiles("experiment-api")
+                .run("--analysis.job.queue.type=in-memory", "--server.port=0",
+                        "--spring.flyway.enabled=false", "--spring.jpa.hibernate.ddl-auto=update",
+                        "--experiment.auth.mock-enabled=true");
+
+        try {
+            assertThat(context.getBeansOfType(ExperimentMockAuthWebConfig.class)).hasSize(1);
+        } finally {
+            context.close();
+        }
+    }
+
+    @Test
+    void experiment_worker는_mock_enabled_true여도_mock_auth가_등록되지_않는다() {
+        // ExperimentMockAuthWebConfig는 @Profile("experiment-api") 전용이다 - worker는
+        // 웹 계층 자체가 없으므로(web-application-type=none) 애초에 무관하지만, mock-enabled
+        // 값과 무관하게 절대 등록되지 않는다는 것을 명시적으로 확인한다.
+        ConfigurableApplicationContext context = new SpringApplicationBuilder(BackendApplication.class)
+                .profiles("experiment-worker")
+                .run("--analysis.job.queue.type=sqs",
+                        "--analysis.job.queue.sqs.queue-url=http://localhost:1/000000000000/unused-queue",
+                        "--analysis.job.queue.sqs.region=ap-northeast-2",
+                        "--analysis.job.queue.sqs.endpoint-override=http://localhost:1",
+                        "--spring.flyway.enabled=false", "--spring.jpa.hibernate.ddl-auto=update",
+                        "--experiment.auth.mock-enabled=true");
+
+        try {
+            assertThat(context.getBeansOfType(ExperimentMockAuthWebConfig.class)).isEmpty();
+        } finally {
+            context.close();
+        }
+    }
+
+    @Test
     void experiment_worker는_웹_계층이_뜨지_않고_기존_Redis_Consumer도_꺼진다() {
         // WorkerQueueTypeGuard가 analysis.job.queue.type=sqs를 요구하므로(그 값이 아니면
         // 기동 자체가 실패한다) in-memory 대신 sqs + 즉시 실패하는 로컬 endpoint를 쓴다 - 이

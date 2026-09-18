@@ -1,0 +1,49 @@
+name: Infra experiment PR checks
+
+on:
+  pull_request:
+    branches:
+      - infra/experiment
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      OPENAI_API_KEY: test-placeholder-not-a-real-key
+      JWT_SECRET: day9-ci-test-jwt-secret-at-least-32-characters
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Unit and integration tests
+        run: ./gradlew --no-daemon test
+
+      - name: Sync analysis smoke tests
+        run: |
+          ./gradlew --no-daemon test \
+            --tests 'com.vintic.backend.analyze.job.SyncAnalysisServiceTest' \
+            --tests 'com.vintic.backend.analyze.job.SyncAnalysisControllerProfileTest'
+
+      - name: Async analysis smoke tests
+        run: |
+          ./gradlew --no-daemon test \
+            --tests 'com.vintic.backend.analyze.job.worker.SqsAnalysisJobHandlerTest' \
+            --tests 'com.vintic.backend.analyze.job.worker.SqsAnalysisJobLocalStackIT'
+
+      - name: Gradle build
+        run: ./gradlew --no-daemon build -x test

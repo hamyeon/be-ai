@@ -1,5 +1,7 @@
 package com.vintic.backend.loadtest;
 
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.auction.domain.Auction;
@@ -31,6 +33,7 @@ import java.util.Map;
 //
 // production 코드가 아니라 test 소스에만 존재한다. 로컬에 이미 떠 있는 실제 local 프로필 앱과
 // 같은 DB에 심어야 k6가 때리는 서버가 그 데이터를 실제로 본다.
+@EnabledIfEnvironmentVariable(named = "RUN_HOT_AUCTION_SEEDER", matches = "(?i)true")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @ActiveProfiles("local")
 class HotAuctionRoundSeeder {

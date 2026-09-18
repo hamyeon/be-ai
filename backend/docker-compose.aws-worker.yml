@@ -1,0 +1,20 @@
+# Day7 AWS 수동 배포 - Worker 컨테이너 전용 compose 파일. docker-compose.aws-api.yml 참고
+# (분리 이유/IMAGE_URI 치환 방식/비밀값 취급 방식 모두 동일).
+#
+# 외부에 노출할 포트가 없다(web-application-type=none, actuator HTTP 엔드포인트도 없음 -
+# application-experiment-worker.yml 참고) - liveness는 컨테이너 running 상태 자체로 판단한다.
+name: autique-aws-worker
+
+services:
+  worker:
+    image: ${IMAGE_URI}
+    environment:
+      SPRING_PROFILES_ACTIVE: experiment-worker
+      # application-experiment-worker.yml의 maxReceiveCount(3)와 반드시 일치해야 한다 -
+      # scripts/aws/day7/01-provision.sh가 만드는 DLQ redrive policy의 maxReceiveCount도
+      # 동일하게 3으로 맞춘다.
+      ANALYSIS_WORKER_MAX_RECEIVE_COUNT: "3"
+    env_file:
+      - /opt/autique/worker.env
+    restart: always
+    stop_grace_period: 90s

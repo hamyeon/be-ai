@@ -40,18 +40,26 @@ public class S3Config {
     private String s3EndpointOverride;
 
     // 2. 읽어온 정보로 S3Client 객체(S3과 통신할 수 있음)를 만들어 스프링에 등록.
+    //
+    // 자격증명은 endpoint override 유무로 갈린다 - endpoint override가 비어있으면(실제 AWS)
+    // EC2 IAM Role 등 기본 체인(DefaultCredentialsProvider)을 쓴다. 채워져 있으면(LocalStack)
+    // LocalStack이 검증하지 않는 고정 문자열 static credentials를 그대로 쓴다(기존 동작 유지).
+    // 실제 AWS 배포 컨테이너에는 AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY를 넣지 않으므로
+    // accessKey/secretKey는 그 경로에서는 비어있는 채로 무시된다.
     @Bean
     public S3Client s3Client() {
-        AwsBasicCredentials credentials = AwsBasicCredentials.create(accessKey, secretKey);
-
         S3ClientBuilder builder = S3Client.builder()
-                .region(Region.of(region))
-                .credentialsProvider(StaticCredentialsProvider.create(credentials));
+                .region(Region.of(region));
+
         if (s3EndpointOverride != null && !s3EndpointOverride.isBlank()) {
-            builder.endpointOverride(URI.create(s3EndpointOverride))
+            AwsBasicCredentials credentials = AwsBasicCredentials.create(accessKey, secretKey);
+            builder.credentialsProvider(StaticCredentialsProvider.create(credentials))
+                    .endpointOverride(URI.create(s3EndpointOverride))
                     // LocalStack에 path-style(http://host:port/bucket/key)로 접근한다 -
                     // 가상 호스트 스타일(bucket.host)은 로컬 endpoint override에서 DNS가 없어 동작하지 않는다.
                     .forcePathStyle(true);
+        } else {
+            builder.credentialsProvider(DefaultCredentialsProvider.create());
         }
         return builder.build();
     }

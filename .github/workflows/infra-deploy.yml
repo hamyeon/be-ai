@@ -1,0 +1,128 @@
+name: Infra experiment deploy
+
+on:
+  push:
+    branches:
+      - infra/experiment
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: infra-experiment-deploy
+  cancel-in-progress: false
+
+jobs:
+  test-build-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      AWS_REGION: ap-northeast-2
+      AWS_ACCOUNT_ID: "718897322639"
+      ECR_REPOSITORY: autique-exp-app
+      TARGET_GROUP_NAME: autique-exp-api-tg
+      LAST_GOOD_PARAMETER: /auction-infra/experiment/deploy/last-known-good
+      OPENAI_API_KEY: test-placeholder-not-a-real-key
+      JWT_SECRET: day9-ci-test-jwt-secret-at-least-32-characters
+
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Test
+        working-directory: backend
+        run: ./gradlew --no-daemon test
+
+      - name: Gradle build
+        working-directory: backend
+        run: ./gradlew --no-daemon build -x test
+
+      - name: Configure AWS credentials through OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::718897322639:role/GitHubDeployRole
+          role-session-name: github-${{ github.run_id }}
+          aws-region: ap-northeast-2
+
+      - name: Verify short-lived AWS identity
+        run: |
+          aws sts get-caller-identity
+          if env | grep -Eq '^AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY)='; then
+            echo 'OIDC provided temporary credentials for this job.'
+          else
+            echo 'AWS credential environment is missing.' >&2
+            exit 1
+          fi
+          test -n "${AWS_SESSION_TOKEN:-}"
+
+      - name: Build and push immutable SHA image
+        env:
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          set -Eeuo pipefail
+
+          IMAGE_TAG="app-${GITHUB_SHA}"
+          IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login \
+                --username AWS \
+                --password-stdin \
+                "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+          if aws ecr describe-images \
+              --region "$AWS_REGION" \
+              --repository-name "$ECR_REPOSITORY" \
+              --image-ids "imageTag=${IMAGE_TAG}" \
+              --no-cli-pager >/dev/null 2>&1; then
+            echo "ECR_IMAGE_ALREADY_EXISTS=${IMAGE_URI}"
+            exit 0
+          fi
+
+          LOCAL_IMAGE="autique-day9-build:${GITHUB_SHA}"
+
+          docker build \
+            --platform linux/amd64 \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            -t "$LOCAL_IMAGE" \
+            backend
+
+          if [[ "$HEAD_COMMIT_MESSAGE" == *"[day9-bad-image]"* ]]; then
+            echo 'Building intentionally failing image for rollback verification.'
+
+            BAD_CONTEXT="$(mktemp -d)"
+            cat > "${BAD_CONTEXT}/Dockerfile" <<'BAD_DOCKERFILE'
+          ARG BASE_IMAGE
+          FROM ${BASE_IMAGE}
+          ENTRYPOINT ["/bin/sh", "-c", "echo DAY9_INTENTIONAL_BAD_IMAGE >&2; exit 42"]
+          BAD_DOCKERFILE
+
+            docker build \
+              --platform linux/amd64 \
+              --build-arg "BASE_IMAGE=${LOCAL_IMAGE}" \
+              -f "${BAD_CONTEXT}/Dockerfile" \
+              -t "$IMAGE_URI" \
+              "$BAD_CONTEXT"
+
+            rm -rf "$BAD_CONTEXT"
+          else
+            docker tag "$LOCAL_IMAGE" "$IMAGE_URI"
+          fi
+
+          docker push "$IMAGE_URI"
+          echo "PUSHED_IMAGE=${IMAGE_URI}"
+
+      - name: Deploy, verify, and rollback on failure
+        env:
+          IMAGE_SHA: ${{ github.sha }}
+        run: bash scripts/aws/day9/deploy.sh

@@ -1,0 +1,37 @@
+# Day7 AWS 수동 배포 - API 컨테이너 전용 compose 파일. Worker(docker-compose.aws-worker.yml)와
+# 별도 파일로 분리했다 - 서로 다른 EC2 인스턴스에서, 서로 다른 시점에(API가 Flyway migration을
+# 끝내고 readiness가 UP이 된 뒤에야 Worker를 띄운다, scripts/aws/day7/03-deploy.sh 참고)
+# 독립적으로 기동되기 때문에 depends_on으로 묶을 수 없다.
+#
+# IMAGE_URI는 이 compose 파일 자체를 해석할 때(docker compose config/up 시점) 치환되는 값이라
+# shell environment 또는 이 파일과 같은 디렉터리의 .env(docker compose가 자동으로 읽는 dotenv)로
+# 넘겨야 한다 - 아래 env_file(/opt/autique/api.env)과는 전혀 다른 경로다. env_file은 컨테이너
+# "내부" 프로세스에 주입되는 값이고, .env/shell env는 이 YAML 파일 자체의 ${...} 치환에만
+# 쓰인다. scripts/aws/day7/03-deploy.sh가 이 구분을 그대로 지킨다.
+#
+# 비밀번호/API 키 등 실제 값은 이 파일에 쓰지 않는다(요구사항) - SPRING_DATASOURCE_PASSWORD,
+# OPENAI_API_KEY, DB 접속 정보 등은 전부 /opt/autique/api.env(mode 600, git 추적 안 함,
+# scripts/aws/day7/03-deploy.sh가 Parameter Store에서 읽어 기록)를 통해서만 주입된다.
+# AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY는 이 파일에도 api.env에도 절대 넣지 않는다 - S3Client/
+# S3Presigner/SqsClient 전부 EC2 IAM Role(DefaultCredentialsProvider)만 사용한다(S3Config.java).
+name: autique-aws-api
+
+services:
+  api:
+    image: ${IMAGE_URI}
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    environment:
+      # 어떤 프로세스로 뜨는지는 오직 이 값으로만 갈린다(API/Worker가 같은 이미지를 공유하므로) -
+      # 실제 배포 인프라를 아는 profile(dev/local)은 함께 켜지 않는다(shared dev RDS/스키마를
+      # 전혀 건드리지 않기 위함 - 대신 datasource는 아래 SPRING_DATASOURCE_*로 직접 주입한다).
+      SPRING_PROFILES_ACTIVE: experiment-api
+      # ExperimentMockAuthWebConfig의 이중 게이트 중 하나(profile만으로는 활성화되지 않는다) -
+      # Day7 내부 SSM smoke test 전용이다. Worker env에는 이 값을 넣지 않는다. API SG에 inbound가
+      # 없는 동안(Day7)만 안전하다 - ALB로 인터넷에 노출되는 Day8+ 배포에서는 절대 켜면 안 된다.
+      EXPERIMENT_AUTH_MOCK_ENABLED: "true"
+    env_file:
+      - /opt/autique/api.env
+    restart: always
+    stop_grace_period: 90s

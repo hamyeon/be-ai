@@ -14,14 +14,14 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 실제 OpenAI Embeddings API를 호출하는 PoC. OPENAI_API_KEY가 설정된 환경에서만 실행된다.
+ * 실제 OpenAI Embeddings API를 호출하는 PoC. RUN_OPENAI_POC=true와 실제 OPENAI_API_KEY가 모두 설정된 환경에서만 실행된다.
  * (이 세션에는 키가 없어 직접 실행/검증하지 못했음 - 실제 키가 있는 환경에서 한 번 돌려서
  * 아래 TEST_QUERIES에 대한 상위 결과가 기대와 맞는지 눈으로 확인해봐야 한다.)
  *
  * 목적: (1) 임베딩이 정상적으로 생성되는지, (2) 소규모 데이터에서 벡터 유사도 검색이
  * 문자열 검색보다 실익이 있는지 판단하기 위한 근거 자료를 만드는 것.
  */
-@EnabledIfEnvironmentVariable(named = "OPENAI_API_KEY", matches = ".+")
+@EnabledIfEnvironmentVariable(named = "RUN_OPENAI_POC", matches = "(?i)true")
 class OpenAiEmbeddingPoCTest {
 
     // 테스트 질의와 "문자열 검색으로는 못 찾지만 벡터 검색이면 찾아야 하는" 기대 결과.
