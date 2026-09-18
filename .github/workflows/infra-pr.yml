@@ -27,6 +27,8 @@ jobs:
       run:
         working-directory: backend
     env:
+      TZ: Asia/Seoul
+      JAVA_TOOL_OPTIONS: "-Duser.timezone=Asia/Seoul"
       OPENAI_API_KEY: test-placeholder-not-a-real-key
       JWT_SECRET: day9-ci-test-jwt-secret-at-least-32-characters
 

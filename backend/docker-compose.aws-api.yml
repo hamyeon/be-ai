@@ -23,6 +23,8 @@ services:
       - "8080:8080"
       - "8081:8081"
     environment:
+      TZ: Asia/Seoul
+      JAVA_TOOL_OPTIONS: "-Duser.timezone=Asia/Seoul"
       # 어떤 프로세스로 뜨는지는 오직 이 값으로만 갈린다(API/Worker가 같은 이미지를 공유하므로) -
       # 실제 배포 인프라를 아는 profile(dev/local)은 함께 켜지 않는다(shared dev RDS/스키마를
       # 전혀 건드리지 않기 위함 - 대신 datasource는 아래 SPRING_DATASOURCE_*로 직접 주입한다).

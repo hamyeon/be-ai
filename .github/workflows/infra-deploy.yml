@@ -29,6 +29,8 @@ jobs:
           --health-retries 20
     timeout-minutes: 60
     env:
+      TZ: Asia/Seoul
+      JAVA_TOOL_OPTIONS: "-Duser.timezone=Asia/Seoul"
       AWS_REGION: ap-northeast-2
       AWS_ACCOUNT_ID: "718897322639"
       ECR_REPOSITORY: autique-exp-app

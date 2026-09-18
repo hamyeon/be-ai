@@ -9,6 +9,8 @@ services:
   worker:
     image: ${IMAGE_URI}
     environment:
+      TZ: Asia/Seoul
+      JAVA_TOOL_OPTIONS: "-Duser.timezone=Asia/Seoul"
       SPRING_PROFILES_ACTIVE: experiment-worker
       # application-experiment-worker.yml의 maxReceiveCount(3)와 반드시 일치해야 한다 -
       # scripts/aws/day7/01-provision.sh가 만드는 DLQ redrive policy의 maxReceiveCount도
