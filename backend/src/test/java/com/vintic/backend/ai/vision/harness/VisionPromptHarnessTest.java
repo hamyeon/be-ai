@@ -56,8 +56,10 @@ import java.util.function.Function;
  * agents   V1 = 한 번에 다 묻는 기존 방식, V2 = 3단계로 나눈 방식 (기본값: 둘 다)
  * variants ORIGIN = 원본 해상도, THUMBNAIL_300 = 크롤러가 저장한 300x300 (기본값: ORIGIN)
  *          daangn 셋에서만 의미가 있다
- * parallel 2·3단계를 동시에 부른다(true/false, 기본 false). 분석 시간이 2단계만큼 줄어드는 대신
- *          3단계가 라벨 결과를 못 받는다 - 등급 정확도가 유지되는지 이 하네스로 본다.
+ * prompt-version 프롬프트 묶음 버전(기본 v2). v3 = 출력을 줄인 판(근거는 짧은 영어, 설명 길이 제한).
+ *          응답 생성 시간이 출력 토큰 수에 비례하므로 분석 시간을 줄일 후보다.
+ * execution 단계 실행 방식: sequential(기본) | parallel_label_condition | all_parallel.
+ *          동시 실행은 분석 시간이 줄어드는 대신 뒤 단계가 앞 단계 결과를 못 받는다 - 정확도가 유지되는지 본다.
  * detail   OpenAI 전용. Claude에는 대응 파라미터가 없어 원본 해상도로 간다 - 벤더를 공정하게 비교하려면
  *          OpenAI 쪽을 -Dvision.harness.detail=high로 맞춘다.
  *
@@ -74,7 +76,8 @@ class VisionPromptHarnessTest {
     private static final String AGENTS_PROPERTY = "vision.harness.agents";
     private static final String VARIANTS_PROPERTY = "vision.harness.variants";
     private static final String DETAIL_PROPERTY = "vision.harness.detail";
-    private static final String PARALLEL_PROPERTY = "vision.harness.parallel";
+    private static final String EXECUTION_PROPERTY = "vision.harness.execution";
+    private static final String PROMPT_VERSION_PROPERTY = "vision.harness.prompt-version";
     private static final Path REPORT_DIRECTORY = Path.of("build", "vision-harness");
 
     private enum Agent {
@@ -124,10 +127,10 @@ class VisionPromptHarnessTest {
                 }
 
                 String detailLabel = System.getProperty(DETAIL_PROPERTY, "기본(low/high/high)");
-                String label = "provider=%s, model=%s, set=%s, agent=%s, image=%s, detail=%s, 2·3단계동시=%s"
+                String label = "provider=%s, model=%s, prompt=%s, set=%s, agent=%s, image=%s, detail=%s, execution=%s"
                         .formatted(providerProperties.getProvider(), providerProperties.resolvedModel(),
-                                fixtureSet, agent, variant, detailLabel,
-                                System.getProperty(PARALLEL_PROPERTY, "false"));
+                                providerProperties.getPromptVersion(), fixtureSet, agent, variant, detailLabel,
+                                executionMode());
                 VisionHarnessReport report = VisionHarnessReport.aggregate(
                         label, caseScores, visionClient.usage(), callsByCase);
                 System.out.println(report.toText());
@@ -170,6 +173,10 @@ class VisionPromptHarnessTest {
             properties.setProvider(VisionProviderProperties.Provider.valueOf(provider.trim().toUpperCase()));
         }
         properties.setModel(System.getProperty(MODEL_PROPERTY));
+        String promptVersion = System.getProperty(PROMPT_VERSION_PROPERTY);
+        if (promptVersion != null && !promptVersion.isBlank()) {
+            properties.setPromptVersion(promptVersion.trim());
+        }
         return properties;
     }
 
@@ -215,7 +222,7 @@ class VisionPromptHarnessTest {
     // 지정하지 않으면 application.yml의 기본값(1단계 low, 2·3단계 high)과 같은 조합으로 돈다.
     private VisionStageProperties stageProperties() {
         VisionStageProperties properties = new VisionStageProperties();
-        properties.setParallel(Boolean.parseBoolean(System.getProperty(PARALLEL_PROPERTY, "false")));
+        properties.setExecutionMode(executionMode());
         String configured = System.getProperty(DETAIL_PROPERTY);
         if (configured == null || configured.isBlank()) {
             return properties;
@@ -225,6 +232,15 @@ class VisionPromptHarnessTest {
         properties.getLabel().setDetail(detail);
         properties.getCondition().setDetail(detail);
         return properties;
+    }
+
+    // -Dvision.harness.execution=sequential | parallel_label_condition | all_parallel (대소문자·하이픈 무관)
+    private VisionStageProperties.ExecutionMode executionMode() {
+        String configured = System.getProperty(EXECUTION_PROPERTY);
+        if (configured == null || configured.isBlank()) {
+            return VisionStageProperties.ExecutionMode.SEQUENTIAL;
+        }
+        return VisionStageProperties.ExecutionMode.valueOf(configured.trim().toUpperCase().replace('-', '_'));
     }
 
     private long elapsedSince(long startedAt) {
@@ -241,10 +257,14 @@ class VisionPromptHarnessTest {
                 && "gpt-4o".equals(providerProperties.resolvedModel());
         String modelPrefix = legacyOpenAi ? "" : providerProperties.resolvedModel().toLowerCase() + "-";
         // 순차/동시 실행 리포트가 서로를 덮어쓰면 비교할 게 남지 않는다.
-        String parallelSuffix = Boolean.parseBoolean(System.getProperty(PARALLEL_PROPERTY, "false")) ? "-parallel" : "";
-        String baseName = "%s%s-%s-%s-detail_%s%s".formatted(
+        String executionSuffix = executionMode() == VisionStageProperties.ExecutionMode.SEQUENTIAL
+                ? "" : "-" + executionMode().name().toLowerCase();
+        // 프롬프트 v2 리포트 이름은 그대로 두고(과거 리포트와 이어 볼 수 있게), v3부터 이름에 붙인다.
+        String promptSuffix = "v2".equals(providerProperties.getPromptVersion())
+                ? "" : "-prompt_" + providerProperties.getPromptVersion();
+        String baseName = "%s%s-%s-%s-detail_%s%s%s".formatted(
                 modelPrefix, fixtureSet, agent.name().toLowerCase(), variant.name().toLowerCase(),
-                detailSuffix, parallelSuffix);
+                detailSuffix, promptSuffix, executionSuffix);
         Path reportPath = REPORT_DIRECTORY.resolve(baseName + ".txt");
         Files.writeString(reportPath, report.toText(), StandardCharsets.UTF_8);
         System.out.println("리포트 저장: " + reportPath.toAbsolutePath());

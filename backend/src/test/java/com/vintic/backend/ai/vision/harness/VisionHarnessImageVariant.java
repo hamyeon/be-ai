@@ -16,6 +16,8 @@ public enum VisionHarnessImageVariant {
     // 프로덕션은 ImageResizer가 비율을 지키며 줄이지만, 여기서는 당근 CDN에 있는 크롭 리사이즈를
     // 빌려 쓴다(업로드 없이 해상도만 바꾸려면 이 방법뿐이다). 정사각이 아닌 원본은 잘리므로
     // "해상도를 낮추면 정확도가 어떻게 되나"의 근사치로만 읽는다.
+    // #106: 해상도 곡선(512 / 768 / 1024 / 원본)을 그려 "어디까지 줄여도 등급·브랜드가 유지되나"를 본다.
+    RESIZED_1024("?q=82&s=1024x1024&t=crop&service=webapp&f=webp"),
     RESIZED_768("?q=82&s=768x768&t=crop&service=webapp&f=webp"),
     RESIZED_512("?q=82&s=512x512&t=crop&service=webapp&f=webp"),
 

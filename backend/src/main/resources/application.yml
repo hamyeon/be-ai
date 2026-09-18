@@ -44,6 +44,9 @@ anthropic:
 vision:
   provider: ${VISION_PROVIDER:openai}
   model: ${VISION_MODEL:}
+  # 프롬프트/스키마 묶음 버전(#106). v2 = 기본, v3 = 출력을 줄인 판(근거는 짧은 영어, 설명 길이 제한).
+  # 응답 생성 시간이 출력 토큰 수에 비례해 v3가 분석 시간을 줄일 후보다. 하네스 비교 후 바꾼다.
+  prompt-version: ${VISION_PROMPT_VERSION:v2}
 
   # 분석용 이미지 축소(#102). 이미지 토큰은 해상도에 정비례하고 3단계가 같은 이미지를 3번 보내므로
   # 원본을 그대로 넘기면 비용이 곱절로 든다. 표시용 원본은 그대로 두고 분석용 사본만 줄인다.
@@ -57,11 +60,11 @@ vision:
   # 라벨 글자를 읽어야 하는 2·3단계만 high로 둔다. (이 설정이 값을 하는지는 하네스로 측정 중)
   # OpenAI 전용 개념이다 - Claude에는 대응 파라미터가 없어 무시된다(ClaudeChatClient 주석 참고).
   stage:
-    # 2·3단계를 동시에 부를지(#106). 켜면 분석 한 건이 2단계 시간(약 3~4초)만큼 빨라지는 대신
-    # 3단계가 라벨 판독 결과를 맥락으로 못 받는다. 등급 정확도가 유지되는지 하네스로 잰 뒤 켠다
-    # (-Dvision.harness.parallel=true로 비교).
-    parallel: ${VISION_STAGE_PARALLEL:false}
-    parallel-pool-size: ${VISION_STAGE_PARALLEL_POOL_SIZE:4}
+    # 단계 실행 방식(#106). sequential(기존, 세 단계의 합) | parallel-label-condition(1단계 뒤 2·3단계 동시,
+    # 2단계 시간만큼 단축) | all-parallel(세 단계 동시, 가장 느린 한 단계 시간). 동시 실행은 뒤 단계가
+    # 앞 단계 결과를 맥락으로 못 받으므로 하네스로 정확도를 잰 뒤 바꾼다(-Dvision.harness.execution).
+    execution-mode: ${VISION_STAGE_EXECUTION_MODE:sequential}
+    parallel-pool-size: ${VISION_STAGE_PARALLEL_POOL_SIZE:6}
     silhouette:
       detail: ${VISION_DETAIL_SILHOUETTE:low}
       max-output-tokens: 900
