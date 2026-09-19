@@ -38,8 +38,13 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.6'
 	runtimeOnly 'com.h2database:h2'
-	implementation 'software.amazon.awssdk:s3:2.25.11'
-	implementation 'software.amazon.awssdk:sqs:2.25.11'
+	// Day10 배포 실패 원인: micrometer-registry-cloudwatch2가 AWS SDK v2 2.31.78 계열을
+	// 끌어오면서 여기 s3/sqs 2.25.11과 섞여 DefaultS3Presigner.presignPutObject()에서
+	// NPE가 났다(ClientEndpointProvider.isEndpointOverridden(), "ep" is null). BOM으로
+	// 전체 AWS SDK v2 모듈 버전을 하나로 맞춘다.
+	implementation platform('software.amazon.awssdk:bom:2.31.78')
+	implementation 'software.amazon.awssdk:s3'
+	implementation 'software.amazon.awssdk:sqs'
 	runtimeOnly 'com.mysql:mysql-connector-j'
 	// experiment-api/experiment-worker 프로필 전용 스키마 migration(V1/V2, db/migration).
 	// local/dev는 spring.flyway.enabled=false(application.yml)로 그대로 ddl-auto=update를 쓴다.
