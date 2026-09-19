@@ -18,6 +18,10 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+  datasource:
+    hikari:
+      # Day10: experiment-api(autique-api)와 겹치지 않는 pool dimension 고정값.
+      pool-name: ${HIKARI_POOL_NAME:autique-worker}
 
 # 기존 Redis Streams Consumer도 끈다 - 이 프로세스는 SQS만 담당하고, 같은 프로세스에서
 # Redis Streams 파이프라인을 같이 돌리지 않는다.
@@ -49,3 +53,15 @@ logging:
   structured:
     format:
       console: ecs
+
+# Day10: CloudWatchMetricsConfig가 직접 바인딩하는 키(application-experiment-api.yml 주석
+# 참고) - service만 worker로 다르다.
+management:
+  cloudwatch:
+    metrics:
+      export:
+        enabled: ${CLOUDWATCH_METRICS_ENABLED:false}
+        namespace: ${CLOUDWATCH_METRICS_NAMESPACE:Autique/Experiment}
+        step: 60s
+        environment: experiment
+        service: worker

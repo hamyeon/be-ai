@@ -37,7 +37,7 @@ class SqsAnalysisJobPollerTest {
     }
 
     @Test
-    void receiveMessage는_설정된_waitTimeSeconds_visibilityTimeout_ApproximateReceiveCount_속성을_요청한다() throws Exception {
+    void receiveMessage는_설정된_waitTimeSeconds_visibilityTimeout_ApproximateReceiveCount_SentTimestamp_속성을_요청한다() throws Exception {
         SqsClient sqsClient = mock(SqsClient.class);
         SqsAnalysisJobHandler handler = mock(SqsAnalysisJobHandler.class);
         CountDownLatch called = new CountDownLatch(1);
@@ -60,7 +60,77 @@ class SqsAnalysisJobPollerTest {
         assertThat(request.maxNumberOfMessages()).isEqualTo(1);
         assertThat(request.waitTimeSeconds()).isEqualTo(WAIT_TIME_SECONDS);
         assertThat(request.visibilityTimeout()).isEqualTo(VISIBILITY_TIMEOUT_SECONDS);
-        assertThat(request.attributeNamesAsStrings()).contains("ApproximateReceiveCount");
+        assertThat(request.attributeNamesAsStrings()).contains("ApproximateReceiveCount", "SentTimestamp");
+    }
+
+    @Test
+    void SentTimestamp_속성이_있으면_ReceivedQueueMessage에_epoch_millis로_전달한다() throws Exception {
+        SqsClient sqsClient = mock(SqsClient.class);
+        SqsAnalysisJobHandler handler = mock(SqsAnalysisJobHandler.class);
+        Message message = Message.builder()
+                .messageId("msg-1")
+                .body("{\"eventVersion\":1,\"analysisId\":1}")
+                .receiptHandle("receipt-1")
+                .attributesWithStrings(Map.of("SentTimestamp", "1700000000000"))
+                .build();
+        CountDownLatch handled = new CountDownLatch(1);
+
+        when(sqsClient.receiveMessage(any(ReceiveMessageRequest.class)))
+                .thenReturn(ReceiveMessageResponse.builder().messages(List.of(message)).build())
+                .thenReturn(ReceiveMessageResponse.builder().messages(List.of()).build());
+        ArgumentCaptor<ReceivedQueueMessage> messageCaptor = ArgumentCaptor.forClass(ReceivedQueueMessage.class);
+        when(handler.handle(messageCaptor.capture())).thenAnswer(invocation -> {
+            handled.countDown();
+            return SqsAnalysisJobHandler.Outcome.RETAIN;
+        });
+
+        SqsAnalysisJobPoller poller = newPoller(sqsClient, handler);
+        poller.start();
+        assertThat(handled.await(5, TimeUnit.SECONDS)).isTrue();
+        poller.stop();
+        poller.awaitTermination(Duration.ofSeconds(5));
+
+        ReceivedQueueMessage received = messageCaptor.getValue();
+        assertThat(received.sentTimestampEpochMillis()).isEqualTo(1700000000000L);
+        assertThat(received.receivedAtEpochMillis()).isGreaterThanOrEqualTo(1700000000000L);
+    }
+
+    @Test
+    void SentTimestamp_속성이_없거나_파싱에_실패하면_null을_전달한다() throws Exception {
+        SqsClient sqsClient = mock(SqsClient.class);
+        SqsAnalysisJobHandler handler = mock(SqsAnalysisJobHandler.class);
+        Message messageWithoutAttribute = Message.builder()
+                .messageId("msg-1")
+                .body("{\"eventVersion\":1,\"analysisId\":1}")
+                .receiptHandle("receipt-1")
+                .build();
+        Message messageWithInvalidAttribute = Message.builder()
+                .messageId("msg-2")
+                .body("{\"eventVersion\":1,\"analysisId\":1}")
+                .receiptHandle("receipt-2")
+                .attributesWithStrings(Map.of("SentTimestamp", "not-a-number"))
+                .build();
+        CountDownLatch handled = new CountDownLatch(2);
+
+        when(sqsClient.receiveMessage(any(ReceiveMessageRequest.class)))
+                .thenReturn(ReceiveMessageResponse.builder().messages(List.of(messageWithoutAttribute)).build())
+                .thenReturn(ReceiveMessageResponse.builder().messages(List.of(messageWithInvalidAttribute)).build())
+                .thenReturn(ReceiveMessageResponse.builder().messages(List.of()).build());
+        ArgumentCaptor<ReceivedQueueMessage> messageCaptor = ArgumentCaptor.forClass(ReceivedQueueMessage.class);
+        when(handler.handle(messageCaptor.capture())).thenAnswer(invocation -> {
+            handled.countDown();
+            return SqsAnalysisJobHandler.Outcome.RETAIN;
+        });
+
+        SqsAnalysisJobPoller poller = newPoller(sqsClient, handler);
+        poller.start();
+        assertThat(handled.await(5, TimeUnit.SECONDS)).isTrue();
+        poller.stop();
+        poller.awaitTermination(Duration.ofSeconds(5));
+
+        assertThat(messageCaptor.getAllValues())
+                .extracting(ReceivedQueueMessage::sentTimestampEpochMillis)
+                .containsExactly(null, null);
     }
 
     @Test

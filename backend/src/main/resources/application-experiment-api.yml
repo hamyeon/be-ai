@@ -27,6 +27,11 @@ spring:
   # FakeAnalysisProcessor(수 초 이내)만 부르므로 Worker(최대 70초 처리)만큼 긴 유예가 필요 없다.
   lifecycle:
     timeout-per-shutdown-phase: 10s
+  datasource:
+    hikari:
+      # Day10: CloudWatch로 내보내는 hikaricp.connections.* meter의 pool dimension을 고정한다
+      # (worker와 겹치지 않는 값) - 두 프로세스가 같은 DB를 함께 써도 CloudWatch에서 구분된다.
+      pool-name: ${HIKARI_POOL_NAME:autique-api}
 
 server:
   shutdown: graceful
@@ -56,3 +61,14 @@ management:
       group:
         readiness:
           include: readinessState,db,redis
+  # Day10: CloudWatchMetricsConfig가 직접 바인딩하는 키 - Spring Boot 표준 metrics export
+  # 네임스페이스가 아니다(3.x에는 CloudWatch metrics export 자동 구성이 없다). enabled가
+  # true가 아니면 CloudWatchMetricsConfig 전체가 조건에 걸려 아무 bean도 만들지 않는다.
+  cloudwatch:
+    metrics:
+      export:
+        enabled: ${CLOUDWATCH_METRICS_ENABLED:false}
+        namespace: ${CLOUDWATCH_METRICS_NAMESPACE:Autique/Experiment}
+        step: 60s
+        environment: experiment
+        service: api

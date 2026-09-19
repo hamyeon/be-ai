@@ -20,6 +20,11 @@ repositories {
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
+	// Day10 관측성: experiment-api/experiment-worker 한정 Micrometer -> CloudWatch export
+	// (CloudWatchMetricsConfig). Spring Boot 3.x는 CloudWatch metrics export를 자동 구성하지
+	// 않으므로(management.cloudwatch.metrics.export.*는 우리가 직접 바인딩하는 임의의 키) 이
+	// registry는 항상 직접 만든 @Configuration을 통해서만 등록된다.
+	implementation 'io.micrometer:micrometer-registry-cloudwatch2'
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'

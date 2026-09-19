@@ -2,7 +2,10 @@ package com.vintic.backend.config;
 
 import com.vintic.backend.BackendApplication;
 import com.vintic.backend.analyze.job.SyncAnalysisController;
+import com.vintic.backend.analyze.job.metrics.AnalysisJobMetrics;
+import com.vintic.backend.analyze.job.worker.SqsAnalysisJobHandler;
 import com.vintic.backend.analyze.queue.RedisStreamConsumerConfig;
+import io.micrometer.cloudwatch2.CloudWatchMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.web.context.WebServerApplicationContext;
@@ -42,6 +45,24 @@ class ExperimentProfileContextTest {
             assertThat(context).isInstanceOf(WebServerApplicationContext.class);
             assertThat(context.getBeansOfType(RedisStreamConsumerConfig.class)).isEmpty();
             assertThat(context.getBeansOfType(SyncAnalysisController.class)).hasSize(1);
+            // Day10: API 프로세스는 Worker 전용 metric(SqsAnalysisJobHandler/AnalysisJobMetrics)을
+            // 만들지 않는다 - API에서 항상 0인 Worker 시계열이 CloudWatch에 쌓이는 것을 막는다.
+            assertThat(context.getBeansOfType(SqsAnalysisJobHandler.class)).isEmpty();
+            assertThat(context.getBeansOfType(AnalysisJobMetrics.class)).isEmpty();
+        } finally {
+            context.close();
+        }
+    }
+
+    @Test
+    void experiment_api는_CLOUDWATCH_METRICS_ENABLED_기본값이_false라_registry가_등록되지_않는다() {
+        ConfigurableApplicationContext context = new SpringApplicationBuilder(BackendApplication.class)
+                .profiles("experiment-api")
+                .run("--analysis.job.queue.type=in-memory", "--server.port=0",
+                        "--spring.flyway.enabled=false", "--spring.jpa.hibernate.ddl-auto=update");
+
+        try {
+            assertThat(context.getBeansOfType(CloudWatchMeterRegistry.class)).isEmpty();
         } finally {
             context.close();
         }
@@ -136,6 +157,54 @@ class ExperimentProfileContextTest {
                     "org.springframework.context.annotation.internalScheduledAnnotationProcessor"))
                     .isFalse();
             assertThat(context.getBeansOfType(SyncAnalysisController.class)).isEmpty();
+            // Day10: experiment-worker에서는 반대로 이 두 Bean이 정상적으로 등록되어야 한다.
+            assertThat(context.getBeansOfType(SqsAnalysisJobHandler.class)).hasSize(1);
+            assertThat(context.getBeansOfType(AnalysisJobMetrics.class)).hasSize(1);
+        } finally {
+            context.close();
+        }
+    }
+
+    @Test
+    void experiment_worker는_CLOUDWATCH_METRICS_ENABLED_기본값이_false라_registry가_등록되지_않는다() {
+        ConfigurableApplicationContext context = new SpringApplicationBuilder(BackendApplication.class)
+                .profiles("experiment-worker")
+                .run("--analysis.job.queue.type=sqs",
+                        "--analysis.job.queue.sqs.queue-url=http://localhost:1/000000000000/unused-queue",
+                        "--analysis.job.queue.sqs.region=ap-northeast-2",
+                        "--analysis.job.queue.sqs.endpoint-override=http://localhost:1",
+                        "--spring.flyway.enabled=false", "--spring.jpa.hibernate.ddl-auto=update");
+
+        try {
+            assertThat(context.getBeansOfType(CloudWatchMeterRegistry.class)).isEmpty();
+        } finally {
+            context.close();
+        }
+    }
+
+    @Test
+    void experiment_worker는_CLOUDWATCH_METRICS_ENABLED가_true면_registry를_등록하고_공통_dimension과_allowlist를_적용한다() {
+        ConfigurableApplicationContext context = new SpringApplicationBuilder(BackendApplication.class)
+                .profiles("experiment-worker")
+                .run("--analysis.job.queue.type=sqs",
+                        "--analysis.job.queue.sqs.queue-url=http://localhost:1/000000000000/unused-queue",
+                        "--analysis.job.queue.sqs.region=ap-northeast-2",
+                        "--analysis.job.queue.sqs.endpoint-override=http://localhost:1",
+                        "--spring.flyway.enabled=false", "--spring.jpa.hibernate.ddl-auto=update",
+                        "--management.cloudwatch.metrics.export.enabled=true");
+
+        try {
+            assertThat(context.getBeansOfType(CloudWatchMeterRegistry.class)).hasSize(1);
+            CloudWatchMeterRegistry registry = context.getBean(CloudWatchMeterRegistry.class);
+
+            registry.counter("autique.analysis.worker.events", "event", "retry").increment();
+            registry.counter("not.in.allowlist").increment();
+
+            assertThat(registry.find("autique.analysis.worker.events").counter()).isNotNull();
+            assertThat(registry.find("not.in.allowlist").counter()).isNull();
+            assertThat(registry.find("autique.analysis.worker.events").counter().getId().getTags())
+                    .contains(io.micrometer.core.instrument.Tag.of("environment", "experiment"))
+                    .contains(io.micrometer.core.instrument.Tag.of("service", "worker"));
         } finally {
             context.close();
         }

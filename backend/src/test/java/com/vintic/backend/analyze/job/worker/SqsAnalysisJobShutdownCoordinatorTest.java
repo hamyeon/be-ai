@@ -5,8 +5,10 @@ import com.vintic.backend.analyze.job.AnalysisJobStatus;
 import com.vintic.backend.analyze.job.ProductAnalysisJob;
 import com.vintic.backend.analyze.job.ProductAnalysisJobFinalizationService;
 import com.vintic.backend.analyze.job.ProductAnalysisJobRepository;
+import com.vintic.backend.analyze.job.metrics.AnalysisJobMetrics;
 import com.vintic.backend.analyze.job.processor.FakeAnalysisProcessor;
 import com.vintic.backend.analyze.job.queue.AnalysisJobQueueMessage;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
@@ -188,6 +190,7 @@ class SqsAnalysisJobShutdownCoordinatorTest {
         SqsAnalysisJobHandler handler = new SqsAnalysisJobHandler(
                 jobRepository, s3Client, processor, new ObjectMapper(),
                 new WorkerRuntimeIdentity("worker-1", "server-1"), finalizationService,
+                new AnalysisJobMetrics(new SimpleMeterRegistry()),
                 "test-bucket", 90L, 3);
 
         Message message = sqsMessage(42L);

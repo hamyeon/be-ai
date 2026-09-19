@@ -5,6 +5,8 @@ import com.vintic.backend.common.exception.AnalysisTransientFailureException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.net.SocketTimeoutException;
+
 // ADR-17의 Fake 구현. 처리시간(sleep)과 다음 결과를 결정적으로 주입할 수 있다 -
 // 대량 성능 측정(Fake sleep으로 부하 시뮬레이션)과 오류 주입 테스트(일시적/영구 오류)에 쓴다.
 //
@@ -19,7 +21,11 @@ public class FakeAnalysisProcessor implements AnalysisProcessor {
     public enum Outcome {
         SUCCESS,
         TRANSIENT_ERROR,
-        PERMANENT_ERROR
+        PERMANENT_ERROR,
+        // Day10: SqsAnalysisJobHandler의 processor.calls/latency outcome=timeout 분류(cause
+        // chain의 SocketTimeoutException/HttpTimeoutException/TimeoutException) 테스트·장애
+        // 주입 전용. TRANSIENT_ERROR와 달리 cause에 명확한 timeout 예외를 넣는다.
+        TIMEOUT
     }
 
     private final Sleeper sleeper;
@@ -52,6 +58,9 @@ public class FakeAnalysisProcessor implements AnalysisProcessor {
                     "Fake 프로세서에 설정된 일시적 오류입니다. analysisId=" + input.analysisId());
             case PERMANENT_ERROR -> throw new AnalysisPermanentFailureException(
                     "Fake 프로세서에 설정된 영구 오류입니다. analysisId=" + input.analysisId());
+            case TIMEOUT -> throw new AnalysisTransientFailureException(
+                    "Fake 프로세서에 설정된 timeout입니다. analysisId=" + input.analysisId(),
+                    new SocketTimeoutException("Fake 프로세서가 주입한 timeout입니다."));
         };
     }
 }

@@ -7,8 +7,10 @@ import com.vintic.backend.analyze.job.AnalysisResultRepository;
 import com.vintic.backend.analyze.job.ProductAnalysisJob;
 import com.vintic.backend.analyze.job.ProductAnalysisJobFinalizationService;
 import com.vintic.backend.analyze.job.ProductAnalysisJobRepository;
+import com.vintic.backend.analyze.job.metrics.AnalysisJobMetrics;
 import com.vintic.backend.analyze.job.processor.FakeAnalysisProcessor;
 import com.vintic.backend.analyze.job.queue.AnalysisJobQueueMessage;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -161,6 +163,7 @@ class SqsAnalysisJobRecoveryLocalStackIT {
         return new SqsAnalysisJobHandler(
                 jobRepository, s3Client, processor, objectMapper,
                 new WorkerRuntimeIdentity(workerId, "server-" + workerId), finalizationService,
+                new AnalysisJobMetrics(new SimpleMeterRegistry()),
                 bucket, STALE_AFTER_SECONDS, MAX_RECEIVE_COUNT);
     }
 
@@ -181,15 +184,15 @@ class SqsAnalysisJobRecoveryLocalStackIT {
         return jobRepository.save(ProductAnalysisJob.create(1L, objectKey, idempotencyKey));
     }
 
-    // 단일 receiveMessage 호출. maxNumberOfMessages=1, ApproximateReceiveCount 속성을 요청한다 -
-    // 프로덕션 Poller와 동일한 요청 파라미터를 테스트 코드가 직접 재현한다.
+    // 단일 receiveMessage 호출. maxNumberOfMessages=1, ApproximateReceiveCount/SentTimestamp
+    // 속성을 요청한다 - 프로덕션 Poller와 동일한 요청 파라미터를 테스트 코드가 직접 재현한다.
     private Message receiveOne(String url) {
         List<Message> messages = sqsClient.receiveMessage(ReceiveMessageRequest.builder()
                 .queueUrl(url)
                 .maxNumberOfMessages(1)
                 .waitTimeSeconds(WAIT_TIME_SECONDS)
                 .visibilityTimeout(VISIBILITY_TIMEOUT_SECONDS)
-                .attributeNamesWithStrings("ApproximateReceiveCount")
+                .attributeNamesWithStrings("ApproximateReceiveCount", "SentTimestamp")
                 .build()).messages();
         return messages.isEmpty() ? null : messages.get(0);
     }
@@ -222,8 +225,14 @@ class SqsAnalysisJobRecoveryLocalStackIT {
         return raw == null ? null : Integer.parseInt(raw);
     }
 
+    private Long parseSentTimestamp(Message message) {
+        String raw = message.attributesAsStrings().get("SentTimestamp");
+        return raw == null ? null : Long.parseLong(raw);
+    }
+
     private ReceivedQueueMessage toReceivedMessage(Message message) {
-        return new ReceivedQueueMessage(message.messageId(), message.body(), parseReceiveCount(message));
+        return new ReceivedQueueMessage(message.messageId(), message.body(), parseReceiveCount(message),
+                parseSentTimestamp(message), System.currentTimeMillis());
     }
 
     private void deleteMessage(String url, Message message) {

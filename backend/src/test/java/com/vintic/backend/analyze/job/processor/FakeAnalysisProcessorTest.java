@@ -4,6 +4,7 @@ import com.vintic.backend.common.exception.AnalysisPermanentFailureException;
 import com.vintic.backend.common.exception.AnalysisTransientFailureException;
 import org.junit.jupiter.api.Test;
 
+import java.net.SocketTimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -56,6 +57,16 @@ class FakeAnalysisProcessorTest {
 
         assertThatThrownBy(() -> processor.process(new AnalysisInput(1L, "obj/key.jpg".getBytes())))
                 .isInstanceOf(AnalysisPermanentFailureException.class);
+    }
+
+    @Test
+    void timeout으로_설정하면_cause에_SocketTimeoutException을_담은_AnalysisTransientFailureException을_던진다() {
+        FakeAnalysisProcessor processor = new FakeAnalysisProcessor(new RecordingSleeper(), 0);
+        processor.setNextOutcome(FakeAnalysisProcessor.Outcome.TIMEOUT);
+
+        assertThatThrownBy(() -> processor.process(new AnalysisInput(1L, "obj/key.jpg".getBytes())))
+                .isInstanceOf(AnalysisTransientFailureException.class)
+                .hasCauseInstanceOf(SocketTimeoutException.class);
     }
 
     @Test

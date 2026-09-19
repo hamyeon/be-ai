@@ -100,7 +100,9 @@ public class SqsAnalysisJobPoller {
                 .maxNumberOfMessages(MAX_NUMBER_OF_MESSAGES)
                 .waitTimeSeconds(waitTimeSeconds)
                 .visibilityTimeout(visibilityTimeoutSeconds)
-                .attributeNamesWithStrings(MessageSystemAttributeName.APPROXIMATE_RECEIVE_COUNT.toString())
+                .attributeNamesWithStrings(
+                        MessageSystemAttributeName.APPROXIMATE_RECEIVE_COUNT.toString(),
+                        MessageSystemAttributeName.SENT_TIMESTAMP.toString())
                 .build()).messages();
 
         if (!running) {
@@ -111,8 +113,14 @@ public class SqsAnalysisJobPoller {
         }
 
         for (Message message : messages) {
-            SqsAnalysisJobHandler.Outcome outcome = handler.handle(
-                    new ReceivedQueueMessage(message.messageId(), message.body(), approximateReceiveCountOf(message)));
+            // 이 메시지를 실제로 받은 시각 - queueWaitMs 계산의 기준점이다. Spring의 공용
+            // Clock 빈(ClockConfig)은 시간대 표시용이라 이 poller처럼 Spring 컨텍스트 없이도
+            // 기동해야 하는 경로(테스트의 직접 생성 등)까지 끌어들이지 않고, epoch millis만
+            // 필요하므로 System.currentTimeMillis()를 그대로 쓴다.
+            long receivedAtEpochMillis = System.currentTimeMillis();
+            SqsAnalysisJobHandler.Outcome outcome = handler.handle(new ReceivedQueueMessage(
+                    message.messageId(), message.body(), approximateReceiveCountOf(message),
+                    sentTimestampEpochMillisOf(message), receivedAtEpochMillis));
             if (outcome == SqsAnalysisJobHandler.Outcome.DELETE) {
                 sqsClient.deleteMessage(DeleteMessageRequest.builder()
                         .queueUrl(queueUrl)
@@ -137,6 +145,27 @@ public class SqsAnalysisJobPoller {
             return Integer.parseInt(raw);
         } catch (NumberFormatException e) {
             log.warn("ApproximateReceiveCount 파싱에 실패했습니다 - messageId={}, value={}", message.messageId(), raw);
+            return null;
+        }
+    }
+
+    // SentTimestamp는 요청한 system attribute이므로 정상적으로는 항상 응답에 실려 온다.
+    // 누락되거나 숫자로 파싱되지 않으면 null을 돌려준다 - Handler/ReceivedQueueMessage는
+    // null을 "queueWaitMs를 계산할 수 없음"으로 취급하고, 메시지 자체는 정상 처리한다
+    // (경고 로그만 남기고 RETAIN/DELETE 판단에는 영향을 주지 않는다).
+    private Long sentTimestampEpochMillisOf(Message message) {
+        String raw = message.attributesAsStrings() == null
+                ? null
+                : message.attributesAsStrings().get(MessageSystemAttributeName.SENT_TIMESTAMP.toString());
+        if (raw == null) {
+            log.warn("SentTimestamp 속성이 응답에 없습니다 - queueWaitMs를 기록하지 않습니다. messageId={}", message.messageId());
+            return null;
+        }
+        try {
+            return Long.parseLong(raw);
+        } catch (NumberFormatException e) {
+            log.warn("SentTimestamp 파싱에 실패했습니다 - queueWaitMs를 기록하지 않습니다. messageId={}, value={}",
+                    message.messageId(), raw);
             return null;
         }
     }

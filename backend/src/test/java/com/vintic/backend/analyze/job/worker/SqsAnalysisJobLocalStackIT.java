@@ -5,8 +5,10 @@ import com.vintic.backend.analyze.job.AnalysisJobStatus;
 import com.vintic.backend.analyze.job.ProductAnalysisJob;
 import com.vintic.backend.analyze.job.ProductAnalysisJobFinalizationService;
 import com.vintic.backend.analyze.job.ProductAnalysisJobRepository;
+import com.vintic.backend.analyze.job.metrics.AnalysisJobMetrics;
 import com.vintic.backend.analyze.job.processor.FakeAnalysisProcessor;
 import com.vintic.backend.analyze.job.queue.AnalysisJobQueueMessage;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -103,6 +105,7 @@ class SqsAnalysisJobLocalStackIT {
         return new SqsAnalysisJobHandler(
                 jobRepository, s3Client, processor, new ObjectMapper(),
                 new WorkerRuntimeIdentity("it-worker", "it-server"), finalizationService,
+                new AnalysisJobMetrics(new SimpleMeterRegistry()),
                 bucket, 90L, 3);
     }
 
