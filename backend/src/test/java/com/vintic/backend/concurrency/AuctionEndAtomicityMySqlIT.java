@@ -3,6 +3,7 @@ package com.vintic.backend.concurrency;
 import com.vintic.backend.auction.domain.Auction;
 import com.vintic.backend.auction.domain.AuctionStatus;
 import com.vintic.backend.auction.repository.AuctionRepository;
+import com.vintic.backend.auction.service.AuctionEndOutcome;
 import com.vintic.backend.auction.service.AuctionEndService;
 import com.vintic.backend.bid.domain.Bid;
 import com.vintic.backend.bid.domain.BidType;
@@ -28,6 +29,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -121,6 +123,57 @@ class AuctionEndAtomicityMySqlIT {
         }
     }
 
+    // Day12: 정산 실패로 롤백된 경매가 원인 해소 후 다음 endIfDue() 호출에서 정상적으로
+    // ENDED가 되는지 검증한다. 위 스모크 테스트와 달리 CHECK (1 = 0)을 쓰지 않는다 - orders에
+    // 이미 다른 테스트가 남긴 row가 있으면 그 제약 자체가 ALTER에서 걸려 테스트 실행 순서에
+    // 따라 깨질 수 있기 때문이다. 대신 이 테스트의 낙찰자 id만 겨냥한 CHECK로 범위를 좁힌다.
+    @Test
+    void 정산_실패로_롤백된_경매는_원인_해소_후_재호출에서_ENDED가_된다() {
+        User seller = userRepository.save(User.register("seller-" + System.nanoTime() + "@vintic.local", "seller", null));
+        User winner = userRepository.save(User.register("winner-" + System.nanoTime() + "@vintic.local", "winner", null));
+        Product product = productRepository.save(new Product(
+                seller,
+                List.of("https://example.com/a.jpg"),
+                "Nike", "Dunk Low", "Panda", 270, "B", "PARTIAL",
+                300000, 350000, "285,000원 ~ 315,000원", 290000, "사유", "설명"
+        ));
+        Auction auction = Auction.schedule(
+                product, 10000L, 5000L, LocalDateTime.now().minusHours(2), LocalDateTime.now().minusMinutes(1)
+        );
+        auction.start();
+        Auction savedAuction = auctionRepository.save(auction);
+        bidRepository.save(Bid.place(savedAuction, winner, 30000L, BidType.MANUAL));
+        savedAuction.placeManualBid(winner, 30000L);
+        auctionRepository.save(savedAuction); // 위 테스트들과 동일한 이유로 다시 save 필요.
+
+        jdbcTemplate.execute(
+                "ALTER TABLE orders ADD CONSTRAINT chk_day12_retry_fail CHECK (buyer_id <> " + winner.getId() + ")"
+        );
+        try {
+            assertThatThrownBy(() -> auctionEndService.endIfDue(savedAuction.getId()))
+                    .isInstanceOf(RuntimeException.class);
+
+            Auction stillLive = auctionRepository.findById(savedAuction.getId()).orElseThrow();
+            assertThat(stillLive.getStatus()).isEqualTo(AuctionStatus.LIVE);
+        } finally {
+            jdbcTemplate.execute("ALTER TABLE orders DROP CHECK chk_day12_retry_fail");
+        }
+
+        AuctionEndOutcome outcome = auctionEndService.endIfDue(savedAuction.getId());
+
+        assertThat(outcome).isEqualTo(AuctionEndOutcome.ENDED);
+        Auction reloadedAuction = auctionRepository.findById(savedAuction.getId()).orElseThrow();
+        assertThat(reloadedAuction.getStatus()).isEqualTo(AuctionStatus.ENDED);
+        Optional<Order> createdOrder = orderRepository.findByAuctionIdAndBuyerId(savedAuction.getId(), winner.getId());
+        assertThat(createdOrder).isPresent();
+
+        // 이 클래스의 다른 테스트(특히 위 CHECK (1 = 0) 스모크 테스트의 ALTER TABLE, 그리고
+        // 아래 "이미_마감된_Auction..." 테스트의 orderRepository.findAll() 전체 개수 assert)는
+        // 실행 시점에 orders 테이블에 이 테스트가 남긴 row가 없다고 암묵적으로 가정한다 - 검증
+        // 후 정리해 실행 순서 의존성을 새로 만들지 않는다.
+        createdOrder.ifPresent(orderRepository::delete);
+    }
+
     @Test
     void 동시에_같은_Auction을_endIfDue해도_ENDED_전환과_winner_Order는_한_번만_반영된다() throws Exception {
         User seller = userRepository.save(User.register("seller-" + System.nanoTime() + "@vintic.local", "seller", null));
@@ -142,25 +195,30 @@ class AuctionEndAtomicityMySqlIT {
 
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
-        Callable<Void> task = () -> {
+        Callable<AuctionEndOutcome> task = () -> {
             ready.countDown();
             start.await();
-            auctionEndService.endIfDue(savedAuction.getId());
-            return null;
+            return auctionEndService.endIfDue(savedAuction.getId());
         };
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Future<Void> futureA = executor.submit(task);
-            Future<Void> futureB = executor.submit(task);
+            Future<AuctionEndOutcome> futureA = executor.submit(task);
+            Future<AuctionEndOutcome> futureB = executor.submit(task);
             ready.await();
             start.countDown();
 
-            futureA.get(30, TimeUnit.SECONDS);
-            futureB.get(30, TimeUnit.SECONDS);
+            AuctionEndOutcome outcomeA = futureA.get(30, TimeUnit.SECONDS);
+            AuctionEndOutcome outcomeB = futureB.get(30, TimeUnit.SECONDS);
 
             Auction reloadedAuction = auctionRepository.findById(savedAuction.getId()).orElseThrow();
             assertThat(reloadedAuction.getStatus()).isEqualTo(AuctionStatus.ENDED);
+
+            // 두 호출 중 정확히 하나만 실제로 종료를 수행해야 한다 - 늦게 lock을 얻은 쪽은
+            // 재확인 시점에 이미 LIVE가 아니므로 NOT_LIVE를 반환해야 한다(Day12: 이 값이
+            // 아니면 - 예를 들어 {ENDED, ENDED}면 - 중복 종료/정산 정합성 결함이라는 뜻이다).
+            assertThat(List.of(outcomeA, outcomeB))
+                    .containsExactlyInAnyOrder(AuctionEndOutcome.ENDED, AuctionEndOutcome.NOT_LIVE);
 
             long orderCount = orderRepository.findAll().stream()
                     .filter(o -> o.getBuyer().getId().equals(winner.getId()))
@@ -220,28 +278,29 @@ class AuctionEndAtomicityMySqlIT {
                 return "BID_CLOSED";
             }
         };
-        Callable<Void> endTask = () -> {
+        Callable<AuctionEndOutcome> endTask = () -> {
             ready.countDown();
             start.await();
-            auctionEndService.endIfDue(savedAuction.getId());
-            return null;
+            return auctionEndService.endIfDue(savedAuction.getId());
         };
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             Future<String> bidFuture = executor.submit(bidTask);
-            Future<Void> endFuture = executor.submit(endTask);
+            Future<AuctionEndOutcome> endFuture = executor.submit(endTask);
             ready.await();
             start.countDown();
 
             String bidOutcome = bidFuture.get(30, TimeUnit.SECONDS);
-            endFuture.get(30, TimeUnit.SECONDS);
+            AuctionEndOutcome endOutcome = endFuture.get(30, TimeUnit.SECONDS);
 
             // 어느 쪽이 먼저 lock을 잡았는지와 무관하게 결과는 항상 다음과 같아야 한다: 입찰은
             // 거절되고(마감 전이라 통과했다면 AuctionClosedException을 던지지 않았을 이 챌린저
             // 입찰이 성공해서는 안 된다), Auction은 ENDED, winner/price는 원래 winner 기준 그대로,
             // settlement는 원래 winner에게 정확히 1건만 반영된다.
             assertThat(bidOutcome).isEqualTo("BID_CLOSED");
+            // 입찰이 먼저 lock을 잡아도 거절·롤백되므로, 종료 결과는 항상 ENDED여야 한다.
+            assertThat(endOutcome).isEqualTo(AuctionEndOutcome.ENDED);
 
             Auction reloadedAuction = auctionRepository.findById(savedAuction.getId()).orElseThrow();
             assertThat(reloadedAuction.getStatus()).isEqualTo(AuctionStatus.ENDED);

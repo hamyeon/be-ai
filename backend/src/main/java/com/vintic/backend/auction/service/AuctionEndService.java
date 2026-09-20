@@ -51,15 +51,18 @@ public class AuctionEndService {
     // 만드는 변화이므로 여기서도 비운다.
     @CacheEvict(cacheNames = CacheConfig.RECOMMENDATION_FALLBACK_CACHE, allEntries = true)
     @Transactional
-    public void endIfDue(Long auctionId) {
+    public AuctionEndOutcome endIfDue(Long auctionId) {
         Auction auction = auctionRepository.findByIdForUpdate(auctionId).orElse(null);
         if (auction == null) {
-            return;
+            return AuctionEndOutcome.NOT_FOUND;
         }
 
         LocalDateTime now = LocalDateTime.now(clock);
-        if (auction.getStatus() != AuctionStatus.LIVE || auction.getEndAt().isAfter(now)) {
-            return;
+        if (auction.getStatus() != AuctionStatus.LIVE) {
+            return AuctionEndOutcome.NOT_LIVE;
+        }
+        if (auction.getEndAt().isAfter(now)) {
+            return AuctionEndOutcome.NOT_DUE;
         }
 
         auction.end();
@@ -70,5 +73,6 @@ public class AuctionEndService {
         // 호출한다 - 이 순서를 지키지 않으면 InvalidAuctionStatusException이 그대로 전파돼
         // end()까지 함께 롤백된다(그 자체가 방어선이다, 별도 가드를 추가하지 않는다).
         auctionSettlementService.settle(auctionId);
+        return AuctionEndOutcome.ENDED;
     }
 }

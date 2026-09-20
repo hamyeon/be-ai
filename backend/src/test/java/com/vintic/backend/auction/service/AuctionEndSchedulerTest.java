@@ -117,4 +117,34 @@ class AuctionEndSchedulerTest {
 
         verify(auctionEndService, times(2)).endIfDue(10L);
     }
+
+    @Test
+    void 후보별_결과가_ENDED_NOT_LIVE_NOT_DUE_NOT_FOUND_실패로_각각_집계된다() {
+        when(auctionRepository.findLiveDueForEnd(eq(AuctionStatus.LIVE), any(), any()))
+                .thenReturn(List.of(1L, 2L, 3L, 4L, 5L));
+        when(auctionEndService.endIfDue(1L)).thenReturn(AuctionEndOutcome.ENDED);
+        when(auctionEndService.endIfDue(2L)).thenReturn(AuctionEndOutcome.NOT_LIVE);
+        when(auctionEndService.endIfDue(3L)).thenReturn(AuctionEndOutcome.NOT_DUE);
+        when(auctionEndService.endIfDue(4L)).thenReturn(AuctionEndOutcome.NOT_FOUND);
+        org.mockito.Mockito.doThrow(new RuntimeException("settlement 실패"))
+                .when(auctionEndService).endIfDue(5L);
+
+        AuctionEndScheduler.EndRunSummary summary =
+                new AuctionEndScheduler(auctionRepository, auctionEndService, FIXED_CLOCK, true, 100).runOnce();
+
+        assertThat(summary).isEqualTo(new AuctionEndScheduler.EndRunSummary(5, 1, 1, 1, 1, 1));
+    }
+
+    @Test
+    void 다른_인스턴스가_먼저_종료했으면_ended는_0이고_notLive로_집계된다() {
+        when(auctionRepository.findLiveDueForEnd(eq(AuctionStatus.LIVE), any(), any()))
+                .thenReturn(List.of(10L, 20L, 30L));
+        when(auctionEndService.endIfDue(any())).thenReturn(AuctionEndOutcome.NOT_LIVE);
+
+        AuctionEndScheduler.EndRunSummary summary =
+                new AuctionEndScheduler(auctionRepository, auctionEndService, FIXED_CLOCK, true, 100).runOnce();
+
+        assertThat(summary.ended()).isZero();
+        assertThat(summary.notLive()).isEqualTo(3);
+    }
 }

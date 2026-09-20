@@ -244,4 +244,18 @@ class AuctionEndServiceTest {
         assertThat(reloaded.getStatus()).isEqualTo(AuctionStatus.ENDED);
         assertThat(orderRepository.count()).isEqualTo(1);
     }
+
+    @Test
+    void 반환값이_실제_처리_결과를_그대로_나타낸다() {
+        User seller = persistUser("seller@vintic.local");
+        Product product = persistProduct(seller);
+        Auction dueAuction = persistLiveAuction(product, FIXED_NOW.minusHours(2), FIXED_NOW.minusMinutes(1));
+        Auction notDueAuction = persistLiveAuction(product, FIXED_NOW.minusHours(1), FIXED_NOW.plusMinutes(1));
+        flushAndClear();
+
+        assertThat(auctionEndService.endIfDue(dueAuction.getId())).isEqualTo(AuctionEndOutcome.ENDED);
+        assertThat(auctionEndService.endIfDue(dueAuction.getId())).isEqualTo(AuctionEndOutcome.NOT_LIVE);
+        assertThat(auctionEndService.endIfDue(notDueAuction.getId())).isEqualTo(AuctionEndOutcome.NOT_DUE);
+        assertThat(auctionEndService.endIfDue(9999L)).isEqualTo(AuctionEndOutcome.NOT_FOUND);
+    }
 }
