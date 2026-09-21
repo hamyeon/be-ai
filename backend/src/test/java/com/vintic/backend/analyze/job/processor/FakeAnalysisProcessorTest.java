@@ -78,4 +78,25 @@ class FakeAnalysisProcessorTest {
 
         assertThat(sleeper.lastRequestedMillis.get()).isEqualTo(250);
     }
+
+    @Test
+    void 초기_결과를_설정하지_않으면_SUCCESS로_동작한다() {
+        FakeAnalysisProcessor processor = new FakeAnalysisProcessor(new RecordingSleeper(), 0);
+
+        AnalysisPayload payload = processor.process(new AnalysisInput(1L, "obj/key.jpg".getBytes()));
+
+        assertThat(payload.rawResult()).contains("1");
+    }
+
+    // Day14 AWS 장애 주입용: Worker는 web-application-type=none이라 setter를 호출할 방법이 없으므로
+    // ANALYSIS_PROCESSOR_FAKE_OUTCOME 환경변수 등으로 초기 결과를 주입해야 한다.
+    @Test
+    void 생성자에_주입한_초기_결과가_TIMEOUT이면_setter_없이도_timeout을_던진다() {
+        FakeAnalysisProcessor processor = new FakeAnalysisProcessor(
+                new RecordingSleeper(), 0, FakeAnalysisProcessor.Outcome.TIMEOUT);
+
+        assertThatThrownBy(() -> processor.process(new AnalysisInput(1L, "obj/key.jpg".getBytes())))
+                .isInstanceOf(AnalysisTransientFailureException.class)
+                .hasCauseInstanceOf(SocketTimeoutException.class);
+    }
 }

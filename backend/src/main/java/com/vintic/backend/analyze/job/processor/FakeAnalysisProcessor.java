@@ -2,6 +2,7 @@ package com.vintic.backend.analyze.job.processor;
 
 import com.vintic.backend.common.exception.AnalysisPermanentFailureException;
 import com.vintic.backend.common.exception.AnalysisTransientFailureException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -15,6 +16,9 @@ import java.net.SocketTimeoutException;
 // analysis.processor.fake.delay-ms 설정으로 주입하고(성능 측정용), 개별 테스트는 setter로
 // 0으로 두거나 원하는 값으로 덮어쓴다. Sleeper를 통해 실제 대기와 분리했으므로, 테스트에서
 // FakeSleeper(즉시 반환)를 주입하면 delayMillis를 크게 설정해도 테스트가 느려지지 않는다.
+//
+// Day14 AWS 장애 주입용: Worker가 웹 계층이 없어 setter를 호출할 수 없으므로
+// 초기 결과만 설정값으로 받는다. 기본 SUCCESS.
 @Component
 public class FakeAnalysisProcessor implements AnalysisProcessor {
 
@@ -30,14 +34,21 @@ public class FakeAnalysisProcessor implements AnalysisProcessor {
 
     private final Sleeper sleeper;
     private volatile long delayMillis;
-    private volatile Outcome nextOutcome = Outcome.SUCCESS;
+    private volatile Outcome nextOutcome;
 
+    public FakeAnalysisProcessor(Sleeper sleeper, long delayMillis) {
+        this(sleeper, delayMillis, Outcome.SUCCESS);
+    }
+
+    @Autowired
     public FakeAnalysisProcessor(
             Sleeper sleeper,
-            @Value("${analysis.processor.fake.delay-ms:0}") long delayMillis
+            @Value("${analysis.processor.fake.delay-ms:0}") long delayMillis,
+            @Value("${analysis.processor.fake.outcome:SUCCESS}") Outcome initialOutcome
     ) {
         this.sleeper = sleeper;
         this.delayMillis = delayMillis;
+        this.nextOutcome = initialOutcome;
     }
 
     public void setDelayMillis(long delayMillis) {
