@@ -232,3 +232,11 @@ crawler/data/images/
 *.csv.bak
 # 로컬 Gradle 캐시 디렉터리(공백 없는 경로 회피용)
 .gradle-local/
+
+# Terraform (local state)
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+tfplan*
+tfdestroyplan
