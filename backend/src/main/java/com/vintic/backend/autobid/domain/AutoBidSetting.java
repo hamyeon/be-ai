@@ -64,6 +64,13 @@ public class AutoBidSetting {
     @Column(name = "active_slot")
     private Boolean activeSlot;
 
+    // Purchase Agent(#Day2)가 등록한 AutoBid만 연결값을 갖는다 - 일반 사용자가 직접 등록한
+    // AutoBid는 항상 null이다(reserve() 3-arg 오버로드가 그대로 null로 둔다). FK 연관관계를
+    // 맺지 않는다(Notification.auctionId와 동일한 "참조값만" 패턴) - purchasegoal 패키지를
+    // 이 엔티티가 의존하게 만들지 않기 위함이다. 실제로 이 값을 채우는 Agent 등록 경로는 Day 5다.
+    @Column(name = "purchase_goal_id")
+    private Long purchaseGoalId;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -93,6 +100,14 @@ public class AutoBidSetting {
         LocalDateTime now = LocalDateTime.now();
         setting.createdAt = now;
         setting.updatedAt = now;
+        return setting;
+    }
+
+    // Day 5(Agent 실제 등록)가 쓸 오버로드 - purchaseGoalId를 이 시점에 함께 저장한다.
+    // 기존 3-arg reserve()는 그대로 null을 남기므로 일반 AutoBid 등록에는 영향이 없다.
+    public static AutoBidSetting reserve(Auction auction, User user, Long maxAmount, Long purchaseGoalId) {
+        AutoBidSetting setting = reserve(auction, user, maxAmount);
+        setting.purchaseGoalId = purchaseGoalId;
         return setting;
     }
 
@@ -185,6 +200,10 @@ public class AutoBidSetting {
 
     public Boolean getActiveSlot() {
         return activeSlot;
+    }
+
+    public Long getPurchaseGoalId() {
+        return purchaseGoalId;
     }
 
     public LocalDateTime getCreatedAt() {

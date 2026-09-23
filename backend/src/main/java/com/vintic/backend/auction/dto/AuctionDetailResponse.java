@@ -59,6 +59,9 @@ public record AuctionDetailResponse(
     ) {
     }
 
+    // purchaseGoalId/managedByPurchaseAgent(Day2-B): AutoBidMeResponse와 동일한 의미다 -
+    // purchaseGoalId는 이력값(Goal이 끝나도 유지), managedByPurchaseAgent는 지금 이 순간의
+    // 보호 여부를 다시 계산한 값이다.
     public record MyState(
             boolean isSeller,
             boolean isHighestBidder,
@@ -66,7 +69,9 @@ public record AuctionDetailResponse(
             CannotBidReason cannotBidReason,
             OffsetDateTime bidRestrictedUntil,
             AutoBidSettingStatus autoBidStatus,
-            Long autoBidCap
+            Long autoBidCap,
+            Long purchaseGoalId,
+            boolean managedByPurchaseAgent
     ) {
     }
 }

@@ -1,5 +1,6 @@
 package com.vintic.backend.autobid.service;
 
+import com.vintic.backend.ai.purchase.dto.GoalCondition;
 import com.vintic.backend.auction.audit.AuctionPriceAudit;
 import com.vintic.backend.auction.audit.AuctionPriceAuditRecorder;
 import com.vintic.backend.auction.audit.AuctionPriceAuditRepository;
@@ -14,6 +15,7 @@ import com.vintic.backend.autobid.dto.AutoBidUpdateResponse;
 import com.vintic.backend.autobid.proxy.ProxyPriceEngine;
 import com.vintic.backend.autobid.repository.AutoBidSettingRepository;
 import com.vintic.backend.bid.domain.BidType;
+import com.vintic.backend.common.exception.AgentManagedAuctionException;
 import com.vintic.backend.common.exception.AuctionClosedException;
 import com.vintic.backend.common.exception.AuctionNotFoundException;
 import com.vintic.backend.common.exception.AutoBidAlreadyExistsException;
@@ -24,6 +26,10 @@ import com.vintic.backend.common.exception.PenaltyRestrictedException;
 import com.vintic.backend.common.exception.SellerCannotBidException;
 import com.vintic.backend.config.ClockConfig;
 import com.vintic.backend.product.domain.Product;
+import com.vintic.backend.purchasegoal.domain.PurchaseGoal;
+import com.vintic.backend.purchasegoal.domain.PurchaseGoalStatus;
+import com.vintic.backend.purchasegoal.repository.PurchaseGoalRepository;
+import com.vintic.backend.purchasegoal.service.AgentManagedAuctionGuard;
 import com.vintic.backend.support.TestClockConfig;
 import com.vintic.backend.user.domain.User;
 import jakarta.persistence.EntityManager;
@@ -42,7 +48,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 // @DataJpaTest 슬라이스에 서비스를 직접 Import해, 실제 저장/갱신 결과를 DB 재조회로 검증한다.
 // (BidCommandServiceTest와 동일한 관례). ProxyPriceEngine/Clock은 신규 의존성이라 명시 Import.
 @DataJpaTest
-@Import({AutoBidCommandService.class, ProxyPriceEngine.class, AuctionPriceAuditRecorder.class, TestClockConfig.class})
+@Import({
+        AutoBidCommandService.class, ProxyPriceEngine.class, AuctionPriceAuditRecorder.class,
+        AgentManagedAuctionGuard.class, TestClockConfig.class
+})
 class AutoBidCommandServiceTest {
 
     @Autowired
@@ -58,12 +67,28 @@ class AutoBidCommandServiceTest {
     private AuctionPriceAuditRepository auctionPriceAuditRepository;
 
     @Autowired
+    private PurchaseGoalRepository purchaseGoalRepository;
+
+    @Autowired
     private EntityManager entityManager;
 
     private User persistUser(String email) {
         User user = User.register(email, email, null);
         entityManager.persist(user);
         return user;
+    }
+
+    // Day2-B: Day 5(Agent 실제 참여) 이전이라 ACTIVE->ENGAGED 전이 API가 없다 - 테스트
+    // 픽스처로 status/currentAuctionId를 직접 맞춘다(PurchaseGoalCommandServiceTest와 동일 관례).
+    private PurchaseGoal persistGoal(User owner, PurchaseGoalStatus status, Long currentAuctionId) {
+        LocalDateTime now = LocalDateTime.now();
+        PurchaseGoal goal = PurchaseGoal.create(
+                owner, "New Balance", "nb990", "뉴발란스 990",
+                GoalCondition.A, 270, 150000L, null, now.plusDays(7), now
+        );
+        ReflectionTestUtils.setField(goal, "status", status);
+        ReflectionTestUtils.setField(goal, "currentAuctionId", currentAuctionId);
+        return purchaseGoalRepository.saveAndFlush(goal);
     }
 
     private Product persistProduct(User seller) {
@@ -524,6 +549,35 @@ class AutoBidCommandServiceTest {
                 .isInstanceOf(AutoBidNotFoundException.class);
     }
 
+    @Test
+    void Agent가_관리중인_AutoBid_수정은_AgentManagedAuctionException을_던진다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistScheduledAuction(product);
+        PurchaseGoal engagedGoal = persistGoal(bidder, PurchaseGoalStatus.ENGAGED, auction.getId());
+        autoBidSettingRepository.saveAndFlush(AutoBidSetting.reserve(auction, bidder, 100000L, engagedGoal.getId()));
+        flushAndClear();
+
+        assertThatThrownBy(() -> autoBidCommandService.updateAutoBid(auction.getId(), bidder.getId(), 150000L))
+                .isInstanceOf(AgentManagedAuctionException.class);
+    }
+
+    @Test
+    void Goal이_FULFILLED로_종료된_후에는_수정_차단이_풀린다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistScheduledAuction(product);
+        PurchaseGoal finishedGoal = persistGoal(bidder, PurchaseGoalStatus.FULFILLED, auction.getId());
+        autoBidSettingRepository.saveAndFlush(AutoBidSetting.reserve(auction, bidder, 100000L, finishedGoal.getId()));
+        flushAndClear();
+
+        AutoBidUpdateResponse response = autoBidCommandService.updateAutoBid(auction.getId(), bidder.getId(), 150000L);
+
+        assertThat(response.maxAmount()).isEqualTo(150000L);
+    }
+
     // ===== DELETE =====
 
     @Test
@@ -578,6 +632,22 @@ class AutoBidCommandServiceTest {
     void 현재_설정이_없으면_취소시_40404에_해당하는_예외가_발생한다() {
         assertThatThrownBy(() -> autoBidCommandService.cancelAutoBid(999L, 1L))
                 .isInstanceOf(AutoBidNotFoundException.class);
+    }
+
+    @Test
+    void Agent가_관리중인_AutoBid_취소는_AgentManagedAuctionException을_던진다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        PurchaseGoal engagedGoal = persistGoal(bidder, PurchaseGoalStatus.CANCEL_REQUESTED, auction.getId());
+        AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 150000L, engagedGoal.getId());
+        setting.activate();
+        autoBidSettingRepository.saveAndFlush(setting);
+        flushAndClear();
+
+        assertThatThrownBy(() -> autoBidCommandService.cancelAutoBid(auction.getId(), bidder.getId()))
+                .isInstanceOf(AgentManagedAuctionException.class);
     }
 
     // ===== CANCELED AutoBid는 가격 계산에서 제외 =====
