@@ -30,6 +30,7 @@ import com.vintic.backend.common.exception.PenaltyRestrictedException;
 import com.vintic.backend.common.exception.SellerCannotBidException;
 import com.vintic.backend.common.exception.UserNotFoundException;
 import com.vintic.backend.common.util.TimePolicy;
+import com.vintic.backend.purchasegoal.service.AgentManagedAuctionGuard;
 import com.vintic.backend.user.domain.User;
 import com.vintic.backend.user.repository.UserRepository;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -53,6 +54,7 @@ public class AutoBidCommandService {
     private final BidRepository bidRepository;
     private final ProxyPriceEngine proxyPriceEngine;
     private final AuctionPriceAuditRecorder auctionPriceAuditRecorder;
+    private final AgentManagedAuctionGuard agentManagedAuctionGuard;
     private final Clock clock;
 
     public AutoBidCommandService(
@@ -62,6 +64,7 @@ public class AutoBidCommandService {
             BidRepository bidRepository,
             ProxyPriceEngine proxyPriceEngine,
             AuctionPriceAuditRecorder auctionPriceAuditRecorder,
+            AgentManagedAuctionGuard agentManagedAuctionGuard,
             Clock clock
     ) {
         this.auctionRepository = auctionRepository;
@@ -70,6 +73,7 @@ public class AutoBidCommandService {
         this.bidRepository = bidRepository;
         this.proxyPriceEngine = proxyPriceEngine;
         this.auctionPriceAuditRecorder = auctionPriceAuditRecorder;
+        this.agentManagedAuctionGuard = agentManagedAuctionGuard;
         this.clock = clock;
     }
 
@@ -88,6 +92,15 @@ public class AutoBidCommandService {
     // 넘겨주는 참조값이다.
     @Transactional
     public AutoBidRegisterResponse createAutoBid(Long auctionId, Long userId, Long maxAmount, Long idempotencyId) {
+        return createAutoBid(auctionId, userId, maxAmount, idempotencyId, null);
+    }
+
+    // Day 5(Purchase Agent 내부 등록) 전용 진입점이다. 일반 사용자 API(AutoBidService/Controller)는
+    // 이 오버로드를 호출하지 않는다 - AutoBidMaxAmountRequest에 goalId 필드 자체가 없어 외부
+    // 요청으로 purchaseGoalId를 지정할 방법이 없다. 검증/락 순서는 3-arg/4-arg와 완전히 동일하고,
+    // AutoBidSetting.reserve()에 purchaseGoalId를 함께 저장하는 것만 다르다.
+    @Transactional
+    public AutoBidRegisterResponse createAutoBid(Long auctionId, Long userId, Long maxAmount, Long idempotencyId, Long purchaseGoalId) {
         Auction auction = auctionRepository.findByIdForUpdate(auctionId)
                 .orElseThrow(() -> new AuctionNotFoundException("존재하지 않는 경매입니다. auctionId: " + auctionId));
         User user = userRepository.findById(userId)
@@ -122,7 +135,9 @@ public class AutoBidCommandService {
             );
         }
 
-        AutoBidSetting setting = AutoBidSetting.reserve(auction, user, maxAmount);
+        AutoBidSetting setting = purchaseGoalId == null
+                ? AutoBidSetting.reserve(auction, user, maxAmount)
+                : AutoBidSetting.reserve(auction, user, maxAmount, purchaseGoalId);
 
         boolean bidOccurred = false;
         Long resultingBidAmount = null;
@@ -220,6 +235,11 @@ public class AutoBidCommandService {
                 .findCurrentByAuctionIdAndUserIdForUpdate(auctionId, userId)
                 .orElseThrow(() -> new AutoBidNotFoundException("등록된 자동입찰이 없습니다. auctionId: " + auctionId));
 
+        // Day2-B: Purchase Agent가 관리 중인 AutoBid(purchaseGoalId가 ENGAGED/CANCEL_REQUESTED
+        // Goal을 가리키고, 그 Goal의 currentAuctionId가 이 경매인 경우)는 본인이라도 수동으로
+        // 수정할 수 없다 - Agent가 관리하는 값을 사용자가 옆에서 덮어쓰면 Agent의 판단과 어긋난다.
+        agentManagedAuctionGuard.checkNotAgentManaged(setting.getPurchaseGoalId(), auctionId, userId);
+
         if (setting.getUser().isBidRestricted(LocalDateTime.now(clock))) {
             throw new PenaltyRestrictedException("입찰 제한 기간 중인 사용자입니다. userId: " + userId);
         }
@@ -295,11 +315,18 @@ public class AutoBidCommandService {
     }
 
     // penalty/auction 상태를 검증하지 않는다 - "참여 중단"은 페널티 여부나 경매 상태와 무관하게
-    // 항상 허용돼야 한다(계약도 §8에 40404 외의 실패 코드를 정의하지 않는다).
+    // 항상 허용돼야 한다(계약도 §8에 40404 외의 실패 코드를 정의하지 않는다). Day2-B: 단 하나
+    // 예외가 추가됐다 - Purchase Agent가 지금 이 경매를 관리 중이면(purchaseGoalId가 ENGAGED/
+    // CANCEL_REQUESTED Goal을 가리키고 그 Goal의 currentAuctionId가 이 경매) 막는다. Agent가
+    // 관리하는 AutoBid를 사용자가 직접 취소하면 Agent 상태와 실제 입찰 상태가 어긋난다 - 취소
+    // 의사는 PurchaseGoal 쪽 DELETE(ENGAGED->CANCEL_REQUESTED)로 표현하고, 실제 AutoBid 정리는
+    // Agent 로직(Day 5)이 한다.
     @Transactional
     public AutoBidCancelResponse cancelAutoBid(Long auctionId, Long userId) {
         AutoBidSetting setting = autoBidSettingRepository.findByAuctionIdAndUserIdAndActiveSlotTrue(auctionId, userId)
                 .orElseThrow(() -> new AutoBidNotFoundException("등록된 자동입찰이 없습니다. auctionId: " + auctionId));
+
+        agentManagedAuctionGuard.checkNotAgentManaged(setting.getPurchaseGoalId(), auctionId, userId);
 
         setting.cancel();
 

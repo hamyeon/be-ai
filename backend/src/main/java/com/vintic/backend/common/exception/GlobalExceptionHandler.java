@@ -79,6 +79,13 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail(40002, e.getMessage()));
     }
 
+    // 구매 목표(PurchaseGoal) 예산/마감/조건 검증 실패 (400 Bad Request)
+    @ExceptionHandler(InvalidPurchaseGoalException.class)
+    public ResponseEntity<ApiResponse<Void>> handleInvalidPurchaseGoalException(InvalidPurchaseGoalException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.fail(40005, e.getMessage()));
+    }
+
     // S3 업로드 에러 처리 (500 Internal Server Error)
     @ExceptionHandler(S3UploadException.class)
     public ResponseEntity<ApiResponse<Void>> handleS3UploadException(S3UploadException e) {
@@ -284,6 +291,20 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail(40404, e.getMessage()));
     }
 
+    // 존재하지 않는 구매 목표(PurchaseGoal) 조회/취소 (404 Not Found)
+    @ExceptionHandler(PurchaseGoalNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePurchaseGoalNotFoundException(PurchaseGoalNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40406, e.getMessage()));
+    }
+
+    // 본인 소유가 아닌 구매 목표 조회/취소 시도 (403 Forbidden)
+    @ExceptionHandler(PurchaseGoalAccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePurchaseGoalAccessDeniedException(PurchaseGoalAccessDeniedException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.fail(40306, e.getMessage()));
+    }
+
     // 존재하지 않거나 본인 소유가 아닌 알림 (404 Not Found, #75) - 두 경우를 구분해서 노출하지
     // 않는다(findByIdAndRecipientId가 애초에 둘을 구분하지 않는 단일 조회이므로 자연히 통일된다).
     @ExceptionHandler(NotificationNotFoundException.class)
@@ -311,6 +332,20 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleAutoBidAlreadyExistsException(AutoBidAlreadyExistsException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiResponse.fail(40908, e.getMessage()));
+    }
+
+    // ACTIVE/ENGAGED가 아닌 구매 목표에 취소를 재요청 (409 Conflict)
+    @ExceptionHandler(InvalidPurchaseGoalStatusException.class)
+    public ResponseEntity<ApiResponse<Void>> handleInvalidPurchaseGoalStatusException(InvalidPurchaseGoalStatusException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40916, e.getMessage()));
+    }
+
+    // Purchase Agent가 관리 중인 경매에 AutoBid 수정/취소 또는 수동 입찰 시도 (409 Conflict)
+    @ExceptionHandler(AgentManagedAuctionException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAgentManagedAuctionException(AgentManagedAuctionException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40917, e.getMessage()));
     }
 
     // Auction row PESSIMISTIC_WRITE 획득 실패(락 대기 타임아웃/데드락) (409 Conflict)

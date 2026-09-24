@@ -122,4 +122,21 @@ public interface AuctionRepository extends JpaRepository<Auction, Long> {
             @Param("now") LocalDateTime now,
             Pageable pageable
     );
+
+    // Purchase Agent Day 3 사전 필터 전용. "지금 진행 중"(LIVE이고 아직 마감 전) 또는 "시작까지
+    // scheduledWindowEnd 이내로 임박한 SCHEDULED"만 후보로 본다 - LIVE인데 endAt이 이미 지난
+    // row는 scheduler polling 지연 구간(#73-2/#73-3과 동일한 gap)이라 "진행 중"으로 보지 않는다.
+    // product까지 함께 읽는다 - 브랜드/모델/등급/사이즈 필터가 이어서 product 필드를 바로 써야 하기 때문이다.
+    @Query("""
+            select a from Auction a
+            join fetch a.product
+            where (a.status = :liveStatus and a.endAt > :now)
+               or (a.status = :scheduledStatus and a.startAt > :now and a.startAt <= :scheduledWindowEnd)
+            """)
+    List<Auction> findCandidatesForPurchaseAgent(
+            @Param("liveStatus") AuctionStatus liveStatus,
+            @Param("scheduledStatus") AuctionStatus scheduledStatus,
+            @Param("now") LocalDateTime now,
+            @Param("scheduledWindowEnd") LocalDateTime scheduledWindowEnd
+    );
 }

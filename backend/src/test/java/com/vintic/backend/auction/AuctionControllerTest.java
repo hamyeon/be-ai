@@ -120,7 +120,7 @@ class AuctionControllerTest {
                 now.minusHours(1), now.plusHours(1), now,
                 100000L, 110000L, "산정 근거",
                 2, true, 556,
-                new AuctionDetailResponse.MyState(false, true, false, CannotBidReason.ALREADY_HIGHEST_BIDDER, null, AutoBidSettingStatus.ACTIVE, 120000L),
+                new AuctionDetailResponse.MyState(false, true, false, CannotBidReason.ALREADY_HIGHEST_BIDDER, null, AutoBidSettingStatus.ACTIVE, 120000L, null, false),
                 null
         );
         when(auctionQueryService.getAuctionDetail(eq(1L), any())).thenReturn(response);
@@ -646,7 +646,7 @@ class AuctionControllerTest {
     void 내_자동입찰_조회_성공시_200과_현재_설정을_반환한다() throws Exception {
         AutoBidMeResponse response = new AutoBidMeResponse(
                 15L, 1L, AutoBidSettingStatus.ACTIVE, 120000L, 105000L, 110000L,
-                OffsetDateTime.now().minusHours(1), OffsetDateTime.now(), true, true
+                OffsetDateTime.now().minusHours(1), OffsetDateTime.now(), true, true, null, false
         );
         when(autoBidQueryService.getMyAutoBid(1L, 2L)).thenReturn(response);
 

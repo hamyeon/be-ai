@@ -71,8 +71,13 @@ class ProxyPriceEngineTest {
             assertThat(result.priceChanged()).isFalse();
         }
 
+        // #Day8 결함 수정: 이전에는 currentWinner가 없는 LIVE 경매에 유일한 AutoBid가 등록돼도
+        // "경쟁 상대가 없다"는 이유로 winner를 정하지 않고 계속 대기시켰다(§0.13 "예약자 1명도
+        // 최소 한 단계는 응찰"이 NONE 트리거에만 구현돼 있었음). 이제 NONE과 동일하게 currentPrice
+        // 기준 phantom을 둬서, 유일한 entrant도 최소 한 단계(maxAmount까지 바로 점프하지 않음)
+        // 응찰해 실제로 winner가 된다 - "예약자가_1명이면..." 테스트(NONE 트리거)와 대칭이다.
         @Test
-        void AUTO_트리거_유일한_entrant는_경쟁상대가_없으면_활성화만_되고_스스로_응찰하지_않는다() {
+        void AUTO_트리거_유일한_entrant는_경쟁상대가_없어도_최소_한_단계_응찰해서_winner가_된다() {
             ProxyResolutionInput input = new ProxyResolutionInput(
                     105000L, INCREMENT, new ProxyTrigger.Auto(null),
                     List.of(candidate(9L, 200000L, T0, 1L))
@@ -80,10 +85,10 @@ class ProxyPriceEngineTest {
 
             ProxyResolution result = engine.resolve(input);
 
-            assertThat(result.finalCurrentPrice()).isEqualTo(105000L);
-            assertThat(result.finalWinnerUserId()).isNull();
-            assertThat(result.priceChanged()).isFalse();
-            assertThat(result.resultingAutoBid()).isNull();
+            assertThat(result.finalCurrentPrice()).isEqualTo(110000L); // 200000이 아니라 105000+5000
+            assertThat(result.finalWinnerUserId()).isEqualTo(9L);
+            assertThat(result.priceChanged()).isTrue();
+            assertThat(result.resultingAutoBid()).isEqualTo(new ResultingAutoBid(9L, 110000L));
             assertThat(result.candidateResults()).containsExactly(new CandidateResult(9L, ProxyEntrantStatus.ACTIVE));
         }
     }

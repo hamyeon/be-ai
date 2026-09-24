@@ -77,6 +77,14 @@ purchase-agent:
     provider: ${PURCHASE_LISTING_MATCHER:openai}
     model: ${PURCHASE_LISTING_MATCHER_MODEL:gpt-4o-mini}
     max-output-tokens: 300
+  # Day 6: 만료 -> 결과 관찰 -> 탐색/참여를 5분마다 순서대로 도는 단일 scheduler(#95).
+  # 기본은 꺼둔다 - 위 auction.lifecycle/payment.expiration과 동일한 이유다: 이 프로젝트의
+  # MySqlIT 다수가 @ActiveProfiles("local")을 데이터소스 설정 모양만 빌려 쓰는데, 기본 활성화하면
+  # 그 테스트들의 @SpringBootTest 컨텍스트에도 이 scheduler가 함께 떠 실제로 AutoBid를 등록해버릴
+  # 수 있다. 실제로 켜려면 PURCHASE_AGENT_SCAN_ENABLED=true가 필요하다.
+  scan:
+    cron: ${PURCHASE_AGENT_SCAN_CRON:0 */5 * * * *}
+    enabled: ${PURCHASE_AGENT_SCAN_ENABLED:false}
 
 # Vision 분석 작업을 Worker에게 전달하는 Redis Stream 설정
 analysis:

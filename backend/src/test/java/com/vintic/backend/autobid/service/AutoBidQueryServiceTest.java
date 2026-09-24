@@ -8,6 +8,7 @@ import com.vintic.backend.autobid.dto.AutoBidMeResponse;
 import com.vintic.backend.autobid.repository.AutoBidSettingRepository;
 import com.vintic.backend.common.exception.AutoBidNotFoundException;
 import com.vintic.backend.product.domain.Product;
+import com.vintic.backend.purchasegoal.service.AgentManagedAuctionGuard;
 import com.vintic.backend.support.TestClockConfig;
 import com.vintic.backend.user.domain.User;
 import jakarta.persistence.EntityManager;
@@ -24,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 // Clock(#41+): AutoBidQueryService의 신규 의존성 - TestClockConfig로 채운다.
 @DataJpaTest
-@Import({AutoBidQueryService.class, TestClockConfig.class})
+@Import({AutoBidQueryService.class, AgentManagedAuctionGuard.class, TestClockConfig.class})
 class AutoBidQueryServiceTest {
 
     @Autowired
