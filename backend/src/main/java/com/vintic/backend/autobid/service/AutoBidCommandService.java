@@ -92,6 +92,15 @@ public class AutoBidCommandService {
     // 넘겨주는 참조값이다.
     @Transactional
     public AutoBidRegisterResponse createAutoBid(Long auctionId, Long userId, Long maxAmount, Long idempotencyId) {
+        return createAutoBid(auctionId, userId, maxAmount, idempotencyId, null);
+    }
+
+    // Day 5(Purchase Agent 내부 등록) 전용 진입점이다. 일반 사용자 API(AutoBidService/Controller)는
+    // 이 오버로드를 호출하지 않는다 - AutoBidMaxAmountRequest에 goalId 필드 자체가 없어 외부
+    // 요청으로 purchaseGoalId를 지정할 방법이 없다. 검증/락 순서는 3-arg/4-arg와 완전히 동일하고,
+    // AutoBidSetting.reserve()에 purchaseGoalId를 함께 저장하는 것만 다르다.
+    @Transactional
+    public AutoBidRegisterResponse createAutoBid(Long auctionId, Long userId, Long maxAmount, Long idempotencyId, Long purchaseGoalId) {
         Auction auction = auctionRepository.findByIdForUpdate(auctionId)
                 .orElseThrow(() -> new AuctionNotFoundException("존재하지 않는 경매입니다. auctionId: " + auctionId));
         User user = userRepository.findById(userId)
@@ -126,7 +135,9 @@ public class AutoBidCommandService {
             );
         }
 
-        AutoBidSetting setting = AutoBidSetting.reserve(auction, user, maxAmount);
+        AutoBidSetting setting = purchaseGoalId == null
+                ? AutoBidSetting.reserve(auction, user, maxAmount)
+                : AutoBidSetting.reserve(auction, user, maxAmount, purchaseGoalId);
 
         boolean bidOccurred = false;
         Long resultingBidAmount = null;

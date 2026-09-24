@@ -71,4 +71,10 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     // 어떤 값도 business decision에 쓰지 않는다.
     @Query("select o.auction.id from Order o where o.id = :orderId")
     Optional<Long> findAuctionIdById(@Param("orderId") Long orderId);
+
+    // Day 7: PurchaseGoal 상세/목록에서 여러 경매의 낙찰 여부를 한 번에 묻는다 - buyerId는 항상
+    // 조회 요청자 본인(PurchaseGoalQueryService가 이미 소유자 검증을 마친 뒤 자기 goal들만 모아
+    // 부른다)이라 다른 사용자의 Order가 섞일 수 없다.
+    @Query("select o.auction.id from Order o where o.auction.id in :auctionIds and o.buyer.id = :buyerId")
+    List<Long> findWonAuctionIds(@Param("auctionIds") List<Long> auctionIds, @Param("buyerId") Long buyerId);
 }

@@ -93,4 +93,32 @@ public interface AutoBidSettingRepository extends JpaRepository<AutoBidSetting, 
             @Param("auctionId") Long auctionId,
             @Param("status") AutoBidSettingStatus status
     );
+
+    // Purchase Agent Day 3 사전 필터 전용. "이 사용자가 이 경매에 AutoBidSetting을 가진 적이
+    // 있는가"를 상태·activeSlot과 무관하게 배치로 묻는다 - CANCELED 이력도 포함해서 제외해야
+    // 하므로 findByAuctionIdAndUserIdAndActiveSlotTrue를 쓰지 않는다. pre-filter 조회라 락 없음.
+    @Query("""
+            select s.auction.id from AutoBidSetting s
+            where s.user.id = :userId and s.auction.id in :auctionIds
+            """)
+    List<Long> findAuctionIdsWithExistingSetting(
+            @Param("userId") Long userId,
+            @Param("auctionIds") List<Long> auctionIds
+    );
+
+    // Day 7: PurchaseGoal 목록/상세의 참여 이력 전용. purchaseGoalId가 연결된(=Day 5 engage가
+    // 실제로 등록에 성공한) row만 대상이다 - Matcher가 평가만 하고 등록까지 가지 않은 경매는
+    // purchase_goal_matches에만 남고 여기 잡히지 않는다. (goal, auction) 쌍은 설계상 최대 1건이지만
+    // (Day 5/6이 같은 goal로 같은 경매에 두 번 등록하지 않는다), 호출부가 auctionId로 다시 묶어
+    // "경매별로 한 번"을 한 번 더 보장한다.
+    @Query("""
+            select s.purchaseGoalId as goalId, s.auction.id as auctionId from AutoBidSetting s
+            where s.purchaseGoalId in :goalIds
+            """)
+    List<PurchaseGoalAuctionPair> findAuctionPairsByPurchaseGoalIdIn(@Param("goalIds") List<Long> goalIds);
+
+    interface PurchaseGoalAuctionPair {
+        Long getGoalId();
+        Long getAuctionId();
+    }
 }

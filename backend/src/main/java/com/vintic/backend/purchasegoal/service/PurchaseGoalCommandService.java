@@ -2,12 +2,14 @@ package com.vintic.backend.purchasegoal.service;
 
 import com.vintic.backend.ai.purchase.dto.GoalCondition;
 import com.vintic.backend.common.exception.InvalidPurchaseGoalException;
+import com.vintic.backend.common.exception.InvalidPurchaseGoalStatusException;
 import com.vintic.backend.common.exception.PurchaseGoalAccessDeniedException;
 import com.vintic.backend.common.exception.PurchaseGoalNotFoundException;
 import com.vintic.backend.common.exception.UserNotFoundException;
 import com.vintic.backend.common.util.TimePolicy;
 import com.vintic.backend.config.ClockConfig;
 import com.vintic.backend.purchasegoal.domain.PurchaseGoal;
+import com.vintic.backend.purchasegoal.domain.PurchaseGoalStatus;
 import com.vintic.backend.purchasegoal.dto.CreatePurchaseGoalRequest;
 import com.vintic.backend.purchasegoal.dto.PurchaseGoalCancelResponse;
 import com.vintic.backend.purchasegoal.dto.PurchaseGoalResponse;
@@ -76,12 +78,20 @@ public class PurchaseGoalCommandService {
         );
 
         PurchaseGoal saved = purchaseGoalRepository.save(goal);
-        return PurchaseGoalResponse.from(saved);
+        // 방금 만든 Goal이라 참여 이력이 있을 수 없다 - 조회 없이 0으로 고정한다.
+        return PurchaseGoalResponse.from(saved, 0, 0);
     }
 
     // OrderQueryService.getOrder()와 동일한 소유자 검증 관례(404 -> 403 순서)를 쓴다.
-    // 상태 전이 규칙(ACTIVE->CANCELLED, ENGAGED->CANCEL_REQUESTED, 그 외 거절)은
-    // PurchaseGoal.cancel()에 있다 - 여기서 상태를 직접 분기하지 않는다.
+    //
+    // Day 5부터는 PurchaseGoal.cancel()(엔티티 dirty-checking 저장) 대신 조건부 UPDATE 두 번을
+    // 시도한다 - Day 5의 참여(ACTIVE->ENGAGED) 전이도 같은 goal row에 조건부 UPDATE를 쓰므로,
+    // 여기서 읽어둔 goal 엔티티의 status를 그대로 믿고 무조건 덮어쓰면 참여 트랜잭션이 먼저
+    // commit된 경우 그 결과(ENGAGED)를 잃어버릴 수 있다(lost update). ACTIVE->CANCELLED가 실패하면
+    // (이미 다른 상태로 바뀐 것) ENGAGED->CANCEL_REQUESTED를 시도한다 - 참여가 먼저 이겼다면
+    // 이 두 번째 시도가 성공해 취소 의사를 기록한다. 두 시도 모두 실패하면 실제 DB 상태를 다시
+    // 읽어 예외 메시지를 만든다(읽어둔 goal은 이미 stale할 수 있으므로 응답/예외 모두 이 재조회
+    // 또는 UPDATE 결과 기준으로 만든다 - 처음 읽은 goal 엔티티 값을 그대로 응답에 쓰지 않는다).
     @Transactional
     public PurchaseGoalCancelResponse cancelGoal(Long goalId, Long userId) {
         PurchaseGoal goal = purchaseGoalRepository.findById(goalId)
@@ -91,8 +101,19 @@ public class PurchaseGoalCommandService {
             throw new PurchaseGoalAccessDeniedException("접근 권한이 없는 구매 목표입니다. goalId: " + goalId);
         }
 
-        goal.cancel(LocalDateTime.now(clock));
+        LocalDateTime now = LocalDateTime.now(clock);
 
-        return new PurchaseGoalCancelResponse(goal.getId(), goal.getStatus(), TimePolicy.toApiTime(goal.getUpdatedAt()));
+        if (purchaseGoalRepository.cancelFromActive(goalId, now) == 1) {
+            return new PurchaseGoalCancelResponse(goalId, PurchaseGoalStatus.CANCELLED, TimePolicy.toApiTime(now));
+        }
+        if (purchaseGoalRepository.requestCancelFromEngaged(goalId, now) == 1) {
+            return new PurchaseGoalCancelResponse(goalId, PurchaseGoalStatus.CANCEL_REQUESTED, TimePolicy.toApiTime(now));
+        }
+
+        PurchaseGoal current = purchaseGoalRepository.findById(goalId)
+                .orElseThrow(() -> new PurchaseGoalNotFoundException("존재하지 않는 구매 목표입니다. goalId: " + goalId));
+        throw new InvalidPurchaseGoalStatusException(
+                "ACTIVE/ENGAGED 상태에서만 취소할 수 있습니다. 현재 상태: " + current.getStatus()
+        );
     }
 }

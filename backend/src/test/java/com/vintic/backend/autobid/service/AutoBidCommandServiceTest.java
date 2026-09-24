@@ -15,6 +15,7 @@ import com.vintic.backend.autobid.dto.AutoBidUpdateResponse;
 import com.vintic.backend.autobid.proxy.ProxyPriceEngine;
 import com.vintic.backend.autobid.repository.AutoBidSettingRepository;
 import com.vintic.backend.bid.domain.BidType;
+import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.common.exception.AgentManagedAuctionException;
 import com.vintic.backend.common.exception.AuctionClosedException;
 import com.vintic.backend.common.exception.AuctionNotFoundException;
@@ -65,6 +66,9 @@ class AutoBidCommandServiceTest {
 
     @Autowired
     private AuctionPriceAuditRepository auctionPriceAuditRepository;
+
+    @Autowired
+    private BidRepository bidRepository;
 
     @Autowired
     private PurchaseGoalRepository purchaseGoalRepository;
@@ -153,8 +157,13 @@ class AutoBidCommandServiceTest {
         assertThat(response.isHighestBidder()).isFalse();
     }
 
+    // #Day8 결함 수정 이후: 경쟁자가 전혀 없어도(currentWinner가 없는 LIVE 경매에 첫 entrant)
+    // §0.13 "예약자 1명도 최소 한 단계는 응찰한다"가 적용돼 즉시 currentWinner가 된다 - 이전에는
+    // "경쟁 상대가 없다"는 이유로 winner를 영원히 null로 남겨뒀다(ProxyPriceEngine의 AUTO 트리거가
+    // NONE과 달리 이 경우 phantom을 만들지 않던 결함, 수정 완료). maxAmount(200000)로 바로
+    // 점프하지 않고 시작가+한 단계(110000)에서 이긴다.
     @Test
-    void LIVE_경매에_등록하면_ACTIVE가_되고_임시_response_필드를_반환한다() {
+    void LIVE_경매에_등록하면_ACTIVE가_되고_유일한_입찰자도_즉시_낙찰된다() {
         User seller = persistUser("seller@vintic.local");
         User bidder = persistUser("bidder@vintic.local");
         Product product = persistProduct(seller);
@@ -164,12 +173,17 @@ class AutoBidCommandServiceTest {
         AutoBidRegisterResponse response = autoBidCommandService.createAutoBid(auction.getId(), bidder.getId(), 200000L);
 
         assertThat(response.status()).isEqualTo(AutoBidSettingStatus.ACTIVE);
-        assertThat(response.bidOccurred()).isFalse();
-        assertThat(response.resultingBidAmount()).isNull();
-        assertThat(response.isHighestBidder()).isFalse();
-        assertThat(response.currentPrice()).isEqualTo(105000L);
-        assertThat(response.minNextBidAmount()).isEqualTo(110000L);
-        assertThat(response.minCapAmount()).isEqualTo(110000L);
+        assertThat(response.bidOccurred()).isTrue();
+        assertThat(response.resultingBidAmount()).isEqualTo(110000L);
+        assertThat(response.isHighestBidder()).isTrue();
+        assertThat(response.currentPrice()).isEqualTo(110000L);
+        assertThat(response.minNextBidAmount()).isEqualTo(115000L);
+        assertThat(response.minCapAmount()).isEqualTo(115000L);
+
+        Auction reloaded = auctionRepository.findById(auction.getId()).orElseThrow();
+        assertThat(reloaded.getCurrentWinner().getId()).isEqualTo(bidder.getId());
+        assertThat(reloaded.getCurrentPrice()).isEqualTo(110000L);
+        assertThat(bidRepository.countByAuctionId(auction.getId())).isEqualTo(1);
     }
 
     @Test
@@ -652,8 +666,14 @@ class AutoBidCommandServiceTest {
 
     // ===== CANCELED AutoBid는 가격 계산에서 제외 =====
 
+    // CANCELED는 findByAuctionIdAndStatusAndUserIdNot(..., ACTIVE, ...) 조회 조건(status=ACTIVE)
+    // 자체에서 걸러져 ProxyResolutionInput.candidates()에 아예 들어가지 않는다 - 확인 결과 엔진에
+    // CANCELED가 새는 경로는 없었다(ProxyPriceEngineTest의 "CANCELED는 engine 입력에 아예
+    // 존재하지 않는다" 테스트로도 별도 확인됨). 그래서 이 시나리오는 실질적으로 "실제 경쟁자 0명,
+    // entrant 혼자"와 같고, #Day8 수정 이후 entrant가 즉시 낙찰된다 - CANCELED가 후보에 새는
+    // 회귀라면 엔진을 고쳐야 했겠지만 그런 회귀는 없었으므로 기대값만 새 정책에 맞춘다.
     @Test
-    void CANCELED_설정은_상한가가_높아도_경쟁에서_제외되어_새_entrant가_경쟁없이_ACTIVE가_된다() {
+    void CANCELED_설정은_상한가가_높아도_경쟁에서_제외되고_새_entrant가_경쟁없이_낙찰된다() {
         User seller = persistUser("seller@vintic.local");
         User bidder = persistUser("bidder@vintic.local");
         User canceledBidder = persistUser("canceled@vintic.local");
@@ -669,8 +689,19 @@ class AutoBidCommandServiceTest {
         AutoBidRegisterResponse response = autoBidCommandService.createAutoBid(auction.getId(), bidder.getId(), 200000L);
 
         assertThat(response.status()).isEqualTo(AutoBidSettingStatus.ACTIVE);
-        assertThat(response.bidOccurred()).isFalse(); // 경쟁자가 없어 응찰 자체가 발생하지 않는다
-        assertThat(response.currentPrice()).isEqualTo(105000L); // 변동 없음
+        assertThat(response.bidOccurred()).isTrue(); // CANCELED는 경쟁자가 아니므로 entrant 혼자 응찰
+        assertThat(response.isHighestBidder()).isTrue();
+        assertThat(response.resultingBidAmount()).isEqualTo(110000L);
+        assertThat(response.currentPrice()).isEqualTo(110000L); // 500000이 아니라 105000+5000
+
+        Auction reloaded = auctionRepository.findById(auction.getId()).orElseThrow();
+        assertThat(reloaded.getCurrentWinner().getId()).isEqualTo(bidder.getId());
+        assertThat(bidRepository.countByAuctionId(auction.getId())).isEqualTo(1); // CANCELED 쪽 Bid는 없다
+
+        List<AuctionPriceAudit> audits = auctionPriceAuditRepository.findByAuctionIdOrderByCreatedAtAsc(auction.getId());
+        assertThat(audits).hasSize(1);
+        assertThat(audits.get(0).getAppliedRule()).isEqualTo(PriceAuditRule.AUTO_ENTRANT_WINS);
+        assertThat(audits.get(0).getResultingWinner().getId()).isEqualTo(bidder.getId());
     }
 
     // ===== 종료 연장 =====
@@ -697,8 +728,13 @@ class AutoBidCommandServiceTest {
         assertThat(reloaded.getEndAt()).isEqualTo(endAt.plusMinutes(3));
     }
 
+    // #Day8: "경쟁자 없는 POST 등록은 bidOccurred=false"라는 옛 전제가 사라졌다(유일한 entrant도
+    // 즉시 낙찰된다) - 그래서 이 최초 등록 자체는 bidOccurred=true가 되어 1회 연장된다(위
+    // POST_등록으로_bidOccurred가_true이면... 테스트와 동일한 경로). "bidOccurred=false여도
+    // 종료 임박 시 연장되지 않는다"는 원래 취지를 지키려면, 이제는 §0.13상 실제로 bidOccurred=false가
+    // 나오는 유일한 경우(이미 currentWinner인 entrant의 cap 인상)로 시나리오를 바꿔야 한다.
     @Test
-    void POST_등록으로_bidOccurred가_false이면_종료_1분_이내여도_연장되지_않는다() {
+    void PATCH_상향으로_bidOccurred가_false이면_종료_1분_이내여도_추가_연장되지_않는다() {
         User seller = persistUser("seller@vintic.local");
         User bidder = persistUser("bidder@vintic.local");
         Product product = persistProduct(seller);
@@ -706,13 +742,22 @@ class AutoBidCommandServiceTest {
         Auction auction = persistLiveAuctionEndingAt(product, 105000L, endAt);
         flushAndClear();
 
-        // 경쟁자가 없어 실제 응찰이 발생하지 않는다(bidOccurred=false).
-        AutoBidRegisterResponse response = autoBidCommandService.createAutoBid(auction.getId(), bidder.getId(), 200000L);
+        // 최초 등록(유일한 입찰자)은 실제로 낙찰되며 종료 1분 이내라 1회 연장된다 - 이 테스트의
+        // 관심사는 그 다음 cap 인상이다.
+        autoBidCommandService.createAutoBid(auction.getId(), bidder.getId(), 200000L);
+        flushAndClear();
+        Auction afterFirstBid = auctionRepository.findById(auction.getId()).orElseThrow();
+        assertThat(afterFirstBid.getExtensionCount()).isEqualTo(1);
+        LocalDateTime endAtAfterFirstExtension = afterFirstBid.getEndAt();
+
+        // 경쟁자가 없어 cap만 올리는 것은 스스로에게 다시 응찰하지 않는다(bidOccurred=false) -
+        // 종료 시각이 여전히 1분 이내여도 추가 연장은 없다.
+        AutoBidUpdateResponse response = autoBidCommandService.updateAutoBid(auction.getId(), bidder.getId(), 300000L);
 
         assertThat(response.bidOccurred()).isFalse();
         Auction reloaded = auctionRepository.findById(auction.getId()).orElseThrow();
-        assertThat(reloaded.getExtensionCount()).isZero();
-        assertThat(reloaded.getEndAt()).isEqualTo(endAt);
+        assertThat(reloaded.getExtensionCount()).isEqualTo(1);
+        assertThat(reloaded.getEndAt()).isEqualTo(endAtAfterFirstExtension);
     }
 
     @Test
@@ -854,35 +899,51 @@ class AutoBidCommandServiceTest {
         assertThat(audit.getAppliedRule()).isEqualTo(PriceAuditRule.AUTO_ENTRANT_WINS);
     }
 
+    // #Day8: 경쟁자가 없어도 §0.13 "예약자 1명도 최소 한 단계는 응찰"에 따라 entrant가 즉시
+    // 낙찰되므로(winner null -> bidder, price 105000 -> 110000) priceChanged/winnerChanged가
+    // 모두 참이 돼 audit이 남는다 - "경쟁이 없으면 audit도 없다"는 옛 전제 자체가 이제 성립하지 않는다.
     @Test
-    void 경쟁없는_LIVE_등록은_bidOccurred가_false이고_audit도_남기지_않는다() {
+    void 경쟁없는_LIVE_등록도_유일한_입찰자가_낙찰되며_AUTO_ENTRANT_WINS_audit을_남긴다() {
         User seller = persistUser("seller@vintic.local");
         User bidder = persistUser("bidder@vintic.local");
         Product product = persistProduct(seller);
         Auction auction = persistLiveAuction(product);
         flushAndClear();
 
-        autoBidCommandService.createAutoBid(auction.getId(), bidder.getId(), 200000L);
+        AutoBidRegisterResponse response = autoBidCommandService.createAutoBid(auction.getId(), bidder.getId(), 200000L);
 
-        assertThat(auctionPriceAuditRepository.countByAuctionId(auction.getId())).isZero();
+        assertThat(response.bidOccurred()).isTrue();
+        List<AuctionPriceAudit> audits = auctionPriceAuditRepository.findByAuctionIdOrderByCreatedAtAsc(auction.getId());
+        assertThat(audits).hasSize(1);
+        AuctionPriceAudit audit = audits.get(0);
+        assertThat(audit.getResultingWinner().getId()).isEqualTo(bidder.getId());
+        assertThat(audit.getTrigger()).isEqualTo(PriceAuditTrigger.AUTO_BID_CREATE);
+        assertThat(audit.getAppliedRule()).isEqualTo(PriceAuditRule.AUTO_ENTRANT_WINS);
     }
 
+    // #Day8: 이전에는 AutoBidSetting을 직접 ACTIVE로 만들어(엔진을 거치지 않고) "암묵적
+    // currentWinner"를 흉내냈다 - 이제는 그런 상태 자체가 실제 등록 경로로는 나오지 않는다
+    // (유일한 entrant는 등록 즉시 진짜 currentWinner가 된다). 그래서 먼저 실제 createAutoBid로
+    // bidder를 진짜 currentWinner로 만든 뒤(이 최초 등록 자체는 audit을 1건 남긴다), 그 cap만
+    // 올리는 두 번째 호출이 §0.13대로 스스로에게 다시 응찰하지 않아 추가 audit이 없는지를 본다.
     @Test
-    void 자기자신이_이미_currentWinner면_cap을_올려도_audit을_남기지_않는다() {
+    void 자기자신이_이미_currentWinner면_cap을_올려도_추가_audit을_남기지_않는다() {
         User seller = persistUser("seller@vintic.local");
         User bidder = persistUser("bidder@vintic.local");
         Product product = persistProduct(seller);
         Auction auction = persistLiveAuction(product);
-        AutoBidSetting setting = AutoBidSetting.reserve(auction, bidder, 110000L);
-        setting.activate();
-        autoBidSettingRepository.saveAndFlush(setting);
         flushAndClear();
 
-        // 경쟁자가 없어 이 entrant 자신이 이미(암묵적) currentWinner 역할이다 - cap만 올려도
-        // 스스로에게 응찰하지 않는다(§0.13) - 가격/승자 변화가 없으므로 no-op, audit 없음.
-        autoBidCommandService.updateAutoBid(auction.getId(), bidder.getId(), 300000L);
+        autoBidCommandService.createAutoBid(auction.getId(), bidder.getId(), 110000L);
+        flushAndClear();
+        assertThat(auctionPriceAuditRepository.countByAuctionId(auction.getId())).isEqualTo(1); // 최초 단독 낙찰 audit
 
-        assertThat(auctionPriceAuditRepository.countByAuctionId(auction.getId())).isZero();
+        // 경쟁자가 없어 이 entrant는 이미 실제 currentWinner다 - cap만 올려도 스스로에게 다시
+        // 응찰하지 않는다(§0.13) - 가격/승자 변화가 없으므로 no-op, 추가 audit 없음.
+        AutoBidUpdateResponse response = autoBidCommandService.updateAutoBid(auction.getId(), bidder.getId(), 300000L);
+
+        assertThat(response.bidOccurred()).isFalse();
+        assertThat(auctionPriceAuditRepository.countByAuctionId(auction.getId())).isEqualTo(1); // 늘지 않음
     }
 
     @Test

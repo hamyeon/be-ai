@@ -49,7 +49,7 @@ class PurchaseGoalControllerTest {
         PurchaseGoalResponse response = new PurchaseGoalResponse(
                 1L, 2L, "New Balance", "nb990", "뉴발란스 990", "A",
                 270, 150000L, "박스 있으면 좋음", OffsetDateTime.now().plusDays(7),
-                "ACTIVE", null, OffsetDateTime.now()
+                "ACTIVE", null, OffsetDateTime.now(), 0, 0
         );
         when(purchaseGoalCommandService.createGoal(any(), eq(2L))).thenReturn(response);
 
@@ -70,7 +70,7 @@ class PurchaseGoalControllerTest {
         PurchaseGoalResponse response = new PurchaseGoalResponse(
                 1L, 7L, "New Balance", "nb990", "뉴발란스 990", "A",
                 270, 150000L, null, OffsetDateTime.now().plusDays(7),
-                "ACTIVE", null, OffsetDateTime.now()
+                "ACTIVE", null, OffsetDateTime.now(), 0, 0
         );
         when(purchaseGoalCommandService.createGoal(any(), eq(7L))).thenReturn(response);
 
@@ -122,7 +122,7 @@ class PurchaseGoalControllerTest {
         PurchaseGoalResponse response = new PurchaseGoalResponse(
                 1L, 2L, null, "nb990", "뉴발란스 990", "A",
                 null, 150000L, null, OffsetDateTime.now().plusDays(7),
-                "ACTIVE", null, OffsetDateTime.now()
+                "ACTIVE", null, OffsetDateTime.now(), 0, 0
         );
         when(purchaseGoalCommandService.createGoal(any(), eq(2L))).thenReturn(response);
 

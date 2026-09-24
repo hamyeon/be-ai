@@ -3,6 +3,8 @@ package com.vintic.backend.purchasegoal;
 import com.vintic.backend.common.dto.ApiResponse;
 import com.vintic.backend.purchasegoal.dto.CreatePurchaseGoalRequest;
 import com.vintic.backend.purchasegoal.dto.PurchaseGoalCancelResponse;
+import com.vintic.backend.purchasegoal.dto.PurchaseGoalDetailResponse;
+import com.vintic.backend.purchasegoal.dto.PurchaseGoalMatchHistoryResponse;
 import com.vintic.backend.purchasegoal.dto.PurchaseGoalResponse;
 import com.vintic.backend.purchasegoal.service.PurchaseGoalCommandService;
 import com.vintic.backend.purchasegoal.service.PurchaseGoalQueryService;
@@ -56,11 +58,22 @@ public class PurchaseGoalController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<PurchaseGoalResponse>> getGoal(
+    public ResponseEntity<ApiResponse<PurchaseGoalDetailResponse>> getGoal(
             @PathVariable Long id,
             @RequestAttribute("currentUserId") Long currentUserId
     ) {
-        PurchaseGoalResponse response = purchaseGoalQueryService.getGoal(id, currentUserId);
+        PurchaseGoalDetailResponse response = purchaseGoalQueryService.getGoal(id, currentUserId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    // Day 8: 참여 이력(GET /{id}의 participations)과 구분되는 Matcher 평가 이력 전용 조회다 -
+    // 등록까지 가지 않은 평가(matched=false 포함)도 여기서만 보인다.
+    @GetMapping("/{id}/matches")
+    public ResponseEntity<ApiResponse<List<PurchaseGoalMatchHistoryResponse>>> getMatchHistory(
+            @PathVariable Long id,
+            @RequestAttribute("currentUserId") Long currentUserId
+    ) {
+        List<PurchaseGoalMatchHistoryResponse> response = purchaseGoalQueryService.getMatchHistory(id, currentUserId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
