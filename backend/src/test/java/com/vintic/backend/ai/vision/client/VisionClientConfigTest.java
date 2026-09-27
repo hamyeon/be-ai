@@ -26,6 +26,12 @@ class VisionClientConfigTest {
         RestTemplate restTemplate() {
             return new RestTemplate();
         }
+
+        // OpenAiVisionClient가 @Qualifier("visionRestTemplate")로 받는 빈(RestTemplateConfig 참고).
+        @Bean
+        RestTemplate visionRestTemplate() {
+            return new RestTemplate();
+        }
     }
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()

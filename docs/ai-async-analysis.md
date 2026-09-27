@@ -147,16 +147,52 @@ docker compose up -d redis   # Redis만 띄우기 (healthcheck 포함)
   이미지를 업로드해서 실제로 `GET /analyze/{taskId}`가 `AWAITING_USER_CONFIRMATION`으로 바뀌는지 한 번
   확인해봐야 한다.
 
-## 이번 이슈 범위 밖 — 후속 확장 항목
+## 회수·재시도·실패 Stream (#110, #111에서 구현)
 
-- **자동 재시도**: 지금은 실패해도 재시도 로직이 없다. 실패 상태(`*_FAILED`)로 남을 뿐이다.
-- **Pending 메시지 회수(claim)**: `XPENDING`으로 오래 미처리 상태인 메시지를 찾아서 다른 Consumer가
-  `XCLAIM`으로 가져가 재처리하는 로직이 없다. 지금은 Consumer가 죽으면 그 메시지는 ack될 때까지 그
-  Consumer 이름으로 계속 pending 상태로 남는다.
-- **DLQ(Dead Letter Queue)**: 계속 실패하는 메시지(예: 파싱조차 안 되는 메시지)를 별도 큐로 옮겨서
-  격리하는 처리가 없다. 지금은 그냥 pending 목록에 무기한 남는다.
-- **알려진 구멍 하나**: Consumer가 `startVisionProcessing()` 저장에는 성공했지만 그 직후(Vision 호출 전)
-  크래시하면, 세션은 `VISION_PROCESSING`에 멈춘 채로 남는다. 이 메시지가 재전달되면 현재 로직은
-  "QUEUED가 아니니 이미 처리된 중복 메시지"로 오인해서 ack하고 버려버린다 — 사실은 Vision이 한 번도
-  안 돌았는데도. Pending 회수 로직을 나중에 설계할 때 이 케이스(QUEUED도 아니고 완료/실패도 아닌 상태로
-  오래 멈춰있는 세션)를 같이 다뤄야 한다.
+과거 이 섹션에 "범위 밖"으로 적었던 항목들은 이후 구현됐다. 핵심만 요약한다 — 세부 근거는
+`AnalysisTaskConsumer`/`AnalysisStreamRecoveryScheduler`/`VisionAttemptCoordinator`/
+`VisionFailureClassifier`/`VisionFailureStreamRecorder`의 클래스·메서드 주석 참고.
+
+- **PEL 회수**: `AnalysisStreamRecoveryScheduler`가 `analysis.stream.recovery.min-idle-time-ms`
+  (기본 240s = `analysis.vision.overall-timeout-ms` 180s + 여유)보다 오래 pending인 메시지를
+  주기적으로 XCLAIM으로 회수해 재처리한다.
+- **소유권(fencing token)**: `ProductAnalysisSession.visionProcessingToken`으로 재선점 시 이전
+  시도의 뒤늦은 완료/실패 기록을 차단한다(`VisionAttemptCoordinator`).
+- **재시도**: `VisionFailureClassifier`가 원인을 셋으로 가른다.
+  (1) executor 포화(`RejectedExecutionException`, Vision을 아예 시도조차 못함) - 로컬 용량
+      문제일 뿐이라 재시도 상한과 무관하게 항상 재시도한다. DB에 손대지 않는다.
+  (2) 그 외 재시도 가치가 있는 오류(HTTP 429/5xx, 네트워크, 처리 상한 초과 등) - 진짜로 Vision을
+      시도했다가 실패한 횟수(`ProductAnalysisSession.visionFailureAttemptCount`, Redis 배달
+      횟수가 아니다)가 `analysis.vision.max-vision-failure-attempts`(기본 5) 미만이면 ACK하지
+      않고 다음 PEL 회수를 기다린다 - 그것이 이 설계의 "재시도"다. Redis 배달 횟수를 쓰지 않는
+      이유: executor 포화로 인한 재전달도 함께 세면, 여유가 생겨 실제로 처음 Vision을 호출한
+      순간 이미 상한을 넘겨 곧바로 최종 실패로 확정돼버린다.
+  (3) 재시도 가치가 없는 오류(4xx 등) - 즉시 최종 실패로 기록한다.
+  `OpenAiVisionClient`의 단계별 자체 재시도(최대 5회)와 중복되지 않도록, 여기서는 그 재시도를
+  반복하지 않는다.
+- **실패 Stream**: 최종 실패는 `analysis.stream.failure-key`(기본 `ai:analysis:failures`)에
+  analysisId 기반 이벤트로 발행된다. DB 커밋 → 발행 → 발행 플래그 커밋까지 성공해야 원본
+  메시지를 ACK한다 - 셋 중 하나라도 실패하면 재전달을 통해 다시 시도한다(at-least-once,
+  `VisionFailureStreamRecorder`).
+- **종료 처리**: 종료 신호 시 새 작업 수신을 멈추고, 진행 중인 작업이 끝날 시간을
+  `analysis.stream.shutdown-grace-period-ms`(기본 200s)만큼 기다린다. 이 시간 안에도 못 끝나면
+  ACK되지 않은 채로 남아 다음 Worker가 회수한다(`RedisStreamConsumerConfig`). Docker의
+  `stop_grace_period`(docker-compose.yml)가 이보다 짧으면 SIGKILL이 먼저 와 이 대기가
+  무의미해지므로 반드시 함께 맞춘다.
+- **DLQ**: 별도 DLQ는 없다 — 실패 Stream이 그 역할을 겸한다(소비자는 별도로 구축 필요).
+
+## 관측 지표 및 알람 조건 (계측만 돼 있음 — 실제 알람 파이프라인 연동은 아직 없음)
+
+`AnalysisStreamMetrics`가 Micrometer(`MeterRegistry`, 신규 의존성 없음)로 아래 지표를 남긴다.
+현재 이 프로젝트에는 Prometheus/CloudWatch 등 실제 스크레이핑·알람 연동이 없어(actuator의
+`/actuator/metrics/{name}`으로 개별 조회만 가능), 아래는 "계측된 지표"이지 "설정된 알람"이
+아니다 — 알람 파이프라인을 실제로 붙일 때 이 조건을 그대로 옮기면 된다.
+
+| 지표 | 의미 | 제안 알람 조건 |
+|---|---|---|
+| `analysis.stream.pending.count` | 현재 PEL에 남은 작업 수 | 지속적으로 증가하거나 비정상적으로 큰 값 |
+| `analysis.stream.pending.oldest_idle_ms` | 가장 오래 대기 중인 PEL 항목의 idle 시간 | `min-idle-time-ms`(240s)의 2배 이상 지속 - 회수가 안 되고 있다는 뜻 |
+| `analysis.stream.pending.last_check_age_ms` | XPENDING 조회가 마지막으로 성공한 지 지난 시간 | `scan-interval-ms`(30s)의 여러 배 이상 - 위 두 게이지가 신뢰할 수 없는 상태(조회 자체가 막힘) |
+| `analysis.stream.redis_errors{operation}` | Redis 연결/명령 오류 횟수(xpending/xclaim 태그로 구분) | 짧은 시간 안에 연속 증가 |
+| `analysis.stream.reclaimed` | PEL에서 회수(재시도)된 건수 | 급격한 증가 - Vision 호출 실패율이 올라갔다는 신호일 수 있음 |
+| `analysis.stream.final_failures` | 최종 실패(VISION_FAILED)로 확정된 건수 | 급격한 증가 |

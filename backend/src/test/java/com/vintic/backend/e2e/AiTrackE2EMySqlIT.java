@@ -435,8 +435,8 @@ class AiTrackE2EMySqlIT {
         ProductAnalysisSession session = ProductAnalysisSession.create();
         session.markImageUploaded(List.of("https://example.com/a.jpg"));
         session.markQueued();
-        session.startVisionProcessing();
-        session.completeVision(objectMapper.writeValueAsString(Map.of("brand", "Nike")));
+        session.claimVisionProcessing("test-token");
+        session.completeVision("test-token", objectMapper.writeValueAsString(Map.of("brand", "Nike")));
         return sessionRepository.save(session).getId();
     }
 
@@ -446,8 +446,8 @@ class AiTrackE2EMySqlIT {
         ProductAnalysisSession session = ProductAnalysisSession.create();
         session.markImageUploaded(List.of("https://example.com/a.jpg"));
         session.markQueued();
-        session.startVisionProcessing();
-        session.failVision("OpenAI Vision API 호출 중 오류가 발생했습니다.");
+        session.claimVisionProcessing("test-token");
+        session.failVision("test-token", "OpenAI Vision API 호출 중 오류가 발생했습니다.");
         Long analysisId = sessionRepository.save(session).getId();
 
         // 분석 작업의 실패와 API 요청의 실패는 다르다. 조회 자체는 성공(200)이고,
@@ -470,8 +470,8 @@ class AiTrackE2EMySqlIT {
         ProductAnalysisSession session = ProductAnalysisSession.create();
         session.markImageUploaded(List.of("https://example.com/a.jpg"));
         session.markQueued();
-        session.startVisionProcessing();
-        session.completeVision(objectMapper.writeValueAsString(result));
+        session.claimVisionProcessing("test-token");
+        session.completeVision("test-token", objectMapper.writeValueAsString(result));
         Long analysisId = sessionRepository.save(session).getId();
 
         mockMvc.perform(get("/api/products/analyze/{taskId}", analysisId))
