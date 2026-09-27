@@ -58,10 +58,38 @@ public class RedisStreamConsumerConfig {
         container.start();
     }
 
+    // container.stop()은 새 poll을 멈추지만, 이미 시작된 onMessage() 호출을 기다려주지
+    // 않는다(stop(Runnable) 콜백도 마찬가지 - 실측으로 확인함, 둘 다 진행 중인 호출과 무관하게
+    // 곧바로 반환/콜백이 온다). "진행 중인 작업을 마칠 시간을 준다"는 요구사항을 만족시키려면
+    // AnalysisTaskConsumer의 in-flight 카운터가 0이 될 때까지 여기서 직접 기다려야 한다.
     @PreDestroy
     public void stop() {
-        if (container != null) {
-            container.stop();
+        if (container == null) {
+            return;
+        }
+        container.stop();
+        waitForInFlightWorkToFinish();
+    }
+
+    private void waitForInFlightWorkToFinish() {
+        long deadline = System.currentTimeMillis() + properties.getShutdownGracePeriodMs();
+        while (analysisTaskConsumer.getInFlightCount() > 0 && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        int remaining = analysisTaskConsumer.getInFlightCount();
+        if (remaining > 0) {
+            log.warn(
+                    "종료 유예 시간({}ms) 안에 진행 중인 작업 {}건이 끝나지 않았습니다 - ACK되지 않은 채로 남아 "
+                            + "다음 Worker가 회수합니다.",
+                    properties.getShutdownGracePeriodMs(), remaining
+            );
+        } else {
+            log.info("진행 중이던 작업이 모두 끝난 뒤 종료합니다.");
         }
     }
 

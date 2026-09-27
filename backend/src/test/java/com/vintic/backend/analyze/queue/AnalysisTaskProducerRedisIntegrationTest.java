@@ -11,10 +11,12 @@ import org.springframework.data.redis.connection.stream.Consumer;
 import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.connection.stream.PendingMessages;
 import org.springframework.data.redis.connection.stream.ReadOffset;
+import org.springframework.data.redis.connection.stream.RecordId;
 import org.springframework.data.redis.connection.stream.StreamOffset;
 import org.springframework.data.redis.connection.stream.StreamReadOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
@@ -98,5 +100,46 @@ class AnalysisTaskProducerRedisIntegrationTest {
         PendingMessages pendingAfterAck = redisTemplate.opsForStream()
                 .pending(testStreamKey, properties.getGroup(), Range.unbounded(), 10);
         assertThat(pendingAfterAck.size()).isEqualTo(0);
+    }
+
+    @Test
+    void 다른_Consumer가_XCLAIM으로_회수하면_PEL_소유자가_바뀌고_원래_Consumer는_더_이상_pending을_소유하지_않는다() throws Exception {
+        AnalysisTaskProducer producer = new AnalysisTaskProducer(redisTemplate, objectMapper, properties);
+        producer.enqueue(new AnalysisTaskMessage(99L, List.of("https://example.com/a.jpg"), null));
+        redisTemplate.opsForStream().createGroup(testStreamKey, ReadOffset.from("0"), properties.getGroup());
+
+        String consumer1 = properties.getConsumerPrefix() + "-1";
+        String consumer2 = properties.getConsumerPrefix() + "-2";
+
+        List<MapRecord<String, Object, Object>> delivered = redisTemplate.opsForStream().read(
+                Consumer.from(properties.getGroup(), consumer1),
+                StreamReadOptions.empty().count(10),
+                StreamOffset.create(testStreamKey, ReadOffset.lastConsumed())
+        );
+        assertThat(delivered).hasSize(1);
+        RecordId recordId = delivered.get(0).getId();
+
+        // consumer1이 ack하지 않고 죽었다고 가정 - minIdleTime(50ms)이 지나야 회수 대상이 된다.
+        Thread.sleep(100);
+
+        List<MapRecord<String, String, String>> claimed = redisTemplate.<String, String>opsForStream().claim(
+                testStreamKey, properties.getGroup(), consumer2, Duration.ofMillis(50), recordId
+        );
+        assertThat(claimed).hasSize(1);
+        assertThat(claimed.get(0).getId()).isEqualTo(recordId);
+
+        PendingMessages pendingForConsumer2 = redisTemplate.opsForStream()
+                .pending(testStreamKey, Consumer.from(properties.getGroup(), consumer2), Range.unbounded(), 10);
+        assertThat(pendingForConsumer2.size()).isEqualTo(1);
+
+        PendingMessages pendingForConsumer1 = redisTemplate.opsForStream()
+                .pending(testStreamKey, Consumer.from(properties.getGroup(), consumer1), Range.unbounded(), 10);
+        assertThat(pendingForConsumer1.size()).isEqualTo(0);
+
+        // 아직 idle이 초기화된(claim 직후) 엔트리라 같은 minIdleTime으로는 또 회수되지 않는다.
+        List<MapRecord<String, String, String>> secondClaimAttempt = redisTemplate.<String, String>opsForStream().claim(
+                testStreamKey, properties.getGroup(), consumer1, Duration.ofMillis(50), recordId
+        );
+        assertThat(secondClaimAttempt).isEmpty();
     }
 }

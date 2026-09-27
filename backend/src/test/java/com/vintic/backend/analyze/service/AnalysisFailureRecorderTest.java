@@ -37,7 +37,7 @@ class AnalysisFailureRecorderTest {
     void 상위_트랜잭션이_롤백되어도_REQUIRES_NEW로_기록한_실패_상태는_커밋된_채로_남는다() {
         ProductAnalysisSession session = ProductAnalysisSession.create();
         session.markQueued();
-        session.startVisionProcessing();
+        session.claimVisionProcessing("test-token");
         ProductAnalysisSession saved = sessionRepository.save(session);
         Long sessionId = saved.getId();
 
@@ -45,7 +45,7 @@ class AnalysisFailureRecorderTest {
         TransactionTemplate outerTransaction = new TransactionTemplate(transactionManager);
 
         assertThatThrownBy(() -> outerTransaction.executeWithoutResult(status -> {
-            failureRecorder.recordVisionFailure(sessionId, "OpenAI 호출 실패");
+            failureRecorder.recordVisionFailure(sessionId, "test-token", "OpenAI 호출 실패");
             throw new RuntimeException("상위 트랜잭션 강제 실패");
         }))
                 .isInstanceOf(RuntimeException.class)
