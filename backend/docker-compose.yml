@@ -19,6 +19,9 @@ services:
       # OpenAI 설정
       - OPENAI_API_KEY=${OPENAI_API_KEY}
 
+      # Anthropic 설정 (Vision 분석 기본 벤더)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+
       # Redis 설정 (분석 작업 Queue 전달 용도)
       - SPRING_DATA_REDIS_HOST=redis
       - SPRING_DATA_REDIS_PORT=6379

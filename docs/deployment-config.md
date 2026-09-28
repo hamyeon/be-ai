@@ -54,12 +54,18 @@
 
 | 환경변수 | 기본값 | 설명 |
 | --- | --- | --- |
-| `VISION_DETAIL_SILHOUETTE` | `low` | 1단계(전체 형태) 이미지 해상도 |
-| `VISION_DETAIL_LABEL` | `high` | 2단계(라벨/로고) 해상도 |
-| `VISION_DETAIL_CONDITION` | `high` | 3단계(오염/마모) 해상도 |
+| `ANTHROPIC_API_KEY` | 없음 | **필수.** Vision 기본 벤더가 Claude다. 없어도 기동은 되지만 분석이 전부 실패한다 |
+| `VISION_PROVIDER` | `claude` | `openai`로 바꾸면 GPT로 되돌린다(이때 `VISION_MODEL`도 비우거나 `gpt-4o`로) |
+| `VISION_MODEL` | `claude-sonnet-5` | Vision 모델 |
+| `ANTHROPIC_EFFORT` | `low` | Claude thinking 깊이 |
+| `VISION_PROMPT_VERSION` | `v3` | 프롬프트 묶음. v3는 출력을 줄인 판 |
+| `VISION_STAGE_EXECUTION_MODE` | `all-parallel` | 세 단계 동시 실행 |
+| `VISION_DETAIL_SILHOUETTE` | `low` | 1단계(전체 형태) 이미지 해상도 (OpenAI 전용) |
+| `VISION_DETAIL_LABEL` | `high` | 2단계(라벨/로고) 해상도 (OpenAI 전용) |
+| `VISION_DETAIL_CONDITION` | `high` | 3단계(오염/마모) 해상도 (OpenAI 전용) |
 
-해상도는 정확도와 비용을 맞바꾸는 값이라 재배포 없이 조정할 수 있게 빼뒀다.
-측정 근거는 `docs/ai-vision-agent.md` 참고.
+전부 재배포 없이 조정할 수 있게 빼뒀다. 벤더·모델 선택 근거는 `docs/ai-vision-agent.md`의
+"벤더 비교 실측" 절 참고. Goal 파서·Matcher·임베딩은 여전히 OpenAI라 `OPENAI_API_KEY`도 계속 필요하다.
 
 ## 지표 확인 방법
 
