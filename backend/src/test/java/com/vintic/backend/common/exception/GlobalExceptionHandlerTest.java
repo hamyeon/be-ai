@@ -1,7 +1,9 @@
 package com.vintic.backend.common.exception;
 
 import com.vintic.backend.auction.AuctionController;
+import com.vintic.backend.auction.service.AuctionManagementService;
 import com.vintic.backend.auction.service.AuctionQueryService;
+import com.vintic.backend.auction.service.AuctionRelistService;
 import com.vintic.backend.auction.service.AuctionResultQueryService;
 import com.vintic.backend.autobid.service.AutoBidQueryService;
 import com.vintic.backend.autobid.service.AutoBidService;
@@ -59,6 +61,12 @@ class GlobalExceptionHandlerTest {
 
     @MockitoBean
     private AuctionForfeitService auctionForfeitService;
+
+    @MockitoBean
+    private AuctionManagementService auctionManagementService;
+
+    @MockitoBean
+    private AuctionRelistService auctionRelistService;
 
     @Test
     void 존재하지_않는_경로는_404를_반환한다() {

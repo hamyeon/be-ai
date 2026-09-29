@@ -1,11 +1,18 @@
 package com.vintic.backend.auction;
 
+import com.vintic.backend.auction.dto.AuctionCancelResponse;
 import com.vintic.backend.auction.dto.AuctionDetailResponse;
 import com.vintic.backend.auction.dto.AuctionForfeitResponse;
 import com.vintic.backend.auction.dto.AuctionLiveResponse;
 import com.vintic.backend.auction.dto.AuctionResultResponse;
+import com.vintic.backend.auction.dto.AuctionRelistResponse;
+import com.vintic.backend.auction.dto.ChangeStartPriceRequest;
+import com.vintic.backend.auction.dto.ChangeStartPriceResponse;
+import com.vintic.backend.auction.dto.RelistAuctionRequest;
 import com.vintic.backend.auction.dto.SimilarAuctionsResponse;
+import com.vintic.backend.auction.service.AuctionManagementService;
 import com.vintic.backend.auction.service.AuctionQueryService;
+import com.vintic.backend.auction.service.AuctionRelistService;
 import com.vintic.backend.auction.service.AuctionResultQueryService;
 import com.vintic.backend.autobid.dto.AutoBidCancelResponse;
 import com.vintic.backend.autobid.dto.AutoBidMaxAmountRequest;
@@ -56,6 +63,8 @@ public class AuctionController {
     private final AutoBidQueryService autoBidQueryService;
     private final AuctionLikeService auctionLikeService;
     private final AuctionForfeitService auctionForfeitService;
+    private final AuctionManagementService auctionManagementService;
+    private final AuctionRelistService auctionRelistService;
 
     public AuctionController(
             AuctionQueryService auctionQueryService,
@@ -66,7 +75,9 @@ public class AuctionController {
             AutoBidService autoBidService,
             AutoBidQueryService autoBidQueryService,
             AuctionLikeService auctionLikeService,
-            AuctionForfeitService auctionForfeitService
+            AuctionForfeitService auctionForfeitService,
+            AuctionManagementService auctionManagementService,
+            AuctionRelistService auctionRelistService
     ) {
         this.auctionQueryService = auctionQueryService;
         this.auctionResultQueryService = auctionResultQueryService;
@@ -77,6 +88,8 @@ public class AuctionController {
         this.autoBidQueryService = autoBidQueryService;
         this.auctionLikeService = auctionLikeService;
         this.auctionForfeitService = auctionForfeitService;
+        this.auctionManagementService = auctionManagementService;
+        this.auctionRelistService = auctionRelistService;
     }
 
     // #55: 상세조회는 기존부터 비로그인 접근을 허용해왔다(가입 전 상품을 볼 수 있어야 한다는
@@ -382,5 +395,70 @@ public class AuctionController {
     ) {
         AutoBidCancelResponse response = autoBidService.cancelAutoBid(auctionId, userId);
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    // 정책: 경매가 실제 시작하기 전까지만(now < startAt) 판매자 본인이 취소할 수 있다.
+    @Operation(summary = "경매 취소", description = "SCHEDULED 상태이고 아직 시작 전인 경매만 취소할 수 있다. 판매자 본인만 가능하다.")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "취소 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "본인 경매가 아님(40307)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 경매(40401)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "이미 시작되었거나 SCHEDULED가 아님(40921)")
+    })
+    @PostMapping("/{auctionId}/cancel")
+    public ResponseEntity<ApiResponse<AuctionCancelResponse>> cancelAuction(
+            @PathVariable Long auctionId,
+            @RequestAttribute("currentUserId") Long userId
+    ) {
+        AuctionCancelResponse response = auctionManagementService.cancel(auctionId, userId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    // 정책: 시작가는 경매 시작 1시간 전까지만(now <= startAt - 1h) 판매자 본인이 수정할 수 있다.
+    @Operation(summary = "경매 시작가 수정", description = "SCHEDULED 상태이고 시작 1시간 전까지만 시작가를 수정할 수 있다. 판매자 본인만 가능하다.")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "수정 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "본인 경매가 아님(40307)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 경매(40401)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "수정 가능 시간(시작 1시간 전) 경과 또는 SCHEDULED가 아님(40922)")
+    })
+    @PatchMapping("/{auctionId}/start-price")
+    public ResponseEntity<ApiResponse<ChangeStartPriceResponse>> changeStartPrice(
+            @PathVariable Long auctionId,
+            @RequestAttribute("currentUserId") Long userId,
+            @Valid @RequestBody ChangeStartPriceRequest request
+    ) {
+        ChangeStartPriceResponse response = auctionManagementService.changeStartPrice(auctionId, userId, request.startPrice());
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    // 첫 경매는 POST /api/products로만 생성된다 - 이 엔드포인트는 기존 상품의 "재경매"
+    // (남은 등록 횟수를 사용한 두 번째 경매 등록) 전용이다. previousAuctionId가 유찰(ENDED,
+    // 입찰 0건) 또는 시작 전 취소(CANCELED) 상태가 아니면 거절된다 - 첫 경매가 없는 상품은
+    // 참조할 previousAuctionId 자체가 없어 이 API로 등록할 수 없다.
+    @Operation(
+            summary = "재경매 등록",
+            description = "이전 경매(previousAuctionId)가 유찰되었거나 시작 전 취소된 경우에만, 남은 등록 "
+                    + "횟수(최초 등록 포함 최대 2회) 안에서 같은 상품에 새 경매를 등록한다. bidIncrement는 "
+                    + "받지 않는다 - 서버가 고정값을 적용한다."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "등록 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "시작 시각이 과거이거나 진행시간이 1시간 미만(40006)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증이 필요합니다(40101)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "본인 상품이 아님(40307)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "존재하지 않는 이전 경매(40401)"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "이미 활성 경매 존재(40918) / 등록 횟수 초과(40919) / 재경매 대상 아님(40920)")
+    })
+    @PostMapping("/{previousAuctionId}/relist")
+    public ResponseEntity<ApiResponse<AuctionRelistResponse>> relist(
+            @PathVariable Long previousAuctionId,
+            @RequestAttribute("currentUserId") Long userId,
+            @Valid @RequestBody RelistAuctionRequest request
+    ) {
+        AuctionRelistResponse response = auctionRelistService.relist(previousAuctionId, userId, request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 }

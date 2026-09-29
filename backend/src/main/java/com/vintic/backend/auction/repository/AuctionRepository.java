@@ -123,6 +123,14 @@ public interface AuctionRepository extends JpaRepository<Auction, Long> {
             Pageable pageable
     );
 
+    // 경매 등록 분리(재경매 정책) 전용. AuctionRelistService/ProductRegistrationService가 Product row lock(FOR UPDATE)을
+    // 먼저 획득한 뒤 호출하는, 이 트랜잭션의 첫 non-locking read다 - REPEATABLE READ read view가
+    // 여기서 확립돼도 Product 락으로 이미 동시 경쟁자가 배제된 뒤라 안전하다(#45/#46이 확립한
+    // "Auction 먼저 lock" 원칙을 Product 기준으로 재사용, 이 프로젝트에 새 lock ordering을
+    // 추가하지 않는다). 상태 무관하게 이 상품의 모든 Auction 이력(SCHEDULED/LIVE/ENDED/CANCELED)을
+    // 반환한다 - "총 2회" 카운트와 "이전 ENDED가 유찰이었는지" 판정 둘 다 이 결과 하나로 계산한다.
+    List<Auction> findAllByProductId(Long productId);
+
     // Purchase Agent Day 3 사전 필터 전용. "지금 진행 중"(LIVE이고 아직 마감 전) 또는 "시작까지
     // scheduledWindowEnd 이내로 임박한 SCHEDULED"만 후보로 본다 - LIVE인데 endAt이 이미 지난
     // row는 scheduler polling 지연 구간(#73-2/#73-3과 동일한 gap)이라 "진행 중"으로 보지 않는다.

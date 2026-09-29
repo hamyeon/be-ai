@@ -174,9 +174,10 @@ class ManualBidServiceTest {
     void 같은_user가_다른_auction에_같은_key_문자열을_쓰면_별도_요청으로_처리된다() {
         User seller = persistUser("seller@vintic.local");
         User bidder = persistUser("bidder@vintic.local");
-        Product product = persistProduct(seller);
-        Auction auctionOne = persistLiveAuction(product);
-        Auction auctionTwo = persistLiveAuction(product);
+        // 한 상품에 LIVE 경매는 동시에 1건만 허용된다(uk_auction_product_active_slot) - 이
+        // 테스트는 서로 다른 auction임을 검증하는 것이 목적이라 상품도 분리한다.
+        Auction auctionOne = persistLiveAuction(persistProduct(seller));
+        Auction auctionTwo = persistLiveAuction(persistProduct(seller));
         flushAndClear();
 
         PlaceBidResponse first = manualBidService.placeBid(auctionOne.getId(), bidder.getId(), 15000L, "same-key");

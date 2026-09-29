@@ -2,10 +2,16 @@ package com.vintic.backend.product.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 
+// 상품 등록과 첫 경매 등록을 한 번의 제출로 함께 처리한다(기획 확정 - 두 단계로 분리하지
+// 않는다). auctionStartPrice는 sellingPrice(=Product.finalPrice, 참고용 판매 희망가)와 무관한
+// 별개 값이다 - 같은 값으로 자동 매핑하지 않는다. bidIncrement는 요청으로 받지 않는다
+// (BidIncrementPolicy.DEFAULT_BID_INCREMENT 고정, 판매자가 설정하지 않음).
 public record CreateProductRequest(
 
         @NotNull(message = "이미지 URL은 필수입니다.")
@@ -42,6 +48,16 @@ public record CreateProductRequest(
 
         String reason,
 
-        String sellerDescription
+        String sellerDescription,
+
+        @NotNull(message = "경매 시작가는 필수입니다.")
+        @Positive(message = "경매 시작가는 0보다 커야 합니다.")
+        Long auctionStartPrice,
+
+        @NotNull(message = "경매 시작 시각은 필수입니다.")
+        OffsetDateTime auctionStartAt,
+
+        @NotNull(message = "경매 종료 시각은 필수입니다.")
+        OffsetDateTime auctionEndAt
 ) {
 }

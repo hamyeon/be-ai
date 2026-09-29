@@ -3,7 +3,9 @@ package com.vintic.backend.common.auth.mock;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.auction.AuctionController;
 import com.vintic.backend.auction.dto.AuctionDetailFixtures;
+import com.vintic.backend.auction.service.AuctionManagementService;
 import com.vintic.backend.auction.service.AuctionQueryService;
+import com.vintic.backend.auction.service.AuctionRelistService;
 import com.vintic.backend.auction.service.AuctionResultQueryService;
 import com.vintic.backend.autobid.service.AutoBidQueryService;
 import com.vintic.backend.autobid.service.AutoBidService;
@@ -77,6 +79,12 @@ class MockAuthInterceptorTest {
 
     @MockitoBean
     private AuctionForfeitService auctionForfeitService;
+
+    @MockitoBean
+    private AuctionManagementService auctionManagementService;
+
+    @MockitoBean
+    private AuctionRelistService auctionRelistService;
 
     // 경매 조회/입찰은 추천용 행동 로그를 남긴다. 인증 검증에는 영향이 없어 목으로 둔다.
     @MockitoBean
