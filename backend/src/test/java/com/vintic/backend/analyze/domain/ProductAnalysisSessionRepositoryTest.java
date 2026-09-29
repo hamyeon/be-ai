@@ -33,8 +33,8 @@ class ProductAnalysisSessionRepositoryTest {
     void 완료된_세션의_결과_JSON과_완료시각이_저장된다() {
         ProductAnalysisSession session = ProductAnalysisSession.create();
         session.markQueued();
-        session.startVisionProcessing();
-        session.completeVision("{\"brand\":\"Nike\"}");
+        session.claimVisionProcessing("test-token");
+        session.completeVision("test-token", "{\"brand\":\"Nike\"}");
         session.startPricing();
         session.recordConfirmedInput("{\"brand\":\"Nike\",\"conditionGrade\":\"B\"}");
         session.completePricing("{\"recommendedPrice\":300000}");

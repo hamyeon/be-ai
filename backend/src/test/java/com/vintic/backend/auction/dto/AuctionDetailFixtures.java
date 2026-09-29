@@ -35,7 +35,7 @@ public final class AuctionDetailFixtures {
                 0,
                 false,
                 0,
-                new AuctionDetailResponse.MyState(false, false, false, null, null, null, null),
+                new AuctionDetailResponse.MyState(false, false, false, null, null, null, null, null, false),
                 null
         );
     }

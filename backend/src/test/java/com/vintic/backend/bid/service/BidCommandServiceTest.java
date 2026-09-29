@@ -9,6 +9,8 @@ import com.vintic.backend.bid.domain.Bid;
 import com.vintic.backend.bid.domain.BidType;
 import com.vintic.backend.bid.dto.PlaceBidResponse;
 import com.vintic.backend.bid.repository.BidRepository;
+import com.vintic.backend.ai.purchase.dto.GoalCondition;
+import com.vintic.backend.common.exception.AgentManagedAuctionException;
 import com.vintic.backend.common.exception.AlreadyHighestBidderException;
 import com.vintic.backend.common.exception.AuctionClosedException;
 import com.vintic.backend.common.exception.AuctionNotStartedException;
@@ -23,6 +25,10 @@ import com.vintic.backend.auction.audit.PriceAuditRule;
 import com.vintic.backend.autobid.proxy.ProxyPriceEngine;
 import com.vintic.backend.config.ClockConfig;
 import com.vintic.backend.product.domain.Product;
+import com.vintic.backend.purchasegoal.domain.PurchaseGoal;
+import com.vintic.backend.purchasegoal.domain.PurchaseGoalStatus;
+import com.vintic.backend.purchasegoal.repository.PurchaseGoalRepository;
+import com.vintic.backend.purchasegoal.service.AgentManagedAuctionGuard;
 import com.vintic.backend.support.TestClockConfig;
 import com.vintic.backend.user.domain.User;
 import jakarta.persistence.EntityManager;
@@ -41,7 +47,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 // @DataJpaTest 슬라이스에 서비스를 직접 Import해, 실제 저장/갱신 결과를 DB 재조회로 검증한다.
 // ProxyPriceEngine/Clock(#41+): BidCommandService의 신규 의존성 - 이 슬라이스엔 자동으로 없어 명시 Import.
 @DataJpaTest
-@Import({BidCommandService.class, ProxyPriceEngine.class, AuctionPriceAuditRecorder.class, TestClockConfig.class})
+@Import({
+        BidCommandService.class, ProxyPriceEngine.class, AuctionPriceAuditRecorder.class,
+        AgentManagedAuctionGuard.class, TestClockConfig.class
+})
 class BidCommandServiceTest {
 
     @Autowired
@@ -60,12 +69,28 @@ class BidCommandServiceTest {
     private AuctionPriceAuditRepository auctionPriceAuditRepository;
 
     @Autowired
+    private PurchaseGoalRepository purchaseGoalRepository;
+
+    @Autowired
     private EntityManager entityManager;
 
     private User persistUser(String email) {
         User user = User.register(email, email, null);
         entityManager.persist(user);
         return user;
+    }
+
+    // Day2-B: Day 5(Agent 실제 참여) 이전이라 ACTIVE->ENGAGED 전이 API가 없다 - 테스트
+    // 픽스처로 status/currentAuctionId를 직접 맞춘다.
+    private PurchaseGoal persistGoal(User owner, PurchaseGoalStatus status, Long currentAuctionId) {
+        LocalDateTime now = LocalDateTime.now();
+        PurchaseGoal goal = PurchaseGoal.create(
+                owner, "New Balance", "nb990", "뉴발란스 990",
+                GoalCondition.A, 270, 150000L, null, now.plusDays(7), now
+        );
+        ReflectionTestUtils.setField(goal, "status", status);
+        ReflectionTestUtils.setField(goal, "currentAuctionId", currentAuctionId);
+        return purchaseGoalRepository.saveAndFlush(goal);
     }
 
     private Product persistProduct(User seller) {
@@ -104,6 +129,20 @@ class BidCommandServiceTest {
     private void flushAndClear() {
         entityManager.flush();
         entityManager.clear();
+    }
+
+    @Test
+    void Agent가_관리중인_경매에_수동_입찰하면_AgentManagedAuctionException을_던진다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = persistLiveAuction(product);
+        PurchaseGoal engagedGoal = persistGoal(bidder, PurchaseGoalStatus.ENGAGED, auction.getId());
+        autoBidSettingRepository.saveAndFlush(AutoBidSetting.reserve(auction, bidder, 100000L, engagedGoal.getId()));
+        flushAndClear();
+
+        assertThatThrownBy(() -> bidCommandService.placeManualBid(auction.getId(), bidder.getId(), 15000L))
+                .isInstanceOf(AgentManagedAuctionException.class);
     }
 
     @Test

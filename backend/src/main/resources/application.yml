@@ -28,6 +28,13 @@ cloud:
 openai:
   api:
     key: ${OPENAI_API_KEY}
+  # Vision(OpenAI) 호출 전용 HTTP 타임아웃(RestTemplateConfig.visionRestTemplate). 공유
+  # restTemplate() 빈에는 걸지 않는다 - OpenAiEmbeddingClient/KakaoUserInfoClient에 영향을 주지
+  # 않기 위함이다(RestTemplateConfig 참고).
+  vision:
+    http:
+      connect-timeout-ms: ${OPENAI_VISION_CONNECT_TIMEOUT_MS:5000}
+      read-timeout-ms: ${OPENAI_VISION_READ_TIMEOUT_MS:30000}
 
 # Claude(Anthropic) 클라이언트. 키가 없어도 기동은 되고, Claude를 실제로 부르는 첫 호출에서 실패한다.
 # output-token-allowance: Claude의 max_tokens는 thinking 토큰까지 세므로 호출부 값에 이만큼 더해 보낸다.
@@ -90,6 +97,14 @@ purchase-agent:
     provider: ${PURCHASE_LISTING_MATCHER:openai}
     model: ${PURCHASE_LISTING_MATCHER_MODEL:gpt-4o-mini}
     max-output-tokens: 300
+  # Day 6: 만료 -> 결과 관찰 -> 탐색/참여를 5분마다 순서대로 도는 단일 scheduler(#95).
+  # 기본은 꺼둔다 - 위 auction.lifecycle/payment.expiration과 동일한 이유다: 이 프로젝트의
+  # MySqlIT 다수가 @ActiveProfiles("local")을 데이터소스 설정 모양만 빌려 쓰는데, 기본 활성화하면
+  # 그 테스트들의 @SpringBootTest 컨텍스트에도 이 scheduler가 함께 떠 실제로 AutoBid를 등록해버릴
+  # 수 있다. 실제로 켜려면 PURCHASE_AGENT_SCAN_ENABLED=true가 필요하다.
+  scan:
+    cron: ${PURCHASE_AGENT_SCAN_CRON:0 */5 * * * *}
+    enabled: ${PURCHASE_AGENT_SCAN_ENABLED:false}
 
 # Vision 분석 작업을 Worker에게 전달하는 Redis Stream 설정
 analysis:
@@ -97,19 +112,49 @@ analysis:
     key: ${ANALYSIS_STREAM_KEY:ai:analysis:requests}
     group: ${ANALYSIS_STREAM_GROUP:ai-analysis-workers}
     consumer-prefix: ${ANALYSIS_STREAM_CONSUMER_PREFIX:worker}
-    # 인스턴스 하나가 동시에 처리하는 분석 수(#106). 올리기 전에 OpenAI 조직의 분당 토큰 한도(TPM)를 확인한다.
-    # 분석 한 건이 약 15초에 9천 토큰이라 1건씩만 처리해도 분당 약 3.6만 토큰이다. 기록된 한도(30,000)
-    # 그대로면 동시 처리를 늘려도 429 재시도 대기만 늘어 빨라지지 않는다. 한도가 올라간 만큼만 올린다.
+    # 인스턴스 하나가 동시에 처리하는 분석 수(#106). 올리기 전에 Vision 벤더의 분당 토큰 한도를 확인한다.
+    # Claude(Sonnet 5) 분석 한 건은 약 11초에 2만 토큰(사진 3~6장)이라 1건씩이면 분당 약 11만 토큰이다.
+    # 2026-09-29 조직 한도는 입력 50만/분 - 한도 안에서 올리되, 동시 처리 수만큼 비용도 빨리 나간다.
+    # analysis.vision.executor-pool-size보다 크게 두면 남는 Consumer는 executor 포화로 재시도만 돈다.
     concurrency: ${ANALYSIS_STREAM_CONCURRENCY:1}
     # XADD 때 스트림을 대략 이 길이로 자른다. ACK해도 엔트리가 지워지지 않아 두면 계속 쌓인다. 0이면 안 자른다.
     max-length: ${ANALYSIS_STREAM_MAX_LENGTH:10000}
-    # ACK되지 못한 메시지 회수(AnalysisStreamRecovery). 처리 도중 재시작돼 멈춘 분석을 정리한다.
+    failure-key: ${ANALYSIS_STREAM_FAILURE_KEY:ai:analysis:failures}
+
+    # 종료 신호 후 진행 중인 작업을 기다려줄 최대 시간(RedisStreamConsumerConfig 참고). Docker의
+    # stop_grace_period(docker-compose.yml)가 이 값보다 짧으면 SIGKILL이 먼저 와서 무의미해진다.
+    shutdown-grace-period-ms: ${ANALYSIS_STREAM_SHUTDOWN_GRACE_PERIOD_MS:200000}
+
+    # PEL(pending entries list) 회수(XPENDING+XCLAIM). enabled 기본값을 false로 두는 이유는
+    # auction.lifecycle.*/payment.expiration과 동일 - 다수의 *MySqlIT가 application-local
+    # 프로필을 공유하는데, 기본 활성화하면 그 테스트들의 컨텍스트에서도 세션을 회수해버릴 수
+    # 있다. 실제 배포 프로필(application-dev.yml)에서 명시적으로 켠다.
+    # min-idle-time-ms(기본 240s) 근거: analysis.vision.overall-timeout-ms(180s, Vision 처리
+    # 강제 상한) + 여유시간(claim DB 왕복 30s + 스케줄러 지연/시계 오차 30s). Vision 처리는
+    # overall-timeout-ms가 먼저 강제로 끊으므로, 이 값보다 오래 걸리는 "살아있는" 처리는 설계상
+    # 없다 - docs/ai-async-analysis.md 참고.
     recovery:
-      fixed-delay-ms: ${ANALYSIS_STREAM_RECOVERY_DELAY_MS:60000}
-      # 정상 분석 + 429 재시도 대기보다 길어야 한다. 짧으면 처리 중인 분석을 실패로 정리한다.
-      pending-idle-timeout: ${ANALYSIS_STREAM_PENDING_IDLE_TIMEOUT:10m}
-      batch-size: 50
-      idle-consumer-timeout: ${ANALYSIS_STREAM_IDLE_CONSUMER_TIMEOUT:1d}
+      enabled: ${ANALYSIS_STREAM_RECOVERY_ENABLED:false}
+      min-idle-time-ms: ${ANALYSIS_STREAM_RECOVERY_MIN_IDLE_TIME_MS:240000}
+      batch-size: ${ANALYSIS_STREAM_RECOVERY_BATCH_SIZE:20}
+      scan-interval-ms: ${ANALYSIS_STREAM_RECOVERY_SCAN_INTERVAL_MS:30000}
+
+  # Vision 전체 처리(3단계 x 재시도)의 강제 상한. OpenAiVisionClient의 재시도(단계별 최대 5회)는
+  # 이 상한을 모르고 동작하므로, 넘기면 AnalysisTaskConsumer가 더 이상 기다리지 않고 실패 처리로
+  # 넘어간다. overall-timeout-ms(기본 180s) 근거: openai.vision.http.read-timeout-ms(단일 호출
+  # 상한, 기본 30s) 기준으로 재시도가 몰리는 최악의 경우에도 무한정 늘어나지 않게 잡은 값이다 -
+  # 이 값이 stream.recovery.min-idle-time-ms 계산의 기준이 된다.
+  # executor-pool-size/executor-queue-capacity: 타임아웃난 시도도 readTimeout이 지날 때까지
+  # 스레드를 붙잡고 있을 수 있어(VisionExecutorConfig 참고) 무한정 큐잉하지 않고 유한하게 둔다.
+  vision:
+    overall-timeout-ms: ${ANALYSIS_VISION_OVERALL_TIMEOUT_MS:180000}
+    executor-pool-size: ${ANALYSIS_VISION_EXECUTOR_POOL_SIZE:4}
+    executor-queue-capacity: ${ANALYSIS_VISION_EXECUTOR_QUEUE_CAPACITY:8}
+    # VisionFailureClassifier가 재시도 가치가 있다고 판정한 실패라도, 진짜로 Vision을 시도했다가
+    # 실패한 횟수(ProductAnalysisSession.visionFailureAttemptCount - Redis 배달 횟수 아님,
+    # executor 포화로 인한 재전달은 이 카운트를 소모하지 않는다)가 이 값을 넘기면 최종 실패로
+    # 기록한다.
+    max-vision-failure-attempts: ${ANALYSIS_VISION_MAX_VISION_FAILURE_ATTEMPTS:5}
 
 # 추천용 상품 벡터 백필.
 #

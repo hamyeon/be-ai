@@ -24,6 +24,7 @@ import com.vintic.backend.like.repository.AuctionLikeRepository;
 import com.vintic.backend.order.domain.OrderStatus;
 import com.vintic.backend.order.repository.OrderRepository;
 import com.vintic.backend.product.domain.Product;
+import com.vintic.backend.purchasegoal.service.AgentManagedAuctionGuard;
 import com.vintic.backend.user.domain.User;
 import com.vintic.backend.user.repository.UserRepository;
 import org.springframework.data.domain.PageRequest;
@@ -54,6 +55,7 @@ public class AuctionQueryService {
     private final AutoBidSettingRepository autoBidSettingRepository;
     private final AuctionLikeRepository auctionLikeRepository;
     private final OrderRepository orderRepository;
+    private final AgentManagedAuctionGuard agentManagedAuctionGuard;
     private final Clock clock;
     private final PriceEstimateProvider priceEstimateProvider;
 
@@ -64,6 +66,7 @@ public class AuctionQueryService {
             AutoBidSettingRepository autoBidSettingRepository,
             AuctionLikeRepository auctionLikeRepository,
             OrderRepository orderRepository,
+            AgentManagedAuctionGuard agentManagedAuctionGuard,
             Clock clock,
             PriceEstimateProvider priceEstimateProvider
     ) {
@@ -73,6 +76,7 @@ public class AuctionQueryService {
         this.autoBidSettingRepository = autoBidSettingRepository;
         this.auctionLikeRepository = auctionLikeRepository;
         this.orderRepository = orderRepository;
+        this.agentManagedAuctionGuard = agentManagedAuctionGuard;
         this.clock = clock;
         this.priceEstimateProvider = priceEstimateProvider;
     }
@@ -165,7 +169,7 @@ public class AuctionQueryService {
 
     private AuctionDetailResponse.MyState buildMyState(Auction auction, User viewer, LocalDateTime now) {
         if (viewer == null) {
-            return new AuctionDetailResponse.MyState(false, false, false, null, null, null, null);
+            return new AuctionDetailResponse.MyState(false, false, false, null, null, null, null, null, false);
         }
 
         boolean isSeller = auction.getProduct().getSeller().isSameUser(viewer);
@@ -180,11 +184,15 @@ public class AuctionQueryService {
 
         AutoBidSettingStatus autoBidStatus = null;
         Long autoBidCap = null;
+        Long purchaseGoalId = null;
+        boolean managedByPurchaseAgent = false;
         Optional<AutoBidSetting> setting = autoBidSettingRepository
                 .findByAuctionIdAndUserIdAndActiveSlotTrue(auction.getId(), viewer.getId());
         if (setting.isPresent()) {
             autoBidStatus = setting.get().getStatus();
             autoBidCap = setting.get().getMaxAmount();
+            purchaseGoalId = setting.get().getPurchaseGoalId();
+            managedByPurchaseAgent = agentManagedAuctionGuard.isManaged(purchaseGoalId, auction.getId(), viewer.getId());
         }
 
         return new AuctionDetailResponse.MyState(
@@ -194,7 +202,9 @@ public class AuctionQueryService {
                 cannotBidReason,
                 TimePolicy.toApiTime(bidRestrictedUntil),
                 autoBidStatus,
-                autoBidCap
+                autoBidCap,
+                purchaseGoalId,
+                managedByPurchaseAgent
         );
     }
 

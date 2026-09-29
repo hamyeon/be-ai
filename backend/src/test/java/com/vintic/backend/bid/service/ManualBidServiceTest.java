@@ -10,6 +10,7 @@ import com.vintic.backend.bid.repository.IdempotencyRepository;
 import com.vintic.backend.common.exception.IdempotencyPayloadMismatchException;
 import com.vintic.backend.autobid.proxy.ProxyPriceEngine;
 import com.vintic.backend.product.domain.Product;
+import com.vintic.backend.purchasegoal.service.AgentManagedAuctionGuard;
 import com.vintic.backend.support.TestClockConfig;
 import com.vintic.backend.support.TestObjectMapperConfig;
 import com.vintic.backend.user.domain.User;
@@ -32,7 +33,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DataJpaTest
 @Import({
         BidCommandService.class, IdempotencyClaimService.class, ManualBidService.class,
-        ProxyPriceEngine.class, AuctionPriceAuditRecorder.class, TestObjectMapperConfig.class, TestClockConfig.class
+        ProxyPriceEngine.class, AuctionPriceAuditRecorder.class, AgentManagedAuctionGuard.class,
+        TestObjectMapperConfig.class, TestClockConfig.class
 })
 class ManualBidServiceTest {
 

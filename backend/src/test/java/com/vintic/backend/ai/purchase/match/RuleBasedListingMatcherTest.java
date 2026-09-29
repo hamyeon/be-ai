@@ -113,6 +113,19 @@ class RuleBasedListingMatcherTest {
         assertThat(result.listingModelKey()).isNull();
     }
 
+    // Day 5 확인: PurchaseGoalCandidateRanker.toListing()은 Product에 title 필드가 없어 항상
+    // null을 넘긴다 - structured(brand+model) 해석이 title 유무와 무관하게 동작하는지 확인한다.
+    @Test
+    void title가_null이어도_브랜드와_모델만으로_판정한다() {
+        AuctionListing listing = new AuctionListing(1L, "New Balance", "990v6", "트리플블랙", null, "설명 없음");
+
+        MatchResult result = matcher.evaluate(nb990, listing);
+
+        assertThat(result.matched()).isTrue();
+        assertThat(result.listingModelKey()).isEqualTo("nb990");
+        assertThat(result.reason()).contains("상품 정보");
+    }
+
     private AuctionListing listing(String brand, String model, String title, String description) {
         return new AuctionListing(1L, brand, model, null, title, description);
     }

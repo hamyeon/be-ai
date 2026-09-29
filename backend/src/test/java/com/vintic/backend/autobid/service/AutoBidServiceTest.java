@@ -13,6 +13,7 @@ import com.vintic.backend.bid.service.BidCommandService;
 import com.vintic.backend.bid.service.IdempotencyClaimService;
 import com.vintic.backend.common.exception.IdempotencyPayloadMismatchException;
 import com.vintic.backend.product.domain.Product;
+import com.vintic.backend.purchasegoal.service.AgentManagedAuctionGuard;
 import com.vintic.backend.support.TestClockConfig;
 import com.vintic.backend.support.TestObjectMapperConfig;
 import com.vintic.backend.user.domain.User;
@@ -34,7 +35,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Import({
         BidCommandService.class, IdempotencyClaimService.class, AutoBidCommandService.class,
         AutoBidService.class, ProxyPriceEngine.class, AuctionPriceAuditRecorder.class,
-        TestObjectMapperConfig.class, TestClockConfig.class
+        AgentManagedAuctionGuard.class, TestObjectMapperConfig.class, TestClockConfig.class
 })
 class AutoBidServiceTest {
 

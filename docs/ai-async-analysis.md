@@ -122,7 +122,7 @@ Consumer 이름은 기동할 때마다 `{consumer-prefix}-{UUID}`로 생성돼�
 - 메시지 자체가 파싱이 안 되면(손상된 JSON) ack하지 않고 남긴다.
 - ack하지 않고 남긴 메시지는 `AnalysisStreamRecovery`가 일정 시간 뒤 회수해 정리한다(아래 #106 절).
 
-## 구독 안정화 · 동시 처리 · 미처리 회수 (#106)
+## 구독 안정화 · 동시 처리 (#106)
 
 ### 문제: 예외 한 번에 구독이 영구히 끊겼다
 
@@ -131,47 +131,30 @@ Spring Data Redis 3.5.11의 `StreamPollTask`는 Redis 읽기와 리스너 호출
 확인). 즉 **Redis가 잠깐 재시작되거나, 리스너에서 예외가 한 번만 새도 구독이 취소되고 다시 살아나지 않는다.**
 서버는 정상으로 떠 있는데 분석 요청만 전부 `QUEUED`에서 멈추고, 남는 신호는 로그 한 줄뿐이었다.
 
-게다가 Consumer는 새 메시지만 읽어서(`ReadOffset.lastConsumed()`), 처리 도중 서버가 재시작되면 그 메시지는
-PEL에 남은 채 아무도 다시 읽지 않았다. 세션은 `VISION_PROCESSING`에 멈추고 프론트는 끝나지 않는 폴링을 했다.
-
 ### 바꾼 것
 
 | 위치 | 내용 |
 | --- | --- |
 | `RedisStreamConsumerConfig` | `cancelOnError(e -> false)`로 구독을 유지한다. `concurrency`만큼 Consumer(`{prefix}-{인스턴스UUID}-{번호}`)를 등록하고 `batchSize(1)`로 한 건씩 읽는다 |
 | `StreamPollErrorHandler` | 폴링 실패 시 스레드를 1초부터 두 배씩 최대 30초까지 재운다. Redis가 내려가 있을 때 루프가 쉬지 않고 도는 걸 막는다. `NOGROUP`이면 그룹을 다시 만든다 |
-| `AnalysisTaskConsumer` | 처리 전체를 감싸 예상 못 한 예외(세션 조회 중 DB 장애, ACK 중 Redis 장애)도 이 메시지 한 건의 실패로 끝낸다. ACK하지 않으므로 PEL에 남는다 |
 | `AnalysisTaskProducer` | `XADD MAXLEN ~ max-length`. ACK해도 엔트리는 지워지지 않아 두면 계속 쌓였다 |
-| `AnalysisStreamRecovery` | 1분마다 `pending-idle-timeout`(기본 10분) 넘게 방치된 메시지를 `XCLAIM`으로 가져와 정리한다. 미처리가 없고 하루 넘게 조용한 다른 인스턴스의 Consumer는 그룹에서 지운다 |
 
-회수한 메시지는 세션 상태로 판단한다.
-
-| 세션 상태 | 의미 | 처리 |
-| --- | --- | --- |
-| `QUEUED` | 분석을 시작도 못 했다 | 새 메시지로 다시 넣고 옛 메시지 ACK (Vision 비용이 아직 안 들었다) |
-| `VISION_PROCESSING` | 분석 도중 멈췄다 | `VISION_FAILED`로 기록하고 ACK. 유료 호출이 반복될 수 있어 자동 재시도는 하지 않는다 |
-| 그 밖의 상태 | 이미 끝났는데 ACK만 못 했다 | ACK |
-| 세션 없음 · 파싱 불가 | 다시 해도 소용없다 | ACK하고 버림 |
-
-인스턴스가 여러 대면 모두 회수 작업을 돌린다. `XCLAIM`은 min-idle 조건을 다시 확인하므로 먼저 가져간
-인스턴스만 성공한다. 다시 넣기가 실패하면 ACK하지 않고 다음 주기에 다시 본다.
+처리 도중 멈춘 메시지 회수는 #110의 `AnalysisStreamRecoveryScheduler`가 맡는다(아래 "회수·재시도·실패 Stream" 절).
+#106에서 같은 목적으로 만든 `AnalysisStreamRecovery`는 main과 합칠 때(2026-09-29) 중복이라 제거했다 -
+두 회수 작업이 같이 돌면 같은 메시지를 서로 다른 규칙으로 처리한다.
 
 ### 동시 처리 수는 벤더 한도가 정한다
 
-`concurrency` 기본값은 1이다. 분석 한 건이 약 15초에 9천 토큰이라 1건씩만 처리해도 분당 약 3.6만 토큰이다.
-기록된 조직 한도(TPM 30,000, `ai-vision-agent.md`)가 그대로면 동시 처리를 늘려도 429 재시도 대기만 늘어
-빨라지지 않는다. **OpenAI 대시보드에서 현재 한도를 확인하고 그만큼만 올린다.**
+`concurrency` 기본값은 1이다. Vision 기본 벤더가 Claude Sonnet 5가 된 뒤(2026-09-29) 분석 한 건은
+사진 3~6장 기준 약 11초에 2만 토큰이라, 1건씩이면 분당 약 11만 토큰이다. 조직 한도(입력 50만/분)
+안에서 올릴 수 있지만 **동시 처리 수만큼 비용도 빨리 나가고**, `analysis.vision.executor-pool-size`(기본 4)보다
+크게 두면 남는 Consumer는 executor 포화로 재시도만 돈다.
 
 ```yaml
 analysis:
   stream:
     concurrency: ${ANALYSIS_STREAM_CONCURRENCY:1}
     max-length: ${ANALYSIS_STREAM_MAX_LENGTH:10000}
-    recovery:
-      fixed-delay-ms: ${ANALYSIS_STREAM_RECOVERY_DELAY_MS:60000}
-      pending-idle-timeout: ${ANALYSIS_STREAM_PENDING_IDLE_TIMEOUT:10m}
-      batch-size: 50
-      idle-consumer-timeout: ${ANALYSIS_STREAM_IDLE_CONSUMER_TIMEOUT:1d}
 ```
 
 ### 남은 구멍
@@ -179,6 +162,9 @@ analysis:
 - **Redis 데이터 자체가 사라지면 회수할 메시지도 없다.** 배포용 `docker-compose.yml`의 Redis에는 볼륨·AOF가
   없어 컨테이너가 재시작되면 대기 중인 메시지가 사라지고, 해당 세션은 `QUEUED`에 남는다. Redis 영속화는
   인프라 설정이라 백엔드와 따로 정한다.
+- **죽은 Consumer 이름이 그룹에 쌓인다.** Consumer 이름에 인스턴스 UUID가 들어가 재시작할 때마다 새 이름이
+  생긴다. 제거한 `AnalysisStreamRecovery`는 하루 넘게 조용한 Consumer를 지웠는데, `AnalysisStreamRecoveryScheduler`에는
+  그 기능이 없다. 동작에는 영향이 없고 `XINFO CONSUMERS` 출력만 길어진다.
 - **실제 Redis로 재현하지 못했다.** 작업 환경에서 Docker가 꺼져 있어, 구독이 끊기는 동작은 라이브러리
   바이트코드로, 고친 동작은 단위 테스트(설정 값·분기)로만 확인했다. Docker를 켠 환경에서 "앱 실행 중
   `docker restart` redis → 분석 요청이 처리되는가"를 한 번 확인해야 한다.
@@ -209,12 +195,52 @@ docker compose up -d redis   # Redis만 띄우기 (healthcheck 포함)
   이미지를 업로드해서 실제로 `GET /analyze/{taskId}`가 `AWAITING_USER_CONFIRMATION`으로 바뀌는지 한 번
   확인해봐야 한다.
 
-## 이번 이슈 범위 밖 — 후속 확장 항목
+## 회수·재시도·실패 Stream (#110, #111에서 구현)
 
-- **자동 재시도**: 지금은 실패해도 재시도 로직이 없다. 실패 상태(`*_FAILED`)로 남을 뿐이다.
-  #106의 회수 작업도 `VISION_PROCESSING`에서 멈춘 분석은 재시도하지 않고 실패로 정리한다(유료 호출 반복 방지).
-- ~~**Pending 메시지 회수(claim)**~~: #106에서 `AnalysisStreamRecovery`로 구현했다.
-- **DLQ(Dead Letter Queue)**: 별도 큐로 격리하지 않는다. #106 이후 파싱조차 안 되는 메시지는 회수 시점에
-  에러 로그를 남기고 ACK해 버린다 - 무기한 PEL에 남지는 않지만 원본은 로그로만 남는다.
-- ~~**알려진 구멍: `VISION_PROCESSING`에 멈춘 세션**~~: #106 회수 작업이 방치 시간 기준으로 `VISION_FAILED`로
-  정리한다. 재전달로 처리하지 않으므로 "중복 메시지로 오인해 버리는" 경로도 타지 않는다.
+과거 이 섹션에 "범위 밖"으로 적었던 항목들은 이후 구현됐다. 핵심만 요약한다 — 세부 근거는
+`AnalysisTaskConsumer`/`AnalysisStreamRecoveryScheduler`/`VisionAttemptCoordinator`/
+`VisionFailureClassifier`/`VisionFailureStreamRecorder`의 클래스·메서드 주석 참고.
+
+- **PEL 회수**: `AnalysisStreamRecoveryScheduler`가 `analysis.stream.recovery.min-idle-time-ms`
+  (기본 240s = `analysis.vision.overall-timeout-ms` 180s + 여유)보다 오래 pending인 메시지를
+  주기적으로 XCLAIM으로 회수해 재처리한다.
+- **소유권(fencing token)**: `ProductAnalysisSession.visionProcessingToken`으로 재선점 시 이전
+  시도의 뒤늦은 완료/실패 기록을 차단한다(`VisionAttemptCoordinator`).
+- **재시도**: `VisionFailureClassifier`가 원인을 셋으로 가른다.
+  (1) executor 포화(`RejectedExecutionException`, Vision을 아예 시도조차 못함) - 로컬 용량
+      문제일 뿐이라 재시도 상한과 무관하게 항상 재시도한다. DB에 손대지 않는다.
+  (2) 그 외 재시도 가치가 있는 오류(HTTP 429/5xx, 네트워크, 처리 상한 초과 등) - 진짜로 Vision을
+      시도했다가 실패한 횟수(`ProductAnalysisSession.visionFailureAttemptCount`, Redis 배달
+      횟수가 아니다)가 `analysis.vision.max-vision-failure-attempts`(기본 5) 미만이면 ACK하지
+      않고 다음 PEL 회수를 기다린다 - 그것이 이 설계의 "재시도"다. Redis 배달 횟수를 쓰지 않는
+      이유: executor 포화로 인한 재전달도 함께 세면, 여유가 생겨 실제로 처음 Vision을 호출한
+      순간 이미 상한을 넘겨 곧바로 최종 실패로 확정돼버린다.
+  (3) 재시도 가치가 없는 오류(4xx 등) - 즉시 최종 실패로 기록한다.
+  `OpenAiVisionClient`의 단계별 자체 재시도(최대 5회)와 중복되지 않도록, 여기서는 그 재시도를
+  반복하지 않는다.
+- **실패 Stream**: 최종 실패는 `analysis.stream.failure-key`(기본 `ai:analysis:failures`)에
+  analysisId 기반 이벤트로 발행된다. DB 커밋 → 발행 → 발행 플래그 커밋까지 성공해야 원본
+  메시지를 ACK한다 - 셋 중 하나라도 실패하면 재전달을 통해 다시 시도한다(at-least-once,
+  `VisionFailureStreamRecorder`).
+- **종료 처리**: 종료 신호 시 새 작업 수신을 멈추고, 진행 중인 작업이 끝날 시간을
+  `analysis.stream.shutdown-grace-period-ms`(기본 200s)만큼 기다린다. 이 시간 안에도 못 끝나면
+  ACK되지 않은 채로 남아 다음 Worker가 회수한다(`RedisStreamConsumerConfig`). Docker의
+  `stop_grace_period`(docker-compose.yml)가 이보다 짧으면 SIGKILL이 먼저 와 이 대기가
+  무의미해지므로 반드시 함께 맞춘다.
+- **DLQ**: 별도 DLQ는 없다 — 실패 Stream이 그 역할을 겸한다(소비자는 별도로 구축 필요).
+
+## 관측 지표 및 알람 조건 (계측만 돼 있음 — 실제 알람 파이프라인 연동은 아직 없음)
+
+`AnalysisStreamMetrics`가 Micrometer(`MeterRegistry`, 신규 의존성 없음)로 아래 지표를 남긴다.
+현재 이 프로젝트에는 Prometheus/CloudWatch 등 실제 스크레이핑·알람 연동이 없어(actuator의
+`/actuator/metrics/{name}`으로 개별 조회만 가능), 아래는 "계측된 지표"이지 "설정된 알람"이
+아니다 — 알람 파이프라인을 실제로 붙일 때 이 조건을 그대로 옮기면 된다.
+
+| 지표 | 의미 | 제안 알람 조건 |
+|---|---|---|
+| `analysis.stream.pending.count` | 현재 PEL에 남은 작업 수 | 지속적으로 증가하거나 비정상적으로 큰 값 |
+| `analysis.stream.pending.oldest_idle_ms` | 가장 오래 대기 중인 PEL 항목의 idle 시간 | `min-idle-time-ms`(240s)의 2배 이상 지속 - 회수가 안 되고 있다는 뜻 |
+| `analysis.stream.pending.last_check_age_ms` | XPENDING 조회가 마지막으로 성공한 지 지난 시간 | `scan-interval-ms`(30s)의 여러 배 이상 - 위 두 게이지가 신뢰할 수 없는 상태(조회 자체가 막힘) |
+| `analysis.stream.redis_errors{operation}` | Redis 연결/명령 오류 횟수(xpending/xclaim 태그로 구분) | 짧은 시간 안에 연속 증가 |
+| `analysis.stream.reclaimed` | PEL에서 회수(재시도)된 건수 | 급격한 증가 - Vision 호출 실패율이 올라갔다는 신호일 수 있음 |
+| `analysis.stream.final_failures` | 최종 실패(VISION_FAILED)로 확정된 건수 | 급격한 증가 |

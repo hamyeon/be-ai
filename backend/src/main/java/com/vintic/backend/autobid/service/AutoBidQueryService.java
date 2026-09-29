@@ -5,6 +5,7 @@ import com.vintic.backend.autobid.dto.AutoBidMeResponse;
 import com.vintic.backend.autobid.repository.AutoBidSettingRepository;
 import com.vintic.backend.common.exception.AutoBidNotFoundException;
 import com.vintic.backend.common.util.TimePolicy;
+import com.vintic.backend.purchasegoal.service.AgentManagedAuctionGuard;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,10 +16,16 @@ import java.time.LocalDateTime;
 public class AutoBidQueryService {
 
     private final AutoBidSettingRepository autoBidSettingRepository;
+    private final AgentManagedAuctionGuard agentManagedAuctionGuard;
     private final Clock clock;
 
-    public AutoBidQueryService(AutoBidSettingRepository autoBidSettingRepository, Clock clock) {
+    public AutoBidQueryService(
+            AutoBidSettingRepository autoBidSettingRepository,
+            AgentManagedAuctionGuard agentManagedAuctionGuard,
+            Clock clock
+    ) {
         this.autoBidSettingRepository = autoBidSettingRepository;
+        this.agentManagedAuctionGuard = agentManagedAuctionGuard;
         this.clock = clock;
     }
 
@@ -32,6 +39,10 @@ public class AutoBidQueryService {
         // canModify/canCancel: 현재 조회되는 세 상태(RESERVED/ACTIVE/CAP_REACHED) 모두 수정/취소
         // 가능이 최소 규칙이라(§9) 지금은 상수처럼 true다. 향후 상태별 제한이 생기면 이 지점에서
         // 분기하면 된다 - 필드 자체는 이미 독립적으로 존재한다.
+        boolean managedByPurchaseAgent = agentManagedAuctionGuard.isManaged(
+                setting.getPurchaseGoalId(), auctionId, userId
+        );
+
         return new AutoBidMeResponse(
                 setting.getId(),
                 setting.getAuction().getId(),
@@ -42,7 +53,9 @@ public class AutoBidQueryService {
                 TimePolicy.toApiTime(setting.getAuction().getStartAt()),
                 TimePolicy.toApiTime(LocalDateTime.now(clock)),
                 true,
-                true
+                true,
+                setting.getPurchaseGoalId(),
+                managedByPurchaseAgent
         );
     }
 }

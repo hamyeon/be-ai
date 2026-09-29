@@ -13,9 +13,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 // Vision 단계가 끝날 때마다 잠정 결과를 세션에 저장한다(#106). 상태 조회 API가 폴링 중에 이 값을 내려준다.
 //
-// Consumer가 들고 있는 세션 객체에 쓰지 않고 매번 새로 읽어 저장한다. Consumer는 분석이 끝난 뒤 자기 객체를
-// 저장하는데(completeVision), 거기서 잠정 결과를 비우므로 두 쓰기가 섞여도 최종 상태는 같다.
-// 실패 기록(AnalysisFailureRecorder)과 같은 이유로 REQUIRES_NEW로 분리한다.
+// 완료·실패·회수(VisionAttemptCoordinator/AnalysisFailureRecorder)와 같은 행 잠금(findByIdForUpdate)으로 읽는다.
+// 세션 전체를 저장하므로, 잠그지 않으면 전체 시간 상한(overall-timeout)을 넘겨 실패로 정리된 뒤 늦게 도착한
+// 진행 기록이 VISION_FAILED를 VISION_PROCESSING으로 되돌릴 수 있다. 잠근 뒤 상태를 보면 그런 기록은 버려진다.
+// 실패 기록과 같은 이유로 REQUIRES_NEW로 분리한다.
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -26,7 +27,7 @@ public class AnalysisProgressRecorder {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordVisionProgress(Long sessionId, VisionProgress progress) {
-        ProductAnalysisSession session = sessionRepository.findById(sessionId).orElse(null);
+        ProductAnalysisSession session = sessionRepository.findByIdForUpdate(sessionId).orElse(null);
         if (session == null) {
             return;
         }

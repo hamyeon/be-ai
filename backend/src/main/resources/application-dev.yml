@@ -33,6 +33,14 @@ auction:
     end:
       enabled: true
 
+# #107: 실제 API 실행 profile에서는 PEL(pending entries list) 회수 스케줄러도 위와 동일한
+# 이유로 명시적으로 켠다. base(application.yml)의 기본값 false는 local이 borrow하는 MySqlIT
+# 컨텍스트와의 간섭을 막기 위한 것이라 여기서는 적용되지 않는다.
+analysis:
+  stream:
+    recovery:
+      enabled: true
+
 # 배포 환경 관리 엔드포인트.
 #
 # 관리 포트(기본 8081)는 보안그룹에서 외부 인바운드를 막는 것이 전제다.

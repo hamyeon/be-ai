@@ -64,6 +64,21 @@ class OpenAiListingMatcherTest {
         assertThat(result.listingModelKey()).isEqualTo("nb993");
     }
 
+    // Day 5 확인: PurchaseGoalCandidateRanker.toListing()은 Product에 title 필드가 없어 항상
+    // null을 넘긴다 - 프롬프트 렌더링이 null을 그대로 "null" 문자열로 새지 않고 "-"로 표시하는지,
+    // 요청 생성 자체가 실패하지 않는지 실제 API 호출 없이 확인한다.
+    @Test
+    void title가_null이어도_요청_생성이_실패하지_않고_null_문자열을_넣지_않는다() {
+        RecordingClient client = new RecordingClient("{\"matched\":true,\"semanticScore\":0.7,\"reason\":\"구조화 필드로 확인\"}");
+        AuctionListing listing = new AuctionListing(7L, "New Balance", "990v6", "그레이", null, "");
+
+        MatchResult result = matcher(client).evaluate(nb990, listing);
+
+        VisionChatRequest sent = client.requests.get(0);
+        assertThat(sent.userText()).contains("title: -").doesNotContain("title: null");
+        assertThat(result.matched()).isTrue();
+    }
+
     @Test
     void API_실패는_API_ERROR로_기록하고_규칙_대체_없이_그대로_던진다() {
         ChatCompletionClient failing = request -> {

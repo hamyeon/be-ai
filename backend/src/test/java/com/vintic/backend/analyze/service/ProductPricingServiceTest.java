@@ -53,8 +53,8 @@ class ProductPricingServiceTest {
     private ProductAnalysisSession awaitingConfirmationSession() {
         ProductAnalysisSession session = ProductAnalysisSession.create();
         session.markQueued();
-        session.startVisionProcessing();
-        session.completeVision("{}");
+        session.claimVisionProcessing("test-token");
+        session.completeVision("test-token", "{}");
         return session;
     }
 

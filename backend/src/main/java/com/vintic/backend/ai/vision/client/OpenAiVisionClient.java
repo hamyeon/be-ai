@@ -3,8 +3,8 @@ package com.vintic.backend.ai.vision.client;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.common.exception.AiApiException;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpEntity;
@@ -35,7 +35,6 @@ import java.util.regex.Pattern;
 // 고른 빈("visionChatClient")을 받는다.
 @Service
 @Primary
-@RequiredArgsConstructor
 @Slf4j
 public class OpenAiVisionClient implements ChatCompletionClient {
 
@@ -65,6 +64,14 @@ public class OpenAiVisionClient implements ChatCompletionClient {
 
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
+
+    // 공유 restTemplate() 빈 대신 Vision 전용 타임아웃이 걸린 visionRestTemplate을 명시적으로
+    // 받는다(RestTemplateConfig 참고) - @RequiredArgsConstructor로는 @Qualifier를 안전하게
+    // 전달할 수 없어 생성자를 직접 쓴다.
+    public OpenAiVisionClient(ObjectMapper objectMapper, @Qualifier("visionRestTemplate") RestTemplate restTemplate) {
+        this.objectMapper = objectMapper;
+        this.restTemplate = restTemplate;
+    }
 
     @Override
     public VisionChatResponse complete(VisionChatRequest request) {

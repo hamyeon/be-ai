@@ -194,13 +194,13 @@ class ProductAnalyzeServiceTest {
         ProductAnalysisSession session = ProductAnalysisSession.create();
         session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
         session.markQueued();
-        session.startVisionProcessing();
+        session.claimVisionProcessing("test-token");
 
         VisionAnalysisResult visionResult = new VisionAnalysisResult(
                 "Nike", "Air Jordan 1 Retro High OG", "Chicago Lost and Found", 270,
                 "사용감이 거의 없습니다.", ConditionGrade.B, true, 0.82, false, List.of(), List.of(), List.of(), List.of()
         );
-        session.completeVision(objectMapper.writeValueAsString(visionResult));
+        session.completeVision("test-token", objectMapper.writeValueAsString(visionResult));
         when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
 
         AnalysisStatusResponse response = newService().getStatus(1L);
@@ -219,7 +219,7 @@ class ProductAnalyzeServiceTest {
         ProductAnalysisSession session = ProductAnalysisSession.create();
         session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
         session.markQueued();
-        session.startVisionProcessing();
+        session.claimVisionProcessing("test-token");
 
         // 근거 검증기가 사이즈를 비우고 사유를 남긴 상태
         VisionAnalysisResult visionResult = new VisionAnalysisResult(
@@ -229,7 +229,7 @@ class ProductAnalyzeServiceTest {
                 List.of(), List.of(new VisionDefect("crease", "toe_box", "moderate", "앞코에 주름이 있습니다.")),
                 List.of()
         );
-        session.completeVision(objectMapper.writeValueAsString(visionResult));
+        session.completeVision("test-token", objectMapper.writeValueAsString(visionResult));
         when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
 
         AnalysisStatusResponse response = newService().getStatus(1L);
@@ -247,7 +247,7 @@ class ProductAnalyzeServiceTest {
         ProductAnalysisSession session = ProductAnalysisSession.create();
         session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
         session.markQueued();
-        session.startVisionProcessing();
+        session.claimVisionProcessing("token");
         session.recordVisionProgress(objectMapper.writeValueAsString(
                 new VisionProgress(1, 3, "Nike", "Air Force 1", "White", null)));
         when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
@@ -267,7 +267,7 @@ class ProductAnalyzeServiceTest {
         ProductAnalysisSession session = ProductAnalysisSession.create();
         session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
         session.markQueued();
-        session.startVisionProcessing();
+        session.claimVisionProcessing("token");
         when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
 
         AnalysisStatusResponse response = newService().getStatus(1L);
@@ -281,10 +281,10 @@ class ProductAnalyzeServiceTest {
         ProductAnalysisSession session = ProductAnalysisSession.create();
         session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
         session.markQueued();
-        session.startVisionProcessing();
+        session.claimVisionProcessing("token");
         session.recordVisionProgress(objectMapper.writeValueAsString(
                 new VisionProgress(2, 3, "Nike", "Air Force 1", "White", 270)));
-        session.completeVision(objectMapper.writeValueAsString(new VisionAnalysisResult(
+        session.completeVision("token", objectMapper.writeValueAsString(new VisionAnalysisResult(
                 "Nike", "Air Force 1 '07", "White", 270, null, ConditionGrade.B, null, 0.8, false,
                 List.of(), List.of(), List.of(), List.of())));
         when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
@@ -301,8 +301,8 @@ class ProductAnalyzeServiceTest {
         ProductAnalysisSession session = ProductAnalysisSession.create();
         session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
         session.markQueued();
-        session.startVisionProcessing();
-        session.failVision("OpenAI 호출 실패");
+        session.claimVisionProcessing("test-token");
+        session.failVision("test-token", "OpenAI 호출 실패");
         when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
 
         AnalysisStatusResponse response = newService().getStatus(1L);

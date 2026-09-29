@@ -25,6 +25,7 @@ import com.vintic.backend.common.exception.PenaltyRestrictedException;
 import com.vintic.backend.common.exception.UserNotFoundException;
 import com.vintic.backend.common.util.NicknameMasker;
 import com.vintic.backend.common.util.TimePolicy;
+import com.vintic.backend.purchasegoal.service.AgentManagedAuctionGuard;
 import com.vintic.backend.user.domain.User;
 import com.vintic.backend.user.repository.UserRepository;
 import org.springframework.stereotype.Service;
@@ -45,6 +46,7 @@ public class BidCommandService {
     private final AutoBidSettingRepository autoBidSettingRepository;
     private final ProxyPriceEngine proxyPriceEngine;
     private final AuctionPriceAuditRecorder auctionPriceAuditRecorder;
+    private final AgentManagedAuctionGuard agentManagedAuctionGuard;
     private final Clock clock;
 
     public BidCommandService(
@@ -54,6 +56,7 @@ public class BidCommandService {
             AutoBidSettingRepository autoBidSettingRepository,
             ProxyPriceEngine proxyPriceEngine,
             AuctionPriceAuditRecorder auctionPriceAuditRecorder,
+            AgentManagedAuctionGuard agentManagedAuctionGuard,
             Clock clock
     ) {
         this.auctionRepository = auctionRepository;
@@ -62,6 +65,7 @@ public class BidCommandService {
         this.autoBidSettingRepository = autoBidSettingRepository;
         this.proxyPriceEngine = proxyPriceEngine;
         this.auctionPriceAuditRecorder = auctionPriceAuditRecorder;
+        this.agentManagedAuctionGuard = agentManagedAuctionGuard;
         this.clock = clock;
     }
 
@@ -96,6 +100,15 @@ public class BidCommandService {
 
         if (bidder.isBidRestricted(LocalDateTime.now(clock))) {
             throw new PenaltyRestrictedException("입찰 제한 기간 중인 사용자입니다. userId: " + userId);
+        }
+        // Day2-B: 이 사용자 자신의 Purchase Agent가 지금 이 경매를 관리 중이면(own AutoBidSetting의
+        // purchaseGoalId가 ENGAGED/CANCEL_REQUESTED Goal을 가리키고 그 Goal의 currentAuctionId가
+        // 이 경매) 수동 입찰을 막는다. own AutoBid가 없거나 Agent가 만든 게 아니면 조회만 하고
+        // 그대로 지나간다 - 일반 수동 입찰에는 영향이 없다.
+        Optional<AutoBidSetting> ownSetting = autoBidSettingRepository
+                .findByAuctionIdAndUserIdAndActiveSlotTrue(auction.getId(), userId);
+        if (ownSetting.isPresent()) {
+            agentManagedAuctionGuard.checkNotAgentManaged(ownSetting.get().getPurchaseGoalId(), auction.getId(), userId);
         }
         // scheduler polling 지연 동안(마감 시각은 지났지만 endIfDue()가 아직 돌지 않아 status가
         // 여전히 LIVE인 구간) 이 경로가 그대로 진행하면 maybeExtend()가 이미 지난 마감을 미래로

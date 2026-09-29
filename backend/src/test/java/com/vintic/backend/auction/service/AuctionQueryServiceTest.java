@@ -22,6 +22,7 @@ import com.vintic.backend.config.ClockConfig;
 import com.vintic.backend.like.domain.AuctionLike;
 import com.vintic.backend.like.repository.AuctionLikeRepository;
 import com.vintic.backend.product.domain.Product;
+import com.vintic.backend.purchasegoal.service.AgentManagedAuctionGuard;
 import com.vintic.backend.support.TestClockConfig;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import com.vintic.backend.user.domain.User;
@@ -49,7 +50,7 @@ import static org.assertj.core.api.Assertions.within;
 // Product.seller / Bid 개수와 일치하는지 실제 DB 조회로 검증한다.
 // Clock(#41+): AuctionQueryService의 신규 의존성 - TestClockConfig로 채운다.
 @DataJpaTest
-@Import({AuctionQueryService.class, TestClockConfig.class})
+@Import({AuctionQueryService.class, AgentManagedAuctionGuard.class, TestClockConfig.class})
 class AuctionQueryServiceTest {
 
     @Autowired

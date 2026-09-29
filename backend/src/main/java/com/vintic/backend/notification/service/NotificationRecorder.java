@@ -37,9 +37,40 @@ public class NotificationRecorder {
 
     public Notification record(User recipient, NotificationType type, Long auctionId, Long resourceId) {
         String businessEventKey = type.name() + ":" + resourceId;
+        return save(recipient, type, auctionId, resourceId, businessEventKey, title(type), body(type));
+    }
+
+    // Purchase Agent 전용(#Day7). 기존 record()의 "TYPE:resourceId" 키로는 같은 Goal이 여러
+    // 경매에 순차 참여하며 매번 ENGAGED/LOST를 만드는 상황을 구분할 수 없다 - auctionId까지 키에
+    // 포함해야 (goal, auction) 쌍마다 독립된 알림이 된다. resourceId는 다른 타입과 동일하게
+    // "화면 이동용 ID" 역할이며 여기서는 Goal 상세로 이동하도록 goalId를 쓴다.
+    public Notification recordPurchaseAgentEngaged(User recipient, Long goalId, Long auctionId) {
+        String businessEventKey = NotificationType.PURCHASE_AGENT_ENGAGED.name() + ":" + goalId + ":" + auctionId;
+        return save(
+                recipient, NotificationType.PURCHASE_AGENT_ENGAGED, auctionId, goalId, businessEventKey,
+                "구매 대행이 입찰을 시작했습니다", "설정하신 조건에 맞는 경매를 찾아 자동입찰을 등록했습니다."
+        );
+    }
+
+    // stillSearching=true(ACTIVE로 복귀, deadline 전)와 false(EXPIRED/CANCELLED로 종료)는
+    // 문구를 구분한다 - 계속 찾는 중인지, 이제 끝났는지는 사용자가 다음에 뭘 해야 할지가 다르다.
+    public Notification recordPurchaseAgentLost(User recipient, Long goalId, Long auctionId, boolean stillSearching) {
+        String businessEventKey = NotificationType.PURCHASE_AGENT_LOST.name() + ":" + goalId + ":" + auctionId;
+        String body = stillSearching
+                ? "이번 경매는 낙찰하지 못했습니다. 계속해서 조건에 맞는 경매를 찾고 있습니다."
+                : "이번 경매는 낙찰하지 못했습니다. 더 이상 참여할 수 있는 경매가 없어 구매 대행을 종료합니다.";
+        return save(
+                recipient, NotificationType.PURCHASE_AGENT_LOST, auctionId, goalId, businessEventKey,
+                "구매 대행이 낙찰하지 못했습니다", body
+        );
+    }
+
+    private Notification save(
+            User recipient, NotificationType type, Long auctionId, Long resourceId,
+            String businessEventKey, String title, String body
+    ) {
         Notification notification = Notification.create(
-                recipient, type, auctionId, resourceId,
-                title(type), body(type), businessEventKey, LocalDateTime.now(clock)
+                recipient, type, auctionId, resourceId, title, body, businessEventKey, LocalDateTime.now(clock)
         );
         return notificationRepository.save(notification);
     }
@@ -49,6 +80,11 @@ public class NotificationRecorder {
             case AUCTION_WON -> "낙찰되었습니다";
             case BACKUP_OFFER_CREATED -> "차순위 구매 제안이 도착했습니다";
             case PAYMENT_EXPIRED -> "결제 기한이 만료되었습니다";
+            // 아래 둘은 항상 recordPurchaseAgentEngaged/recordPurchaseAgentLost를 통해서만
+            // 만들어진다(businessEventKey에 auctionId가 필요해서다) - 이 switch는 record()가
+            // 컴파일되려면 모든 NotificationType을 다뤄야 해서 존재하지만 이 경로로는 호출되지 않는다.
+            case PURCHASE_AGENT_ENGAGED -> "구매 대행이 입찰을 시작했습니다";
+            case PURCHASE_AGENT_LOST -> "구매 대행이 낙찰하지 못했습니다";
         };
     }
 
@@ -57,6 +93,8 @@ public class NotificationRecorder {
             case AUCTION_WON -> "낙찰되었습니다. 결제를 진행해주세요.";
             case BACKUP_OFFER_CREATED -> "차순위 구매 제안이 도착했습니다. 24시간 이내에 응답해주세요.";
             case PAYMENT_EXPIRED -> "결제 기한이 만료되어 차순위에게 구매 기회가 넘어갑니다.";
+            case PURCHASE_AGENT_ENGAGED -> "설정하신 조건에 맞는 경매를 찾아 자동입찰을 등록했습니다.";
+            case PURCHASE_AGENT_LOST -> "이번 경매는 낙찰하지 못했습니다. 더 이상 참여할 수 있는 경매가 없어 구매 대행을 종료합니다.";
         };
     }
 }

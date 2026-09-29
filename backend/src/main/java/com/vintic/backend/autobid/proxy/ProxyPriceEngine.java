@@ -18,8 +18,12 @@ import java.util.List;
 //   MANUAL - phantom은 항상 존재한다: 방금 반영된 manual bid 금액(M), 소유자는 manual bidder.
 //   AUTO   - currentWinnerUserId가 있고 그 사용자가 candidates에 없으면(=AutoBid로 뒷받침되지
 //            않는 최고입찰자) phantom이 존재한다: 금액은 currentPrice, 더 늘어나지 않는다.
+//            currentWinnerUserId가 없어도(아직 아무도 이기고 있지 않은 LIVE 경매) candidates가
+//            1개 이상이면 NONE과 동일한 phantom(금액 currentPrice)이 존재한다(#Day8) - 그래야
+//            LIVE 경매에 등록된 첫 AutoBid가 "예약자 1명" 규칙 없이 영원히 대기만 하지 않는다.
 //   NONE   - candidates가 1개 이상이면 phantom이 존재한다: 금액은 currentPrice 그 자체 -
 //            이것이 "예약자 1명도 최소 한 단계는 응찰해야 한다"(§0.13)를 만들어내는 장치다.
+//            AUTO의 currentWinnerUserId==null 분기와 실질적으로 같은 phantom이다.
 // phantom은 실제 candidate보다 항상 늦게 등록된 것으로 취급해 tie-break에서 항상 진다
 // (LocalDateTime.MAX 사용 - Manual의 "방금 들어온 입찰"이 기존 AutoBid에게 지는 것과 동일한
 // 원리를, AUTO/NONE의 phantom에도 방어적으로 동일하게 적용한다. 실제로는 실제 candidate의
@@ -101,6 +105,13 @@ public class ProxyPriceEngine {
             Long currentWinnerUserId = auto.currentWinnerUserId();
             if (currentWinnerUserId != null && field.stream().noneMatch(f -> f.userId.equals(currentWinnerUserId))) {
                 field.add(new Field(currentWinnerUserId, input.currentPrice(), LocalDateTime.MAX, null, true));
+            } else if (currentWinnerUserId == null && !field.isEmpty()) {
+                // #Day8 결함 수정: currentWinner가 없는 LIVE 경매(아직 아무도 이기고 있지 않음)에
+                // AutoBid가 등록/cap 변경되면, NONE 트리거(경매 시작 시 RESERVED 일괄 정산)와 동일하게
+                // "예약자 1명도 최소 한 단계는 응찰한다"를 적용한다 - phantom을 currentPrice에 둔다.
+                // 이전에는 이 분기가 없어 Auto(null) + 유일한 real candidate 조합에서 second==null로
+                // 빠져 winner가 계속 null로 남았다(스스로 첫 유효 입찰을 만들지 못함, #Day8).
+                field.add(new Field(null, input.currentPrice(), LocalDateTime.MAX, null, true));
             }
         } else if (trigger instanceof ProxyTrigger.None && !field.isEmpty()) {
             field.add(new Field(null, input.currentPrice(), LocalDateTime.MAX, null, true));
