@@ -10,7 +10,9 @@ import com.vintic.backend.auction.dto.AuctionForfeitResponse;
 import com.vintic.backend.auction.dto.AuctionLiveResponse;
 import com.vintic.backend.auction.dto.AuctionResultResponse;
 import com.vintic.backend.auction.dto.SimilarAuctionsResponse;
+import com.vintic.backend.auction.service.AuctionManagementService;
 import com.vintic.backend.auction.service.AuctionQueryService;
+import com.vintic.backend.auction.service.AuctionRelistService;
 import com.vintic.backend.auction.service.AuctionResultQueryService;
 import com.vintic.backend.autobid.domain.AutoBidSettingStatus;
 import com.vintic.backend.autobid.dto.AutoBidCancelResponse;
@@ -101,6 +103,12 @@ class AuctionControllerTest {
 
     @MockitoBean
     private AuctionForfeitService auctionForfeitService;
+
+    @MockitoBean
+    private AuctionManagementService auctionManagementService;
+
+    @MockitoBean
+    private AuctionRelistService auctionRelistService;
 
     // 조회/입찰 시 추천용 행동 로그를 남긴다. 기록 자체는 여기서 검증하지 않고
     // ActivityLogServiceTest가 담당하므로 빈만 채워둔다.

@@ -21,6 +21,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
 
 import java.time.Duration;
@@ -28,9 +29,21 @@ import java.time.LocalDateTime;
 
 // current_winner_id는 LIVE 중 입찰 갱신 트랜잭션에서만 채워지며, 종료 시점 값을 그대로 고정(freeze)한다.
 // 이번 범위에는 입찰 처리 자체가 없어 항상 null로 유지된다(입찰자 없이 종료되는 경우도 ENDED + winner null로 표현).
+// activeSlot(경매 등록 분리 이후 도입): SCHEDULED/LIVE는 항상 true, ENDED/CANCELED는 항상
+// null이다. status와 activeSlot이 어긋나면 DB 제약(uk_auction_product_active_slot)의 의미가
+// 깨지므로 반드시 이 클래스의 상태 전이 메서드(schedule/start/end/cancel) 안에서만 함께
+// 바꾼다 - Service가 둘을 따로 건드리지 않는다. AutoBidSetting.activeSlot(#41)과 동일한 패턴 -
+// MySQL UNIQUE가 NULL을 서로 다른 값으로 취급하는 성질을 이용해 "재경매 이력은 여러 건 남을 수
+// 있지만, 지금 예약/진행 중인 경매는 상품당 최대 1건"을 DB가 직접 보장한다. 다만 "총 2회까지"
+// 같은 개수 제약은 이 UNIQUE로 표현할 수 없다 - 그건 AuctionRelistService가 Product row
+// lock(FOR UPDATE) 안에서 매번 다시 세어 보장한다(이 클래스는 그 정책을 모른다).
 @Entity
 @Table(
         name = "auctions",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_auction_product_active_slot",
+                columnNames = {"product_id", "active_slot"}
+        ),
         indexes = {
                 @Index(name = "idx_auction_product", columnList = "product_id"),
                 @Index(name = "idx_auction_status_end_at", columnList = "status, end_at"),
@@ -84,6 +97,9 @@ public class Auction {
     @Column(nullable = false, columnDefinition = "INT NOT NULL DEFAULT 0")
     private int extensionCount;
 
+    @Column(name = "active_slot")
+    private Boolean activeSlot;
+
     // #74 실험 전용(experiment/#74-optimistic-lock-retry): No-lock/Pessimistic Lock 실험(#34/#35)
     // 이후 Optimistic Lock + Retry를 비교하기 위해 이 branch에서만 추가했다. production Pessimistic
     // 경로(BidCommandService.placeManualBid → findByIdForUpdate)는 이 필드와 무관하게 그대로
@@ -123,8 +139,26 @@ public class Auction {
         auction.startAt = startAt;
         auction.endAt = endAt;
         auction.status = AuctionStatus.SCHEDULED;
+        auction.activeSlot = Boolean.TRUE;
         auction.createdAt = LocalDateTime.now();
         return auction;
+    }
+
+    // 시작가 수정. "시작 1시간 전까지만" 시간 정책은 서비스가 먼저 확인하고(AuctionManagementService),
+    // 여기서는 SCHEDULED 상태 가드만 프로그래밍 오류 방지용으로 둔다(start()/cancel()과 동일 패턴 -
+    // 서비스가 이미 걸렀어야 하는 상황이라 도달 자체가 오류다). currentPrice는 SCHEDULED 동안
+    // startPrice와 항상 같다는 schedule()의 불변식을 유지하기 위해 함께 바꾼다.
+    public void changeStartPrice(Long newStartPrice) {
+        if (status != AuctionStatus.SCHEDULED) {
+            throw new InvalidAuctionStatusException(
+                    "SCHEDULED 상태에서만 시작가를 수정할 수 있습니다. 현재 상태: " + status
+            );
+        }
+        if (newStartPrice == null || newStartPrice <= 0) {
+            throw new IllegalArgumentException("시작가는 0보다 커야 합니다.");
+        }
+        this.startPrice = newStartPrice;
+        this.currentPrice = newStartPrice;
     }
 
     public void start() {
@@ -143,6 +177,7 @@ public class Auction {
             );
         }
         this.status = AuctionStatus.ENDED;
+        this.activeSlot = null;
     }
 
     public void cancel() {
@@ -152,6 +187,7 @@ public class Auction {
             );
         }
         this.status = AuctionStatus.CANCELED;
+        this.activeSlot = null;
     }
 
     // 직접(수동) 입찰 전용 검증/갱신이다. 현재 최고입찰자의 재입찰 금지 규칙은
@@ -318,6 +354,10 @@ public class Auction {
 
     public int getExtensionCount() {
         return extensionCount;
+    }
+
+    public Boolean getActiveSlot() {
+        return activeSlot;
     }
 
     public Long getVersion() {

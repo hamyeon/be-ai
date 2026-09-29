@@ -2,7 +2,9 @@ package com.vintic.backend.config;
 
 import com.vintic.backend.auction.AuctionController;
 import com.vintic.backend.auction.dto.AuctionDetailFixtures;
+import com.vintic.backend.auction.service.AuctionManagementService;
 import com.vintic.backend.auction.service.AuctionQueryService;
+import com.vintic.backend.auction.service.AuctionRelistService;
 import com.vintic.backend.auction.service.AuctionResultQueryService;
 import com.vintic.backend.auth.jwt.JwtProperties;
 import com.vintic.backend.auth.jwt.JwtTokenProvider;
@@ -76,6 +78,12 @@ class JwtAnonymousEndpointSecurityTest {
 
     @MockitoBean
     private AuctionForfeitService auctionForfeitService;
+
+    @MockitoBean
+    private AuctionManagementService auctionManagementService;
+
+    @MockitoBean
+    private AuctionRelistService auctionRelistService;
 
     @MockitoBean
     private ActivityLogService activityLogService;

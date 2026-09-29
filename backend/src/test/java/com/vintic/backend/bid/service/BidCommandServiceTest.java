@@ -18,6 +18,7 @@ import com.vintic.backend.common.exception.BidAmountTooLowException;
 import com.vintic.backend.common.exception.BidNotAlignedException;
 import com.vintic.backend.common.exception.PenaltyRestrictedException;
 import com.vintic.backend.common.exception.SellerCannotBidException;
+import com.vintic.backend.common.util.BidIncrementPolicy;
 import com.vintic.backend.auction.audit.AuctionPriceAudit;
 import com.vintic.backend.auction.audit.AuctionPriceAuditRecorder;
 import com.vintic.backend.auction.audit.AuctionPriceAuditRepository;
@@ -504,6 +505,54 @@ class BidCommandServiceTest {
         assertThat(reloaded.getCurrentPrice()).isEqualTo(10000L);
         assertThat(reloaded.getCurrentWinner()).isNull();
         assertThat(bidRepository.countByAuctionId(auction.getId())).isZero();
+    }
+
+    // 입찰 단위 고정 정책(BidIncrementPolicy.DEFAULT_BID_INCREMENT) 확정 이후 회귀 확인 - 실제
+    // 경매 등록 경로(ProductRegistrationService/AuctionRelistService)가 넘기는 것과 동일한
+    // 상수를 여기서도 그대로 써서, "정책값이 바뀌면 이 테스트도 같이 따라간다"는 연결을 명시한다.
+    // 한 단계(정책값만큼) 상승 성공은 위 최소금액 테스트가, 배수가 아닌 상승 거절은 바로 위
+    // 테스트(17000원)가 이미 고정하고 있다 - 여기서는 "정책 상수의 정확히 두 배" 성공과
+    // "정책 상수 + 1000원(배수 아님, 사용자 예시의 120000→126000과 동일한 어긋남 폭)" 거절만 추가한다.
+    @Test
+    void 입찰_단위_고정값의_정확히_두_배만큼_상승한_금액은_실제_서비스_경로에서_성공한다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = Auction.schedule(
+                product, 100000L, BidIncrementPolicy.DEFAULT_BID_INCREMENT,
+                LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2)
+        );
+        auction.start();
+        entityManager.persist(auction);
+        flushAndClear();
+
+        long amount = 100000L + 2 * BidIncrementPolicy.DEFAULT_BID_INCREMENT;
+        PlaceBidResponse response = bidCommandService.placeManualBid(auction.getId(), bidder.getId(), amount);
+
+        assertThat(response.currentPrice()).isEqualTo(amount);
+    }
+
+    @Test
+    void 입찰_단위_고정값의_배수가_아닌_상승은_실제_서비스_경로에서_거절된다() {
+        User seller = persistUser("seller@vintic.local");
+        User bidder = persistUser("bidder@vintic.local");
+        Product product = persistProduct(seller);
+        Auction auction = Auction.schedule(
+                product, 100000L, BidIncrementPolicy.DEFAULT_BID_INCREMENT,
+                LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2)
+        );
+        auction.start();
+        entityManager.persist(auction);
+        flushAndClear();
+
+        long nonAlignedAmount = 100000L + BidIncrementPolicy.DEFAULT_BID_INCREMENT + 1000L; // 예: 120000 -> 126000
+
+        assertThatThrownBy(() -> bidCommandService.placeManualBid(auction.getId(), bidder.getId(), nonAlignedAmount))
+                .isInstanceOf(BidNotAlignedException.class);
+
+        Auction reloaded = auctionRepository.findById(auction.getId()).orElseThrow();
+        assertThat(reloaded.getCurrentPrice()).isEqualTo(100000L);
+        assertThat(reloaded.getCurrentWinner()).isNull();
     }
 
     // ===== 종료 연장 =====

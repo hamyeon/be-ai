@@ -255,10 +255,11 @@ class PurchaseGoalCandidateRankerTest {
     void 할인율이_높은_후보를_우선한다() {
         User seller = persistUser("seller7@vintic.local");
         User buyer = persistUser("buyer7@vintic.local");
-        Product product = persistProduct(seller);
+        // 경매 등록 분리 이후 한 상품에 SCHEDULED/LIVE 경매는 동시에 1건만 허용된다
+        // (uk_auction_product_active_slot) - 순위 비교용 후보 경매는 서로 다른 상품으로 만든다.
         // A: (200000-100000)/200000=0.5, B: (200000-150000)/200000=0.25
-        Auction low = persistAuction(product, 150000L, 5000L, FIXED_NOW.minusHours(1), FIXED_NOW.plusHours(5));
-        Auction high = persistAuction(product, 100000L, 5000L, FIXED_NOW.minusHours(1), FIXED_NOW.plusHours(1));
+        Auction low = persistAuction(persistProduct(seller), 150000L, 5000L, FIXED_NOW.minusHours(1), FIXED_NOW.plusHours(5));
+        Auction high = persistAuction(persistProduct(seller), 100000L, 5000L, FIXED_NOW.minusHours(1), FIXED_NOW.plusHours(1));
         PurchaseGoal goal = persistGoal(buyer, 500000L);
         flushAndClear();
 
@@ -276,11 +277,11 @@ class PurchaseGoalCandidateRankerTest {
     void 할인율이_같으면_종료_시각이_빠른_후보를_우선한다() {
         User seller = persistUser("seller8@vintic.local");
         User buyer = persistUser("buyer8@vintic.local");
-        Product product = persistProduct(seller);
+        // 순위 비교용 후보 경매는 서로 다른 상품으로 만든다(위 테스트와 동일한 이유).
         // 둘 다 (200000-100000)/200000=0.5로 동일. endAt만 다르다.
         // id가 더 작은 쪽이 끝나는 시각은 더 늦게 - endAt 우선이 auctionId보다 먼저 이겨야 통과한다.
-        Auction laterEnd = persistAuction(product, 100000L, 5000L, FIXED_NOW.minusHours(1), FIXED_NOW.plusHours(5));
-        Auction earlierEnd = persistAuction(product, 100000L, 5000L, FIXED_NOW.minusHours(1), FIXED_NOW.plusHours(1));
+        Auction laterEnd = persistAuction(persistProduct(seller), 100000L, 5000L, FIXED_NOW.minusHours(1), FIXED_NOW.plusHours(5));
+        Auction earlierEnd = persistAuction(persistProduct(seller), 100000L, 5000L, FIXED_NOW.minusHours(1), FIXED_NOW.plusHours(1));
         PurchaseGoal goal = persistGoal(buyer, 500000L);
         flushAndClear();
 
@@ -298,12 +299,12 @@ class PurchaseGoalCandidateRankerTest {
     void 할인율과_종료시각이_같으면_semanticScore가_높은_후보를_우선한다() {
         User seller = persistUser("seller9@vintic.local");
         User buyer = persistUser("buyer9@vintic.local");
-        Product product = persistProduct(seller);
         LocalDateTime sharedEndAt = FIXED_NOW.plusHours(3);
+        // 순위 비교용 후보 경매는 서로 다른 상품으로 만든다(위 테스트들과 동일한 이유).
         // 낮은 semanticScore 쪽을 먼저 persist해 더 작은 auctionId를 갖게 한다 -
         // semanticScore가 auctionId보다 먼저 이겨야 이 테스트가 의미가 있다.
-        Auction lowScore = persistAuction(product, 100000L, 5000L, FIXED_NOW.minusHours(1), sharedEndAt);
-        Auction highScore = persistAuction(product, 100000L, 5000L, FIXED_NOW.minusHours(1), sharedEndAt);
+        Auction lowScore = persistAuction(persistProduct(seller), 100000L, 5000L, FIXED_NOW.minusHours(1), sharedEndAt);
+        Auction highScore = persistAuction(persistProduct(seller), 100000L, 5000L, FIXED_NOW.minusHours(1), sharedEndAt);
         PurchaseGoal goal = persistGoal(buyer, 500000L);
         persistCachedMatch(goal.getId(), lowScore.getId(), true, 0.2, "낮은 점수");
         persistCachedMatch(goal.getId(), highScore.getId(), true, 0.9, "높은 점수");
@@ -323,10 +324,10 @@ class PurchaseGoalCandidateRankerTest {
     void 할인율_종료시각_semanticScore가_모두_같으면_auctionId가_작은_후보를_우선한다() {
         User seller = persistUser("seller10@vintic.local");
         User buyer = persistUser("buyer10@vintic.local");
-        Product product = persistProduct(seller);
         LocalDateTime sharedEndAt = FIXED_NOW.plusHours(3);
-        Auction first = persistAuction(product, 100000L, 5000L, FIXED_NOW.minusHours(1), sharedEndAt);
-        Auction second = persistAuction(product, 100000L, 5000L, FIXED_NOW.minusHours(1), sharedEndAt);
+        // 순위 비교용 후보 경매는 서로 다른 상품으로 만든다(위 테스트들과 동일한 이유).
+        Auction first = persistAuction(persistProduct(seller), 100000L, 5000L, FIXED_NOW.minusHours(1), sharedEndAt);
+        Auction second = persistAuction(persistProduct(seller), 100000L, 5000L, FIXED_NOW.minusHours(1), sharedEndAt);
         PurchaseGoal goal = persistGoal(buyer, 500000L);
         persistCachedMatch(goal.getId(), first.getId(), true, 0.5, "동일 점수");
         persistCachedMatch(goal.getId(), second.getId(), true, 0.5, "동일 점수");

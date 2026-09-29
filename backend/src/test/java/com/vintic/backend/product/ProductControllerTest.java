@@ -14,6 +14,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -75,16 +76,20 @@ class ProductControllerTest {
 
     @Test
     void 상품_등록시_currentUserId_요청속성이_seller로_전달된다() throws Exception {
+        OffsetDateTime startAt = OffsetDateTime.now().plusHours(2);
+        OffsetDateTime endAt = startAt.plusHours(1);
         CreateProductRequest request = new CreateProductRequest(
                 List.of("https://example.com/a.jpg", "https://example.com/b.jpg", "https://example.com/c.jpg"),
                 "Nike", "Dunk Low", "Panda", 270, "B", "PARTIAL",
-                300000, 350000, "285,000원 ~ 315,000원", 290000, "사유", "설명"
+                300000, 350000, "285,000원 ~ 315,000원", 290000, "사유", "설명",
+                10000L, startAt, endAt
         );
         ProductResponse response = new ProductResponse(
                 1L, 1L, request.imageUrls(), request.brand(), request.modelName(), request.color(),
                 request.size(), request.conditionGrade(), request.componentStatus(), request.recommendedPrice(),
                 request.baseMarketPrice(), request.priceRange(), request.sellingPrice(), request.reason(),
-                request.sellerDescription(), null
+                request.sellerDescription(), null,
+                100L, "SCHEDULED", request.auctionStartPrice(), 5000L, startAt, endAt
         );
         when(productRegistrationService.createProduct(any(), eq(1L))).thenReturn(response);
 

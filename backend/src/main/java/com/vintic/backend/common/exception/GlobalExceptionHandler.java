@@ -348,6 +348,63 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail(40917, e.getMessage()));
     }
 
+    // 존재하지 않는 상품 조회 (404 Not Found) - 경매 등록 대상 상품이 없음
+    @ExceptionHandler(ProductNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleProductNotFoundException(ProductNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40407, e.getMessage()));
+    }
+
+    // 본인 상품/경매가 아닌 사용자의 경매 등록·취소·시작가 수정 시도 (403 Forbidden)
+    @ExceptionHandler(AuctionSellerMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAuctionSellerMismatchException(AuctionSellerMismatchException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.fail(40307, e.getMessage()));
+    }
+
+    // 경매 등록 요청의 시작/종료 시각이 정책(미래 시각, 최소 진행시간 1시간)을 위반 (400 Bad Request)
+    @ExceptionHandler(InvalidAuctionTimeException.class)
+    public ResponseEntity<ApiResponse<Void>> handleInvalidAuctionTimeException(InvalidAuctionTimeException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.fail(40006, e.getMessage()));
+    }
+
+    // 같은 상품에 SCHEDULED/LIVE 경매가 이미 존재함 (409 Conflict)
+    @ExceptionHandler(ActiveAuctionAlreadyExistsException.class)
+    public ResponseEntity<ApiResponse<Void>> handleActiveAuctionAlreadyExistsException(ActiveAuctionAlreadyExistsException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40918, e.getMessage()));
+    }
+
+    // 같은 상품의 경매 등록 이력(취소 포함)이 이미 총 2회에 도달함 (409 Conflict)
+    @ExceptionHandler(AuctionRegistrationLimitExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAuctionRegistrationLimitExceededException(AuctionRegistrationLimitExceededException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40919, e.getMessage()));
+    }
+
+    // 이전 경매에 실제 입찰이 있었던 상품의 재경매 시도 (409 Conflict) - 결제 실패/차순위 제안
+    // 상태만으로는 이 예외를 던지지 않는다(입찰 존재 여부만 본다)
+    @ExceptionHandler(AuctionNotEligibleForReregistrationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAuctionNotEligibleForReregistrationException(AuctionNotEligibleForReregistrationException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40920, e.getMessage()));
+    }
+
+    // 경매가 이미 시작된 뒤(또는 SCHEDULED가 아닌 상태에서)의 취소 시도 (409 Conflict)
+    @ExceptionHandler(AuctionCancelWindowClosedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAuctionCancelWindowClosedException(AuctionCancelWindowClosedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40921, e.getMessage()));
+    }
+
+    // 시작 1시간 이내(또는 SCHEDULED가 아닌 상태에서)의 시작가 수정 시도 (409 Conflict)
+    @ExceptionHandler(StartPriceChangeWindowClosedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleStartPriceChangeWindowClosedException(StartPriceChangeWindowClosedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40922, e.getMessage()));
+    }
+
     // Auction row PESSIMISTIC_WRITE 획득 실패(락 대기 타임아웃/데드락) (409 Conflict)
     // - Spring 예외 계층: CannotAcquireLockException(락 대기 타임아웃)과
     //   DeadlockLoserDataAccessException(데드락 희생자)이 모두 이 클래스의 하위 타입이다.

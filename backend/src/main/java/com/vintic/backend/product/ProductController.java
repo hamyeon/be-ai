@@ -14,6 +14,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+// 첫 경매를 만드는 유일한 외부 경로는 createProduct()뿐이다(상품+첫 경매를 한 트랜잭션으로
+// 함께 저장, ProductRegistrationService 참고) - 이 컨트롤러에 별도의 "경매 생성" 엔드포인트를
+// 두지 않는다. 기존 상품의 재경매는 AuctionController의 POST /api/auctions/{id}/relist가 전담한다.
 @RestController
 @RequestMapping("/api/products")
 public class ProductController {

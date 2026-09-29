@@ -15,8 +15,6 @@ import java.time.LocalDateTime;
 // 그 트랜잭션에 그대로 참여한다(새 트랜잭션을 열지 않는다) - Notification insert가 실패하면
 // 호출자의 lifecycle transaction도 함께 롤백된다.
 //
-// #75 시점에는 이 클래스를 실제로 호출하는 지점이 아직 없다(lifecycle 연결은 다음 단계).
-//
 // businessEventKey = "{TYPE}:{resourceId}" - resourceId는 이벤트를 발생시킨 소스 엔티티
 // 자신의 PK(Order.id/BackupOffer.id)라 항상 새로 생성된 값이다. 이 값을 만드는 세 지점 모두
 // 이미 Auction row lock + 소스 엔티티 자신의 UNIQUE 제약으로 "한 번만 생성/전이"가 보장되므로,

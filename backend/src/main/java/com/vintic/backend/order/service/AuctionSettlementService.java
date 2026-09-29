@@ -17,10 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Optional;
 
 // #56-0/#56-1: 종료된 경매를 낙찰자 Order로 정산하는 명시적 command다. GET /result는 이 서비스를
-// 호출하지 않는다(side-effect free 유지) - 실제 production 호출 지점(LIVE->ENDED 스케줄러)은
-// 아직 없고 DEFERRED UNTIL LIFECYCLE INTEGRATION이다(#44의 ProxyTrigger.None과 동일한 선례).
-// 지금은 테스트가 이 서비스를 직접 호출해 검증하고, lifecycle 스케줄러가 merge되면 그 호출부가
-// 이 메서드를 그대로 재사용한다.
+// 호출하지 않는다(side-effect free 유지) - 실제 production 호출 지점은 AuctionEndService.
+// endIfDue()다(#73-2에서 연결).
 @Service
 public class AuctionSettlementService {
 

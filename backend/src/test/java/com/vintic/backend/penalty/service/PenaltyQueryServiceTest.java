@@ -111,9 +111,10 @@ class PenaltyQueryServiceTest {
     void penalties_이력은_FORFEITED와_PAYMENT_EXPIRED를_모두_포함한다() {
         User seller = userRepository.save(User.register("seller@vintic.local", "seller", null));
         User user = userRepository.save(User.register("user@vintic.local", "user", null));
-        Product product = persistProduct(seller);
-        Auction auction1 = persistAuction(product);
-        Auction auction2 = persistAuction(product);
+        // 한 상품에 SCHEDULED/LIVE 경매는 동시에 1건만 허용된다(uk_auction_product_active_slot) -
+        // 이 테스트의 두 경매는 서로 다른 페널티 이력을 검증할 뿐 같은 상품일 필요가 없어 분리한다.
+        Auction auction1 = persistAuction(persistProduct(seller));
+        Auction auction2 = persistAuction(persistProduct(seller));
         penaltyRepository.save(Penalty.forfeited(user, auction1));
         penaltyRepository.save(Penalty.paymentExpired(user, auction2));
 

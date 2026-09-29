@@ -129,6 +129,68 @@ class AuctionTest {
     }
 
     @Test
+    void 생성_직후_activeSlot은_true이다() {
+        Auction auction = schedule();
+
+        assertThat(auction.getActiveSlot()).isTrue();
+    }
+
+    @Test
+    void start_이후에도_activeSlot은_true로_유지된다() {
+        Auction auction = schedule();
+
+        auction.start();
+
+        assertThat(auction.getActiveSlot()).isTrue();
+    }
+
+    @Test
+    void end_이후_activeSlot은_null이_된다() {
+        Auction auction = schedule();
+        auction.start();
+
+        auction.end();
+
+        assertThat(auction.getActiveSlot()).isNull();
+    }
+
+    @Test
+    void cancel_이후_activeSlot은_null이_된다() {
+        Auction auction = schedule();
+
+        auction.cancel();
+
+        assertThat(auction.getActiveSlot()).isNull();
+    }
+
+    @Test
+    void SCHEDULED_상태에서_시작가를_수정하면_currentPrice도_함께_바뀐다() {
+        Auction auction = schedule();
+
+        auction.changeStartPrice(20000L);
+
+        assertThat(auction.getStartPrice()).isEqualTo(20000L);
+        assertThat(auction.getCurrentPrice()).isEqualTo(20000L);
+    }
+
+    @Test
+    void SCHEDULED가_아니면_시작가를_수정할_수_없다() {
+        Auction auction = schedule();
+        auction.start();
+
+        assertThatThrownBy(() -> auction.changeStartPrice(20000L))
+                .isInstanceOf(InvalidAuctionStatusException.class);
+    }
+
+    @Test
+    void 시작가_수정값이_0이하이면_실패한다() {
+        Auction auction = schedule();
+
+        assertThatThrownBy(() -> auction.changeStartPrice(0L))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void LIVE_상태에서_정확히_최소금액으로_입찰하면_성공한다() {
         Auction auction = schedule();
         auction.start();
@@ -136,6 +198,20 @@ class AuctionTest {
         auction.placeManualBid(bidder, 15000L);
 
         assertThat(auction.getCurrentPrice()).isEqualTo(15000L);
+        assertThat(auction.getCurrentWinner()).isEqualTo(bidder);
+    }
+
+    // 입찰 단위 고정 정책(BidIncrementPolicy.DEFAULT_BID_INCREMENT=5000) 확정 이후 회귀 확인 -
+    // 두 단계(10000원) 상승도 정상 처리되는지. 한 단계(5000원) 성공은 위 테스트, 배수가 아닌
+    // 상승(17000원) 거절은 아래 기존 테스트가 각각 이미 고정하고 있다.
+    @Test
+    void 최소단위의_두_배만큼_상승한_금액도_입찰에_성공한다() {
+        Auction auction = schedule();
+        auction.start();
+
+        auction.placeManualBid(bidder, 20000L);
+
+        assertThat(auction.getCurrentPrice()).isEqualTo(20000L);
         assertThat(auction.getCurrentWinner()).isEqualTo(bidder);
     }
 

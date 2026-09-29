@@ -20,4 +20,14 @@ public final class TimePolicy {
         }
         return localDateTime.atZone(ClockConfig.APP_ZONE).toOffsetDateTime();
     }
+
+    // 역방향 변환. 요청 바디의 시각 필드(예: 경매 startAt/endAt)는 임의의 UTC 오프셋으로 올 수
+    // 있다 - atZoneSameInstant는 절대 시각(instant)을 그대로 유지한 채 Asia/Seoul 벽시계 값으로
+    // 바꾸므로, 서로 다른 오프셋으로 표현된 같은 순간이 항상 같은 LocalDateTime으로 저장된다.
+    public static LocalDateTime fromApiTime(OffsetDateTime offsetDateTime) {
+        if (offsetDateTime == null) {
+            return null;
+        }
+        return offsetDateTime.atZoneSameInstant(ClockConfig.APP_ZONE).toLocalDateTime();
+    }
 }
