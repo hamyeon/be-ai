@@ -132,8 +132,10 @@ class AutoBidServiceTest {
         Auction auction = persistLiveAuction(seller);
         flushAndClear();
 
+        // #Day8: 경쟁자가 없어도 유일한 entrant가 즉시 한 단계 응찰한다(105000 -> 110000).
+        // 이 테스트가 보는 것은 그 금액이 아니라 "replay가 최초 응답을 그대로 돌려주는가"다.
         AutoBidRegisterResponse first = autoBidService.createAutoBid(auction.getId(), bidder.getId(), 200000L, "key-1");
-        assertThat(first.currentPrice()).isEqualTo(105000L);
+        assertThat(first.currentPrice()).isEqualTo(110000L);
         flushAndClear();
 
         // 다른 사용자의 직접 입찰로 currentPrice를 올린다 - bidder의 cap(200000)을 넘는 금액이라
@@ -145,7 +147,7 @@ class AutoBidServiceTest {
 
         AutoBidRegisterResponse replay = autoBidService.createAutoBid(auction.getId(), bidder.getId(), 200000L, "key-1");
 
-        assertThat(replay.currentPrice()).isEqualTo(105000L);
+        assertThat(replay.currentPrice()).isEqualTo(110000L);
         assertThat(replay).isEqualTo(first);
     }
 
