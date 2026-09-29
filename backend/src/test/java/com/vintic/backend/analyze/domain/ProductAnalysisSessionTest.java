@@ -199,6 +199,37 @@ class ProductAnalysisSessionTest {
     }
 
     @Test
+    void 분석_중일_때만_잠정_결과를_받고_끝나면_비운다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markQueued();
+        // 분석 시작 전에 온 진행 기록은 버린다
+        assertThat(session.recordVisionProgress("{\"completedStages\":1}")).isFalse();
+        assertThat(session.getVisionProgressJson()).isNull();
+
+        session.claimVisionProcessing(TOKEN_A);
+        assertThat(session.recordVisionProgress("{\"completedStages\":1}")).isTrue();
+        assertThat(session.getVisionProgressJson()).isEqualTo("{\"completedStages\":1}");
+
+        session.completeVision(TOKEN_A, "{\"brand\":\"Nike\"}");
+        assertThat(session.getVisionProgressJson()).isNull();
+        // 끝난 뒤 늦게 도착한 진행 기록도 버린다
+        assertThat(session.recordVisionProgress("{\"completedStages\":2}")).isFalse();
+        assertThat(session.getVisionProgressJson()).isNull();
+    }
+
+    @Test
+    void Vision이_실패하면_잠정_결과를_비운다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markQueued();
+        session.claimVisionProcessing(TOKEN_A);
+        session.recordVisionProgress("{\"completedStages\":1}");
+
+        session.failVision(TOKEN_A, "분석이 제한 시간 안에 끝나지 않았습니다");
+
+        assertThat(session.getVisionProgressJson()).isNull();
+    }
+
+    @Test
     void AWAITING_USER_CONFIRMATION_상태에서_Pricing_시작하면_PRICING_PROCESSING_상태이다() {
         ProductAnalysisSession session = ProductAnalysisSession.create();
         session.markQueued();

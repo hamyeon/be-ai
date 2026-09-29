@@ -46,6 +46,11 @@ public class ProductAnalysisSession {
     @Column(name = "vision_result_json", columnDefinition = "LONGTEXT")
     private String visionResultJson;
 
+    // #106: 3단계 분석 도중의 잠정 결과(VisionProgress). VISION_PROCESSING 동안만 채워지고 끝나면 비운다.
+    @Lob
+    @Column(name = "vision_progress_json", columnDefinition = "LONGTEXT")
+    private String visionProgressJson;
+
     // 판매자가 Vision 결과를 확인/수정해 Pricing 요청에 실제로 전달한 최종 입력값
     @Lob
     @Column(name = "confirmed_input_json", columnDefinition = "LONGTEXT")
@@ -133,6 +138,16 @@ public class ProductAnalysisSession {
         this.visionProcessingToken = token;
     }
 
+    // 분석 도중 끝난 단계까지의 잠정 결과를 남긴다(#106). 분석 중일 때만 받는다 - 늦게 도착한 진행 기록이
+    // 이미 끝났거나 실패로 정리된 세션에 섞이면 안 된다. 받았으면 true.
+    public boolean recordVisionProgress(String visionProgressJson) {
+        if (status != AnalysisStatus.VISION_PROCESSING) {
+            return false;
+        }
+        this.visionProgressJson = visionProgressJson;
+        return true;
+    }
+
     // PEL(pending entries list) 회수 전용 진입점. claimVisionProcessing()과 달리 QUEUED뿐 아니라
     // 이미 VISION_PROCESSING인 세션도 재선점 대상으로 허용한다 - 이전 Worker가 죽었을 수 있는
     // 세션을 새 Worker가 넘겨받는 경로이기 때문이다. token을 새로 발급해 이전 시도의 token을
@@ -150,6 +165,7 @@ public class ProductAnalysisSession {
     public void completeVision(String token, String visionResultJson) {
         requireOwnedVisionProcessing(token);
         this.visionResultJson = visionResultJson;
+        this.visionProgressJson = null; // 최종 결과가 생기면 잠정 결과는 의미가 없다
         this.status = AnalysisStatus.AWAITING_USER_CONFIRMATION;
         this.visionProcessingToken = null;
     }
@@ -157,6 +173,7 @@ public class ProductAnalysisSession {
     public void failVision(String token, String message) {
         requireOwnedVisionProcessing(token);
         this.status = AnalysisStatus.VISION_FAILED;
+        this.visionProgressJson = null;
         this.failureStage = AnalysisFailureStage.VISION;
         this.failureMessage = message;
         this.visionProcessingToken = null;

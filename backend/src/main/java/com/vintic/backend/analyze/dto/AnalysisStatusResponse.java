@@ -18,6 +18,11 @@ public record AnalysisStatusResponse(
         String status,
         List<String> imageUrls,
 
+        // #106: VISION_PROCESSING 동안 끝난 단계 수와 그때까지의 잠정 결과. 그 밖의 상태이거나
+        // 아직 1단계도 안 끝났으면 둘 다 null이다. 필드만 추가했으므로 쓰지 않는 클라이언트는 영향이 없다.
+        VisionProgress visionProgress,
+        PreliminaryVision preliminary,
+
         // 사용자가 확인/수정할 상품 정보
         String brand,
         String modelName,
@@ -37,4 +42,12 @@ public record AnalysisStatusResponse(
         String failureStage,
         String failureMessage
 ) {
+
+    public record VisionProgress(int completedStages, int totalStages) {
+    }
+
+    // 잠정값이다. 2단계 라벨 판독이 1단계 추정을 덮을 수 있고, 최종 결과(brand 등 위 필드)에서 또 바뀔 수 있다.
+    // size는 라벨을 읽는 2단계가 끝나야 채워진다.
+    public record PreliminaryVision(String brand, String modelName, String color, Integer size) {
+    }
 }

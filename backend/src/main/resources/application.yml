@@ -19,6 +19,9 @@ cloud:
       secret-key: ${AWS_SECRET_ACCESS_KEY}
     s3:
       bucket: vintic-mvp-bucket-123
+      # 사진을 동시에 올리는 수(#106). 한 장당 원본+분석용 사본 두 번을 올려서 순차로 하면
+      # 그 시간이 분석 대기 시간에 그대로 더해진다.
+      upload-concurrency: ${S3_UPLOAD_CONCURRENCY:4}
     region:
       static: ap-northeast-2
 
@@ -35,19 +38,24 @@ openai:
 
 # Claude(Anthropic) 클라이언트. 키가 없어도 기동은 되고, Claude를 실제로 부르는 첫 호출에서 실패한다.
 # output-token-allowance: Claude의 max_tokens는 thinking 토큰까지 세므로 호출부 값에 이만큼 더해 보낸다.
-# effort: 비우면 API 기본값(high). low/medium이 Vision에 충분한지는 하네스로 잰다.
+# effort: 비우면 API 기본값(high). Vision은 low로 정확도가 유지되고 출력(=시간)이 줄어 low가 기본이다(ai-vision-agent.md 벤더 비교 실측).
 anthropic:
   api:
     key: ${ANTHROPIC_API_KEY:}
   max-retries: 4
   output-token-allowance: ${ANTHROPIC_OUTPUT_TOKEN_ALLOWANCE:3000}
-  effort: ${ANTHROPIC_EFFORT:}
+  effort: ${ANTHROPIC_EFFORT:low}
 
 # Vision 분석이 부를 벤더와 모델. provider: openai | claude. model을 비우면 provider별 기준 모델
-# (openai=gpt-4o, claude=claude-opus-5). 하네스 비교가 끝나기 전까지 운영 기본값은 openai다.
+# (openai=gpt-4o, claude=claude-opus-5). 운영 기본값은 claude + claude-sonnet-5다(2026-09-29 하네스 비교,
+# ai-vision-agent.md). 현재 GPT 순차보다 빠른 유일한 후보였다. 되돌릴 때는 VISION_PROVIDER=openai.
 vision:
-  provider: ${VISION_PROVIDER:openai}
-  model: ${VISION_MODEL:}
+  provider: ${VISION_PROVIDER:claude}
+  model: ${VISION_MODEL:claude-sonnet-5}
+  # 프롬프트/스키마 묶음 버전(#106). v2 = 기본, v3 = 출력을 줄인 판(근거는 짧은 영어, 설명 길이 제한).
+  # 응답 생성 시간이 출력 토큰 수에 비례한다. Claude는 한국어 근거 문장을 토큰으로 더 잘게 쪼개 출력이 길어지므로
+  # v3를 기본으로 둔다.
+  prompt-version: ${VISION_PROMPT_VERSION:v3}
 
   # 분석용 이미지 축소(#102). 이미지 토큰은 해상도에 정비례하고 3단계가 같은 이미지를 3번 보내므로
   # 원본을 그대로 넘기면 비용이 곱절로 든다. 표시용 원본은 그대로 두고 분석용 사본만 줄인다.
@@ -61,6 +69,11 @@ vision:
   # 라벨 글자를 읽어야 하는 2·3단계만 high로 둔다. (이 설정이 값을 하는지는 하네스로 측정 중)
   # OpenAI 전용 개념이다 - Claude에는 대응 파라미터가 없어 무시된다(ClaudeChatClient 주석 참고).
   stage:
+    # 단계 실행 방식(#106). sequential(기존, 세 단계의 합) | parallel-label-condition(1단계 뒤 2·3단계 동시,
+    # 2단계 시간만큼 단축) | all-parallel(세 단계 동시, 가장 느린 한 단계 시간). 동시 실행은 뒤 단계가
+    # 앞 단계 결과를 맥락으로 못 받는다. Sonnet 5 + v3 조합에서 등급 오답 0건으로 확인해 all-parallel이 기본이다.
+    execution-mode: ${VISION_STAGE_EXECUTION_MODE:all-parallel}
+    parallel-pool-size: ${VISION_STAGE_PARALLEL_POOL_SIZE:6}
     silhouette:
       detail: ${VISION_DETAIL_SILHOUETTE:low}
       max-output-tokens: 900
@@ -99,6 +112,13 @@ analysis:
     key: ${ANALYSIS_STREAM_KEY:ai:analysis:requests}
     group: ${ANALYSIS_STREAM_GROUP:ai-analysis-workers}
     consumer-prefix: ${ANALYSIS_STREAM_CONSUMER_PREFIX:worker}
+    # 인스턴스 하나가 동시에 처리하는 분석 수(#106). 올리기 전에 Vision 벤더의 분당 토큰 한도를 확인한다.
+    # Claude(Sonnet 5) 분석 한 건은 약 11초에 2만 토큰(사진 3~6장)이라 1건씩이면 분당 약 11만 토큰이다.
+    # 2026-09-29 조직 한도는 입력 50만/분 - 한도 안에서 올리되, 동시 처리 수만큼 비용도 빨리 나간다.
+    # analysis.vision.executor-pool-size보다 크게 두면 남는 Consumer는 executor 포화로 재시도만 돈다.
+    concurrency: ${ANALYSIS_STREAM_CONCURRENCY:1}
+    # XADD 때 스트림을 대략 이 길이로 자른다. ACK해도 엔트리가 지워지지 않아 두면 계속 쌓인다. 0이면 안 자른다.
+    max-length: ${ANALYSIS_STREAM_MAX_LENGTH:10000}
     failure-key: ${ANALYSIS_STREAM_FAILURE_KEY:ai:analysis:failures}
 
     # 종료 신호 후 진행 중인 작업을 기다려줄 최대 시간(RedisStreamConsumerConfig 참고). Docker의

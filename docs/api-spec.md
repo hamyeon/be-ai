@@ -264,6 +264,14 @@ AI Vision 분석이 아직 완료되지 않은 상태입니다.
 
 분석 결과가 생성되기 전이므로 상품 정보 관련 필드는 `null`, 리스트 타입 필드는 빈 배열(`[]`)로 반환됩니다.
 
+Vision 분석은 3단계(① 전체 형태 → ② 라벨 판독 → ③ 상태 판정)로 진행되며, 전체는 10~20초가 걸리지만 ①단계는 몇 초면 끝납니다. **단계가 끝날 때마다 `visionProgress`(끝난 단계 수)와 `preliminary`(잠정 결과)가 채워지므로, 최종 결과를 기다리는 동안 브랜드·모델을 먼저 보여줄 수 있습니다.** (#106)
+
+- ①단계 전에는 `visionProgress`, `preliminary` 모두 `null`입니다.
+- ①단계 후: `preliminary`에 `brand`·`modelName`·`color`가 채워집니다(근거가 부족한 값은 `null`).
+- ②단계 후: 라벨에서 읽은 값으로 `brand`·`modelName`이 **바뀔 수 있고**, `size`가 채워집니다.
+- **`preliminary`는 잠정값입니다.** 확인·수정 화면에는 `AWAITING_USER_CONFIRMATION`의 최종 필드(`brand` 등)를 써야 합니다. 최종 결과가 나오면 `visionProgress`, `preliminary`는 다시 `null`이 됩니다.
+- 새 필드만 추가됐고 `status` 값은 바뀌지 않았습니다. 이 필드를 쓰지 않아도 기존 화면은 그대로 동작합니다.
+
 ```json
 {
   "success": true,
@@ -275,6 +283,16 @@ AI Vision 분석이 아직 완료되지 않은 상태입니다.
       "https://vintic-mvp-bucket-123.s3.ap-northeast-2.amazonaws.com/example_shoe_2.png",
       "https://vintic-mvp-bucket-123.s3.ap-northeast-2.amazonaws.com/example_shoe_3.png"
     ],
+    "visionProgress": {
+      "completedStages": 1,
+      "totalStages": 3
+    },
+    "preliminary": {
+      "brand": "Nike",
+      "modelName": "Dunk Low",
+      "color": "Panda",
+      "size": null
+    },
     "brand": null,
     "modelName": null,
     "color": null,
@@ -317,6 +335,8 @@ Vision 분석 과정에서 충분한 근거를 확인하지 못한 항목은 `nu
       "https://vintic-mvp-bucket-123.s3.ap-northeast-2.amazonaws.com/example_shoe_2.png",
       "https://vintic-mvp-bucket-123.s3.ap-northeast-2.amazonaws.com/example_shoe_3.png"
     ],
+    "visionProgress": null,
+    "preliminary": null,
     "brand": "Nike",
     "modelName": "Dunk Low",
     "color": "Panda",
@@ -369,6 +389,8 @@ Vision 분석 과정에서 충분한 근거를 확인하지 못한 항목은 `nu
 | `analysisId` | `Long` | 분석 세션 ID |
 | `status` | `String` | 현재 분석 진행 상태 |
 | `imageUrls` | `String[]` | S3에 업로드된 이미지 URL 목록 |
+| `visionProgress` | 객체 | `VISION_PROCESSING` 중 끝난 단계 수 (`completedStages`, `totalStages`). 그 밖의 상태이거나 ①단계 전이면 `null` |
+| `preliminary` | 객체 | `VISION_PROCESSING` 중 잠정 결과 (`brand`, `modelName`, `color`, `size`). 최종 결과가 아니며 바뀔 수 있음. 그 밖의 상태이거나 ①단계 전이면 `null` |
 | `brand` | `String` | AI가 인식한 브랜드. 근거가 부족하면 `null` |
 | `modelName` | `String` | AI가 인식한 모델명. 근거가 부족하면 `null` |
 | `color` | `String` | AI가 인식한 컬러웨이. 근거가 부족하면 `null` |
@@ -419,6 +441,8 @@ Vision 분석 과정에서 충분한 근거를 확인하지 못한 항목은 `nu
     "imageUrls": [
       "https://vintic-mvp-bucket-123.s3.ap-northeast-2.amazonaws.com/example_shoe_1.png"
     ],
+    "visionProgress": null,
+    "preliminary": null,
     "brand": null,
     "modelName": null,
     "color": null,

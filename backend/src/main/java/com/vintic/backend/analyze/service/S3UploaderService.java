@@ -3,8 +3,9 @@ package com.vintic.backend.analyze.service;
 import com.vintic.backend.ai.vision.image.ImageResizer;
 import com.vintic.backend.ai.vision.image.VisionImageProperties;
 import com.vintic.backend.common.exception.S3UploadException;
-import lombok.RequiredArgsConstructor;
+import com.vintic.backend.config.ImageUploadExecutorConfig;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -16,6 +17,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executor;
 
 // S3에 이미지를 저장하고 URL을 조립해 돌려주는 서비스.
 //
@@ -27,7 +31,6 @@ import java.util.UUID;
 // 축소가 필요 없거나(이미 작음) 실패하면 분석용 URL 자리에 원본 URL을 넣는다. 리사이즈는
 // 비용 최적화일 뿐이라 그것 때문에 업로드나 분석이 실패하면 안 된다.
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class S3UploaderService {
 
@@ -38,37 +41,78 @@ public class S3UploaderService {
     private final S3Client s3Client;
     private final ImageResizer imageResizer;
     private final VisionImageProperties imageProperties;
+    private final Executor uploadExecutor;
 
     @Value("${cloud.aws.s3.bucket}")
     private String bucket;
+
+    public S3UploaderService(S3Client s3Client, ImageResizer imageResizer, VisionImageProperties imageProperties,
+                             @Qualifier(ImageUploadExecutorConfig.IMAGE_UPLOAD_EXECUTOR) Executor uploadExecutor) {
+        this.s3Client = s3Client;
+        this.imageResizer = imageResizer;
+        this.imageProperties = imageProperties;
+        this.uploadExecutor = uploadExecutor;
+    }
 
     // 표시용 원본 URL과 분석용 URL의 쌍. 분석용이 없으면 원본 URL이 그대로 들어간다.
     public record UploadedImage(String originalUrl, String analysisUrl) {
     }
 
+    // 사진마다 두 번(원본 + 분석용 사본) 올려야 해서, 3장이면 순차 처리 시 업로드 6번을 줄줄이 기다린다.
+    // 사용자가 결과를 받기까지의 시간에 그대로 더해지므로 사진 단위로 동시에 처리한다(#106).
+    //
+    // MultipartFile은 요청 스레드에서만 안전하게 읽는다(요청이 끝나면 임시 파일이 지워진다).
+    // 그래서 바이트는 여기서 읽고, 리사이즈와 업로드만 다른 스레드로 넘긴다.
     public List<UploadedImage> uploadImages(List<MultipartFile> images) {
-        List<UploadedImage> uploaded = new ArrayList<>();
+        List<CompletableFuture<UploadedImage>> futures = new ArrayList<>();
         for (MultipartFile image : images) {
             // 빈 파일이 섞여 들어오면 무시하고 다음 파일 진행
             if (image == null || image.isEmpty()) {
                 continue;
             }
-            uploaded.add(uploadImage(image));
+            byte[] source = readBytes(image);
+            String uniqueFilename = uniqueFilename(image);
+            String contentType = image.getContentType();
+            futures.add(CompletableFuture.supplyAsync(
+                    () -> upload(uniqueFilename, contentType, source), uploadExecutor));
         }
-        return uploaded;
+
+        // 한 장이 실패해도 나머지가 끝날 때까지 기다린 뒤 예외를 올린다. 먼저 던지면 실패한 요청의
+        // 사진이 S3에 반쯤 올라간 채로 남는 시점을 알 수 없다.
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
+                .exceptionally(error -> null)
+                .join();
+
+        // 순서는 요청 순서 그대로 유지한다 - 사용자가 올린 사진 순서가 상품 이미지 순서가 된다.
+        return futures.stream().map(this::join).toList();
     }
 
     public UploadedImage uploadImage(MultipartFile image) {
-        byte[] source = readBytes(image);
+        return upload(uniqueFilename(image), image.getContentType(), readBytes(image));
+    }
 
-        // 파일명 추출 및 변환
-        String originalFilename = image.getOriginalFilename();
-        String uniqueFilename = UUID.randomUUID() + "_" + originalFilename; // 난수 붙이기 (예: 1234_신발.jpg)
-
-        String originalUrl = putObject(uniqueFilename, image.getContentType(), source);
+    private UploadedImage upload(String uniqueFilename, String contentType, byte[] source) {
+        String originalUrl = putObject(uniqueFilename, contentType, source);
         String analysisUrl = uploadAnalysisCopy(uniqueFilename, source).orElse(originalUrl);
 
         return new UploadedImage(originalUrl, analysisUrl);
+    }
+
+    // 난수를 붙여 같은 파일명끼리 덮어쓰지 않게 한다 (예: 1234_신발.jpg)
+    private String uniqueFilename(MultipartFile image) {
+        return UUID.randomUUID() + "_" + image.getOriginalFilename();
+    }
+
+    private UploadedImage join(CompletableFuture<UploadedImage> future) {
+        try {
+            return future.join();
+        } catch (CompletionException e) {
+            // 호출부는 S3UploadException을 기대한다. 감싼 예외를 벗겨 그대로 올린다.
+            if (e.getCause() instanceof RuntimeException cause) {
+                throw cause;
+            }
+            throw e;
+        }
     }
 
     private Optional<String> uploadAnalysisCopy(String uniqueFilename, byte[] source) {

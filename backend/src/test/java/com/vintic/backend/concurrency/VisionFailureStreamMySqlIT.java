@@ -14,6 +14,7 @@ import com.vintic.backend.analyze.queue.AnalysisVisionProcessingProperties;
 import com.vintic.backend.analyze.queue.VisionFailureClassifier;
 import com.vintic.backend.analyze.queue.VisionFailureStreamProducer;
 import com.vintic.backend.analyze.service.AnalysisFailureRecorder;
+import com.vintic.backend.analyze.service.AnalysisProgressRecorder;
 import com.vintic.backend.analyze.service.VisionAttemptCoordinator;
 import com.vintic.backend.analyze.service.VisionFailureStreamRecorder;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -127,7 +128,7 @@ class VisionFailureStreamMySqlIT {
     private AnalysisTaskConsumer newConsumer() {
         AnalysisVisionProcessingProperties visionProperties = new AnalysisVisionProcessingProperties();
         return new AnalysisTaskConsumer(
-                mock(VisionAnalysisService.class), coordinator, failureRecorder, failureStreamRecorder, failureStreamProducer,
+                mock(VisionAnalysisService.class), coordinator, failureRecorder, mock(AnalysisProgressRecorder.class), failureStreamRecorder, failureStreamProducer,
                 new VisionFailureClassifier(), new AnalysisStreamMetrics(new SimpleMeterRegistry()), objectMapper, redisTemplate,
                 streamProperties, visionProperties, visionExecutor
         );

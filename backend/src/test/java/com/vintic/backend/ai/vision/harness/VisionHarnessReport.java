@@ -6,6 +6,7 @@ import com.vintic.backend.ai.vision.harness.VisionHarnessScorer.Outcome;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -21,16 +22,71 @@ public record VisionHarnessReport(
         Map<Field, FieldStat> fieldStats,
         List<CaseScore> caseScores,
         Usage usage,
-        JsonCompliance jsonCompliance
+        JsonCompliance jsonCompliance,
+        // 케이스 ID -> 그 케이스가 부른 호출들(호출 순서대로). 단계별 시간을 케이스마다 보려고 둔다.
+        Map<String, List<Call>> callsByCase
 ) {
 
-    // 호출 비용을 재기 위한 집계. 정확도가 올라도 비용이 몇 배로 뛰면 채택할 수 없으므로 같이 본다.
-    public record Usage(int apiCalls, int promptTokens, int completionTokens) {
+    // API 호출 한 번. stage는 silhouette/label/condition, V1은 single.
+    // latencyMs에는 429 재시도 대기가 포함된다.
+    public record Call(String stage, long latencyMs, int promptTokens, int completionTokens,
+                       int imageCount, String detail) {
+    }
 
-        public static final Usage EMPTY = new Usage(0, 0, 0);
+    // 호출 비용을 재기 위한 집계. 정확도가 올라도 비용이 몇 배로 뛰면 채택할 수 없으므로 같이 본다.
+    public record Usage(int apiCalls, int promptTokens, int completionTokens, List<StageUsage> stages) {
+
+        public static final Usage EMPTY = new Usage(0, 0, 0, List.of());
+
+        public static Usage from(List<Call> calls) {
+            // 단계 순서는 처음 호출된 순서를 따른다(silhouette -> label -> condition).
+            Map<String, List<Call>> byStage = new LinkedHashMap<>();
+            calls.forEach(call -> byStage.computeIfAbsent(call.stage(), stage -> new ArrayList<>()).add(call));
+
+            List<StageUsage> stages = byStage.entrySet().stream()
+                    .map(entry -> StageUsage.from(entry.getKey(), entry.getValue()))
+                    .toList();
+            return new Usage(
+                    calls.size(),
+                    calls.stream().mapToInt(Call::promptTokens).sum(),
+                    calls.stream().mapToInt(Call::completionTokens).sum(),
+                    stages);
+        }
 
         public int totalTokens() {
             return promptTokens + completionTokens;
+        }
+
+        public long totalLatencyMs() {
+            return stages.stream().mapToLong(StageUsage::totalLatencyMs).sum();
+        }
+    }
+
+    // 단계 하나의 집계. "어느 단계가 느린가"와 "그게 입력 때문인가 출력 때문인가"를 같이 보려고
+    // 지연과 입력·출력 토큰을 나란히 둔다.
+    public record StageUsage(String stage, int calls, long totalLatencyMs, long maxLatencyMs,
+                             int promptTokens, int completionTokens) {
+
+        static StageUsage from(String stage, List<Call> calls) {
+            return new StageUsage(
+                    stage,
+                    calls.size(),
+                    calls.stream().mapToLong(Call::latencyMs).sum(),
+                    calls.stream().mapToLong(Call::latencyMs).max().orElse(0L),
+                    calls.stream().mapToInt(Call::promptTokens).sum(),
+                    calls.stream().mapToInt(Call::completionTokens).sum());
+        }
+
+        public long averageLatencyMs() {
+            return calls == 0 ? 0L : Math.round((double) totalLatencyMs / calls);
+        }
+
+        public int averagePromptTokens() {
+            return calls == 0 ? 0 : Math.round((float) promptTokens / calls);
+        }
+
+        public int averageCompletionTokens() {
+            return calls == 0 ? 0 : Math.round((float) completionTokens / calls);
         }
     }
 
@@ -65,6 +121,11 @@ public record VisionHarnessReport(
     }
 
     public static VisionHarnessReport aggregate(String label, List<CaseScore> caseScores, Usage usage) {
+        return aggregate(label, caseScores, usage, Map.of());
+    }
+
+    public static VisionHarnessReport aggregate(String label, List<CaseScore> caseScores, Usage usage,
+                                                Map<String, List<Call>> callsByCase) {
         Map<Field, int[]> counters = new EnumMap<>(Field.class);
         for (Field field : Field.values()) {
             counters.put(field, new int[Outcome.values().length]);
@@ -87,7 +148,7 @@ public record VisionHarnessReport(
                 : Math.round(caseScores.stream().mapToLong(CaseScore::latencyMs).average().orElse(0.0));
 
         return new VisionHarnessReport(label, caseScores.size(), failureCount, averageLatencyMs,
-                fieldStats, caseScores, usage, JsonCompliance.from(caseScores));
+                fieldStats, caseScores, usage, JsonCompliance.from(caseScores), Map.copyOf(callsByCase));
     }
 
     // Structured Outputs를 쓰면 형식은 보장된다는 게 전제지만, 응답이 잘리거나 스키마를 잘못
@@ -125,6 +186,19 @@ public record VisionHarnessReport(
                     usage.totalTokens(), usage.promptTokens(), usage.completionTokens(),
                     caseCount == 0 ? 0 : usage.totalTokens() / caseCount));
         }
+        if (usage != null && !usage.stages().isEmpty()) {
+            lines.add("-".repeat(96));
+            lines.add("단계별 (호출 1회 평균, 지연에는 429 재시도 대기 포함, 비중 = 전체 호출 시간 중 이 단계 몫)");
+            lines.add("%-12s %5s %10s %10s %9s %9s %7s".formatted(
+                    "단계", "호출", "평균지연", "최대지연", "입력토큰", "출력토큰", "비중"));
+            long totalLatencyMs = usage.totalLatencyMs();
+            for (StageUsage stage : usage.stages()) {
+                lines.add("%-12s %5d %,8dms %,8dms %,9d %,9d %6.0f%%".formatted(
+                        stage.stage(), stage.calls(), stage.averageLatencyMs(), stage.maxLatencyMs(),
+                        stage.averagePromptTokens(), stage.averageCompletionTokens(),
+                        totalLatencyMs == 0 ? 0.0 : stage.totalLatencyMs() * 100.0 / totalLatencyMs));
+            }
+        }
         lines.add("-".repeat(96));
         lines.add("%-16s %7s %5s %5s %6s %8s %8s %8s %8s".formatted(
                 "필드", "채점대상", "정답", "근사", "오답", "기권", "응답률", "응답정확도", "전체정확도"));
@@ -148,12 +222,43 @@ public record VisionHarnessReport(
                             caseScore.failureMessage())
                     : formatOutcomes(caseScore);
             lines.add("  %-30s %6dms  %s".formatted(caseScore.caseId(), caseScore.latencyMs(), detail));
+            // 평균만 보면 한 케이스의 이상치(재시도 대기 등)가 어느 단계에서 났는지 묻힌다.
+            List<Call> calls = callsByCase == null ? List.of() : callsByCase.getOrDefault(caseScore.caseId(), List.of());
+            if (!calls.isEmpty()) {
+                lines.add("        └ 단계   " + formatCalls(calls));
+            }
             // 틀린 필드는 실제로 뭐라고 답했는지 같이 남긴다. O/X만 있으면 원인을 알 수 없다.
             caseScore.mismatches().forEach((field, mismatch) ->
                     lines.add("        └ %-6s %s".formatted(shortName(field), mismatch)));
         }
         lines.add("=".repeat(96));
         return String.join(System.lineSeparator(), lines);
+    }
+
+    // 호출 단위 원자료. 리포트 표는 평균이라 "출력 토큰이 늘면 지연이 비례해 느는가" 같은 질문에
+    // 답하지 못한다. 스프레드시트에서 바로 산점도를 그릴 수 있게 한 호출 한 줄로 남긴다.
+    public String toCallsCsv() {
+        List<String> lines = new ArrayList<>();
+        lines.add("case_id,call_index,stage,latency_ms,prompt_tokens,completion_tokens,image_count,detail");
+        for (CaseScore caseScore : caseScores) {
+            List<Call> calls = callsByCase == null ? List.of() : callsByCase.getOrDefault(caseScore.caseId(), List.of());
+            for (int i = 0; i < calls.size(); i++) {
+                Call call = calls.get(i);
+                lines.add("%s,%d,%s,%d,%d,%d,%d,%s".formatted(
+                        caseScore.caseId(), i + 1, call.stage(), call.latencyMs(), call.promptTokens(),
+                        call.completionTokens(), call.imageCount(), call.detail() == null ? "" : call.detail()));
+            }
+        }
+        return String.join(System.lineSeparator(), lines) + System.lineSeparator();
+    }
+
+    private String formatCalls(List<Call> calls) {
+        List<String> parts = new ArrayList<>();
+        for (Call call : calls) {
+            parts.add("%s %,dms(입력 %,d/출력 %,d)".formatted(
+                    call.stage(), call.latencyMs(), call.promptTokens(), call.completionTokens()));
+        }
+        return String.join(" · ", parts);
     }
 
     private String formatOutcomes(CaseScore caseScore) {

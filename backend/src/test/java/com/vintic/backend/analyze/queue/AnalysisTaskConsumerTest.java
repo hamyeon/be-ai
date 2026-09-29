@@ -3,10 +3,13 @@ package com.vintic.backend.analyze.queue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.ai.vision.dto.ConditionGrade;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
+import com.vintic.backend.ai.vision.dto.VisionProgress;
 import com.vintic.backend.ai.vision.service.VisionAnalysisService;
+import com.vintic.backend.ai.vision.service.VisionProgressListener;
 import com.vintic.backend.analyze.domain.VisionAttemptOutcome;
 import com.vintic.backend.analyze.domain.VisionFailureAttemptResult;
 import com.vintic.backend.analyze.service.AnalysisFailureRecorder;
+import com.vintic.backend.analyze.service.AnalysisProgressRecorder;
 import com.vintic.backend.analyze.service.VisionAttemptCoordinator;
 import com.vintic.backend.analyze.service.VisionFailureStreamRecorder;
 import com.vintic.backend.common.exception.AiApiException;
@@ -62,6 +65,9 @@ class AnalysisTaskConsumerTest {
     private AnalysisFailureRecorder failureRecorder;
 
     @Mock
+    private AnalysisProgressRecorder progressRecorder;
+
+    @Mock
     private VisionFailureStreamRecorder failureStreamRecorder;
 
     @Mock
@@ -103,7 +109,7 @@ class AnalysisTaskConsumerTest {
 
     private AnalysisTaskConsumer newConsumer(ExecutorService executor) {
         return new AnalysisTaskConsumer(
-                visionAnalysisService, coordinator, failureRecorder, failureStreamRecorder, failureStreamProducer,
+                visionAnalysisService, coordinator, failureRecorder, progressRecorder, failureStreamRecorder, failureStreamProducer,
                 failureClassifier, metrics, objectMapper, redisTemplate, properties, visionProperties, executor
         );
     }
@@ -147,7 +153,7 @@ class AnalysisTaskConsumerTest {
         when(redisTemplate.opsForStream()).thenReturn(streamOperations);
         List<String> imageUrls = List.of("https://example.com/a.jpg");
         when(coordinator.claim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any())).thenReturn(sampleResult());
+        when(visionAnalysisService.analyze(any(), any())).thenReturn(sampleResult());
         when(coordinator.complete(eq(1L), anyString(), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
 
         newConsumer().onMessage(recordFor(1L, imageUrls));
@@ -156,10 +162,28 @@ class AnalysisTaskConsumerTest {
     }
 
     @Test
+    void 단계가_끝날_때마다_잠정_결과를_세션에_남긴다() {
+        // #106: 폴링 중인 사용자가 3단계가 다 끝나기 전에 브랜드·모델을 먼저 볼 수 있게 한다.
+        when(redisTemplate.opsForStream()).thenReturn(streamOperations);
+        List<String> imageUrls = List.of("https://example.com/a.jpg");
+        when(coordinator.claim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
+        VisionProgress stageOne = new VisionProgress(1, 3, "Nike", "Dunk Low", "Panda", null);
+        when(visionAnalysisService.analyze(any(), any())).thenAnswer(inv -> {
+            inv.<VisionProgressListener>getArgument(1).onStageCompleted(stageOne);
+            return sampleResult();
+        });
+        when(coordinator.complete(eq(1L), anyString(), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
+
+        newConsumer().onMessage(recordFor(1L, imageUrls));
+
+        verify(progressRecorder).recordVisionProgress(1L, stageOne);
+    }
+
+    @Test
     void 재시도_불가능한_오류는_1회차에도_즉시_최종_실패로_기록하고_ACK한다() {
         when(redisTemplate.opsForStream()).thenReturn(streamOperations);
         when(coordinator.claim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any())).thenThrow(nonRetryableHttpError());
+        when(visionAnalysisService.analyze(any(), any())).thenThrow(nonRetryableHttpError());
         when(failureRecorder.recordVisionFailure(eq(1L), anyString(), anyString()))
                 .thenReturn(VisionAttemptOutcome.COMMITTED);
 
@@ -175,7 +199,7 @@ class AnalysisTaskConsumerTest {
         // 여기서 새로 재시도를 반복하지 않고, ACK하지 않은 채로 남겨 PEL 회수가 나중에 다시
         // 넘겨주게 한다 - 그것이 이 설계의 "재시도"다.
         when(coordinator.claim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any())).thenThrow(retryableHttpError());
+        when(visionAnalysisService.analyze(any(), any())).thenThrow(retryableHttpError());
         when(coordinator.incrementFailureAttempt(eq(1L), anyString()))
                 .thenReturn(new VisionFailureAttemptResult(VisionAttemptOutcome.COMMITTED, 1));
 
@@ -189,7 +213,7 @@ class AnalysisTaskConsumerTest {
     void 재시도_가능한_오류라도_실제_시도_횟수_상한을_넘으면_최종_실패로_기록하고_ACK한다() {
         when(redisTemplate.opsForStream()).thenReturn(streamOperations);
         when(coordinator.reclaim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any())).thenThrow(retryableHttpError());
+        when(visionAnalysisService.analyze(any(), any())).thenThrow(retryableHttpError());
         when(coordinator.incrementFailureAttempt(eq(1L), anyString()))
                 .thenReturn(new VisionFailureAttemptResult(VisionAttemptOutcome.COMMITTED, 3)); // maxVisionFailureAttempts=3
         when(failureRecorder.recordVisionFailure(eq(1L), anyString(), anyString()))
@@ -205,7 +229,7 @@ class AnalysisTaskConsumerTest {
     @Test
     void 처리_상한을_넘긴_타임아웃은_실제_시도_횟수가_남아있으면_ACK하지_않는다() {
         when(coordinator.claim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any())).thenAnswer(invocation -> {
+        when(visionAnalysisService.analyze(any(), any())).thenAnswer(invocation -> {
             TimeUnit.SECONDS.sleep(5); // visionProperties.overallTimeoutMs(1000ms)보다 길게 걸림
             return sampleResult();
         });
@@ -223,7 +247,7 @@ class AnalysisTaskConsumerTest {
         // A가 claim해 Vision을 호출했다가 재시도 가능한 오류로 실패했지만, 그사이 B가 이미
         // 재선점한 상황 - 실패 횟수 기록조차 반영되면 안 된다.
         when(coordinator.claim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any())).thenThrow(retryableHttpError());
+        when(visionAnalysisService.analyze(any(), any())).thenThrow(retryableHttpError());
         when(coordinator.incrementFailureAttempt(eq(1L), anyString()))
                 .thenReturn(new VisionFailureAttemptResult(VisionAttemptOutcome.OWNERSHIP_LOST, 0));
 
@@ -236,7 +260,7 @@ class AnalysisTaskConsumerTest {
     @Test
     void 재시도_실제_시도_횟수_기록이_DB_오류로_실패하면_ACK하지_않는다() {
         when(coordinator.claim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any())).thenThrow(retryableHttpError());
+        when(visionAnalysisService.analyze(any(), any())).thenThrow(retryableHttpError());
         when(coordinator.incrementFailureAttempt(eq(1L), anyString())).thenThrow(new RuntimeException("DB 연결 실패"));
 
         newConsumer().onMessage(recordFor(1L, List.of("https://example.com/a.jpg")));
@@ -250,7 +274,7 @@ class AnalysisTaskConsumerTest {
         // 배달 사이 다른 시도가 먼저 최종 확정(성공 또는 실패)해버린 상황.
         when(redisTemplate.opsForStream()).thenReturn(streamOperations);
         when(coordinator.claim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any())).thenThrow(retryableHttpError());
+        when(visionAnalysisService.analyze(any(), any())).thenThrow(retryableHttpError());
         when(coordinator.incrementFailureAttempt(eq(1L), anyString()))
                 .thenReturn(new VisionFailureAttemptResult(VisionAttemptOutcome.ALREADY_FINALIZED, 0));
 
@@ -282,7 +306,7 @@ class AnalysisTaskConsumerTest {
 
             newConsumer(saturatedExecutor).onMessage(recordFor(1L, List.of("https://example.com/a.jpg")));
 
-            verify(visionAnalysisService, never()).analyze(any());
+            verify(visionAnalysisService, never()).analyze(any(), any());
             verify(failureRecorder, never()).recordVisionFailure(any(), any(), any());
             verify(redisTemplate, never()).opsForStream();
         } finally {
@@ -357,12 +381,12 @@ class AnalysisTaskConsumerTest {
 
             // 3) 여유가 생긴 뒤의 6번째 시도는 정상적으로 Vision을 호출하고 완료해야 한다.
             when(redisTemplate.opsForStream()).thenReturn(streamOperations);
-            when(visionAnalysisService.analyze(any())).thenReturn(sampleResult());
+            when(visionAnalysisService.analyze(any(), any())).thenReturn(sampleResult());
             when(coordinator.complete(eq(1L), anyString(), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
 
             newConsumer(executor).processReclaimed(recordFor(1L, List.of("https://example.com/a.jpg")), 6L);
 
-            verify(visionAnalysisService).analyze(any());
+            verify(visionAnalysisService).analyze(any(), any());
             verify(streamOperations).acknowledge(eq(properties.getKey()), eq(properties.getGroup()), eq(RecordId.of("1-0")));
         } finally {
             blockingTasksMayFinish.countDown();
@@ -402,13 +426,13 @@ class AnalysisTaskConsumerTest {
             Thread.sleep(200); // 유일한 스레드가 막힌 작업들을 비우는 동안 대기
 
             // 여유가 생긴 뒤 6번째 배달에서 처음으로 실제 Vision을 호출하지만 일시 오류가 난다.
-            when(visionAnalysisService.analyze(any())).thenThrow(retryableHttpError());
+            when(visionAnalysisService.analyze(any(), any())).thenThrow(retryableHttpError());
             when(coordinator.incrementFailureAttempt(eq(1L), anyString()))
                     .thenReturn(new VisionFailureAttemptResult(VisionAttemptOutcome.COMMITTED, 1)); // 진짜 실패는 이번이 처음(1회차)
 
             newConsumer(executor).processReclaimed(recordFor(1L, List.of("https://example.com/a.jpg")), 6L);
 
-            verify(visionAnalysisService).analyze(any()); // 이번에는 실제로 호출됐다
+            verify(visionAnalysisService).analyze(any(), any()); // 이번에는 실제로 호출됐다
             verify(failureRecorder, never()).recordVisionFailure(any(), any(), any()); // 그런데도 최종 실패로 확정되지 않음
             verify(redisTemplate, never()).opsForStream(); // ACK도 하지 않음 - 다음 회수를 기다린다
         } finally {
@@ -420,7 +444,7 @@ class AnalysisTaskConsumerTest {
     @Test
     void Vision_실패_기록_저장_자체가_실패하면_ACK하지_않는다() {
         when(coordinator.claim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any())).thenThrow(nonRetryableHttpError());
+        when(visionAnalysisService.analyze(any(), any())).thenThrow(nonRetryableHttpError());
         doThrow(new RuntimeException("DB 오류")).when(failureRecorder)
                 .recordVisionFailure(anyLong(), anyString(), anyString());
 
@@ -432,7 +456,7 @@ class AnalysisTaskConsumerTest {
     @Test
     void Vision_실패_기록_시_소유권을_상실하면_ACK하지_않는다() {
         when(coordinator.claim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any())).thenThrow(nonRetryableHttpError());
+        when(visionAnalysisService.analyze(any(), any())).thenThrow(nonRetryableHttpError());
         when(failureRecorder.recordVisionFailure(eq(1L), anyString(), anyString()))
                 .thenReturn(VisionAttemptOutcome.OWNERSHIP_LOST);
 
@@ -447,7 +471,7 @@ class AnalysisTaskConsumerTest {
     void 최종_실패_기록_후_실패_이벤트_발행과_플래그_갱신까지_성공하면_ACK한다() {
         when(redisTemplate.opsForStream()).thenReturn(streamOperations);
         when(coordinator.claim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any())).thenThrow(nonRetryableHttpError());
+        when(visionAnalysisService.analyze(any(), any())).thenThrow(nonRetryableHttpError());
         when(failureRecorder.recordVisionFailure(eq(1L), anyString(), anyString()))
                 .thenReturn(VisionAttemptOutcome.COMMITTED);
         VisionFailureEvent event = new VisionFailureEvent(1L, "VISION", "잘못된 요청", 0L);
@@ -463,7 +487,7 @@ class AnalysisTaskConsumerTest {
     @Test
     void 실패_이벤트_발행_자체가_실패하면_ACK하지_않는다() {
         when(coordinator.claim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any())).thenThrow(nonRetryableHttpError());
+        when(visionAnalysisService.analyze(any(), any())).thenThrow(nonRetryableHttpError());
         when(failureRecorder.recordVisionFailure(eq(1L), anyString(), anyString()))
                 .thenReturn(VisionAttemptOutcome.COMMITTED);
         VisionFailureEvent event = new VisionFailureEvent(1L, "VISION", "잘못된 요청", 0L);
@@ -479,7 +503,7 @@ class AnalysisTaskConsumerTest {
     @Test
     void 실패_이벤트_발행은_성공했지만_플래그_갱신이_실패하면_ACK하지_않는다() {
         when(coordinator.claim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any())).thenThrow(nonRetryableHttpError());
+        when(visionAnalysisService.analyze(any(), any())).thenThrow(nonRetryableHttpError());
         when(failureRecorder.recordVisionFailure(eq(1L), anyString(), anyString()))
                 .thenReturn(VisionAttemptOutcome.COMMITTED);
         VisionFailureEvent event = new VisionFailureEvent(1L, "VISION", "잘못된 요청", 0L);
@@ -503,7 +527,7 @@ class AnalysisTaskConsumerTest {
 
         newConsumer().onMessage(recordFor(1L, List.of("https://example.com/a.jpg")));
 
-        verify(visionAnalysisService, never()).analyze(any());
+        verify(visionAnalysisService, never()).analyze(any(), any());
         verify(failureStreamProducer).publish(event);
         verify(failureStreamRecorder).markPublished(1L);
         verify(streamOperations).acknowledge(eq(properties.getKey()), eq(properties.getGroup()), eq(RecordId.of("1-0")));
@@ -541,7 +565,7 @@ class AnalysisTaskConsumerTest {
 
         newConsumer().onMessage(recordFor(1L, List.of("https://example.com/a.jpg")));
 
-        verify(visionAnalysisService, never()).analyze(any());
+        verify(visionAnalysisService, never()).analyze(any(), any());
         verify(redisTemplate, never()).opsForStream();
     }
 
@@ -551,14 +575,14 @@ class AnalysisTaskConsumerTest {
 
         newConsumer().onMessage(recordFor(1L, List.of("https://example.com/a.jpg")));
 
-        verify(visionAnalysisService, never()).analyze(any());
+        verify(visionAnalysisService, never()).analyze(any(), any());
         verify(redisTemplate, never()).opsForStream();
     }
 
     @Test
     void Vision_결과_저장이_실패하면_ACK하지_않는다() {
         when(coordinator.claim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any())).thenReturn(sampleResult());
+        when(visionAnalysisService.analyze(any(), any())).thenReturn(sampleResult());
         when(coordinator.complete(eq(1L), anyString(), anyString())).thenThrow(new RuntimeException("DB 연결 실패"));
 
         newConsumer().onMessage(recordFor(1L, List.of("https://example.com/a.jpg")));
@@ -571,7 +595,7 @@ class AnalysisTaskConsumerTest {
         // A가 claim해 Vision을 호출하는 동안 B가 재선점한 뒤, A가 새 트랜잭션에서 재조회해
         // completeVision을 시도하는 상황(VisionAttemptCoordinator가 OWNERSHIP_LOST로 판정).
         when(coordinator.claim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any())).thenReturn(sampleResult());
+        when(visionAnalysisService.analyze(any(), any())).thenReturn(sampleResult());
         when(coordinator.complete(eq(1L), anyString(), anyString())).thenReturn(VisionAttemptOutcome.OWNERSHIP_LOST);
 
         newConsumer().onMessage(recordFor(1L, List.of("https://example.com/a.jpg")));
@@ -598,7 +622,7 @@ class AnalysisTaskConsumerTest {
         // 1차 배달(deliveryCount=1): 재시도 가능한 오류 - ACK 안 함, 최종 실패 기록도 안 함.
         // 2차 배달(deliveryCount=2, PEL 회수를 통한 재시도): 같은 세션이 이번엔 성공.
         when(coordinator.reclaim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any()))
+        when(visionAnalysisService.analyze(any(), any()))
                 .thenThrow(retryableHttpError())
                 .thenReturn(sampleResult());
         when(coordinator.incrementFailureAttempt(eq(1L), anyString()))
@@ -613,7 +637,7 @@ class AnalysisTaskConsumerTest {
         when(redisTemplate.opsForStream()).thenReturn(streamOperations);
         consumer.processReclaimed(recordFor(1L, List.of("https://example.com/a.jpg")), 2L);
 
-        verify(visionAnalysisService, org.mockito.Mockito.times(2)).analyze(any());
+        verify(visionAnalysisService, org.mockito.Mockito.times(2)).analyze(any(), any());
         verify(streamOperations).acknowledge(eq(properties.getKey()), eq(properties.getGroup()), eq(RecordId.of("1-0")));
     }
 
@@ -621,12 +645,12 @@ class AnalysisTaskConsumerTest {
     void 회수된_메시지는_reclaim_성공_시_Vision을_재시도하고_완료되면_ACK한다() {
         when(redisTemplate.opsForStream()).thenReturn(streamOperations);
         when(coordinator.reclaim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any())).thenReturn(sampleResult());
+        when(visionAnalysisService.analyze(any(), any())).thenReturn(sampleResult());
         when(coordinator.complete(eq(1L), anyString(), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
 
         newConsumer().processReclaimed(recordFor(1L, List.of("https://example.com/a.jpg")), 2L);
 
-        verify(visionAnalysisService).analyze(any());
+        verify(visionAnalysisService).analyze(any(), any());
         verify(streamOperations).acknowledge(eq(properties.getKey()), eq(properties.getGroup()), eq(RecordId.of("1-0")));
     }
 
@@ -637,7 +661,7 @@ class AnalysisTaskConsumerTest {
 
         newConsumer().processReclaimed(recordFor(1L, List.of("https://example.com/a.jpg")), 2L);
 
-        verify(visionAnalysisService, never()).analyze(any());
+        verify(visionAnalysisService, never()).analyze(any(), any());
         verify(streamOperations).acknowledge(eq(properties.getKey()), eq(properties.getGroup()), eq(RecordId.of("1-0")));
     }
 
@@ -647,7 +671,7 @@ class AnalysisTaskConsumerTest {
 
         newConsumer().processReclaimed(recordFor(1L, List.of("https://example.com/a.jpg")), 2L);
 
-        verify(visionAnalysisService, never()).analyze(any());
+        verify(visionAnalysisService, never()).analyze(any(), any());
         verify(redisTemplate, never()).opsForStream();
     }
 
@@ -671,7 +695,7 @@ class AnalysisTaskConsumerTest {
         CountDownLatch release = new CountDownLatch(1);
         when(redisTemplate.opsForStream()).thenReturn(streamOperations);
         when(coordinator.claim(eq(1L), anyString())).thenReturn(VisionAttemptOutcome.COMMITTED);
-        when(visionAnalysisService.analyze(any())).thenAnswer(invocation -> {
+        when(visionAnalysisService.analyze(any(), any())).thenAnswer(invocation -> {
             entered.countDown();
             release.await();
             return sampleResult();
