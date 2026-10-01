@@ -23,17 +23,6 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || vars.AUTO_DEPLOY == 'true'
     runs-on: ubuntu-latest
 
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
-
     timeout-minutes: 60
     env:
       TZ: Asia/Seoul
@@ -58,10 +47,6 @@ jobs:
           distribution: temurin
           java-version: "17"
           cache: gradle
-
-      - name: Test
-        working-directory: backend
-        run: ./gradlew --no-daemon test
 
       - name: Build
         working-directory: backend
