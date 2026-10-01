@@ -162,9 +162,31 @@ class ProxyMixedConcurrencyMySqlIT {
             ResponseEntity<ApiResponse<PlaceBidResponse>> manualResponse = manualFuture.get(30, TimeUnit.SECONDS);
             ResponseEntity<ApiResponse<AutoBidRegisterResponse>> autoBidResponse = autoBidFuture.get(30, TimeUnit.SECONDS);
 
-            // 둘 다 유효한 command였으므로 lock 경합으로 500/409가 나서는 안 된다 - 순서만 직렬화될 뿐이다.
-            assertThat(manualResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-            assertThat(autoBidResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+            // AutoBid CREATE(user2, maxAmount=200000)는 Auction 락을 어느 쪽이 먼저 잡아도 항상
+            // 성공한다 - Manual Bid(110000)가 먼저 반영돼도 그 cap은 새 minCapAmount(115000)를
+            // 가뿐히 넘긴다.
+            assertThat(autoBidResponse.getStatusCode())
+                    .as("경쟁 AutoBid는 실행 순서와 무관하게 항상 등록에 성공해야 한다(500/DB exception 누출 금지)")
+                    .isEqualTo(HttpStatus.CREATED);
+
+            // Manual Bid(110000)는 실행 순서에 따라 결과가 갈린다 - 2026-10 AWS 배포 테스트 단계
+            // 실패 조사로 확인됨(#46 follow-up 3자 경쟁 테스트의 "고정 기대값 assert" 오류와 동일
+            // 유형). 경쟁자가 전혀 없는 LIVE 경매에 등록된 첫 AutoBid는 #Day8 규칙상 즉시
+            // 자기 자신이 minNextBidAmount(110000)에 낙찰된다 - AutoBid CREATE가 Manual Bid보다
+            // 먼저 Auction 락을 잡으면 currentPrice가 110000으로 오르고 새 minNextBidAmount가
+            // 115000이 돼, Manual Bid의 고정 금액(110000)은 더 이상 유효하지 않아
+            // BidAmountTooLowException(409/40904)으로 정당하게 거절된다. Manual Bid가 먼저
+            // 락을 잡으면 그대로 201이다. 둘 다 정상 결과이므로 고정값이 아니라 두 상태 모두
+            // 허용하고, 거절됐다면 반드시 40904여야 함을 확인한다.
+            assertThat(manualResponse.getStatusCode())
+                    .as("Manual Bid는 실행 순서에 따라 201 또는 409만 허용된다")
+                    .isIn(HttpStatus.CREATED, HttpStatus.CONFLICT);
+            if (manualResponse.getStatusCode() == HttpStatus.CONFLICT) {
+                assertThat(manualResponse.getBody().success()).isFalse();
+                assertThat(manualResponse.getBody().error().code())
+                        .as("Manual Bid가 거절됐다면 반드시 40904(BID_AMOUNT_TOO_LOW)여야 한다 - 다른 409/500은 진짜 결함이다")
+                        .isEqualTo(40904);
+            }
 
             assertPostStateInvariants(auction.getId(), 105000L);
         } finally {

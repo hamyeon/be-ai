@@ -2,6 +2,7 @@ package com.vintic.backend.concurrency;
 
 import com.vintic.backend.auction.domain.Auction;
 import com.vintic.backend.auction.repository.AuctionRepository;
+import com.vintic.backend.autobid.domain.AutoBidSetting;
 import com.vintic.backend.autobid.dto.AutoBidRegisterResponse;
 import com.vintic.backend.autobid.repository.AutoBidSettingRepository;
 import com.vintic.backend.bid.dto.PlaceBidResponse;
@@ -59,6 +60,28 @@ import static org.assertj.core.api.Assertions.assertThat;
 // 확실히 먼저 Auction 락을 잡고 그 락을 보유한 채 지연되도록 강제해(ManualBidConcurrencyRaceIT와
 // 동일한 AuctionRepository delay 패턴), Manual Bid가 그 이후에야 own-setting을 확인하는
 // 상황을 재현하고, 고쳐진 코드가 그 상황에서도 정확히 취소하는지 검증한다.
+//
+// 2026-10 수정(AWS 배포 테스트 단계 실패 조사): 아래 두 가지를 실측(Testcontainers+실제 MySQL)으로
+// 확인하고 고쳤다 - 둘 다 동시성 수정(#46) 자체의 결함이 아니라 이 테스트의 설계 결함이었다.
+//
+//   1) "CREATE를 먼저 제출 + Thread.sleep(300)"만으로는 CREATE가 먼저 Auction 락을 잡는다는
+//      보장이 없었다. 이 클래스가 Spring 컨텍스트에서 가장 먼저 실행하는 HTTP 요청 두 건이라
+//      콜드스타트(최초 커넥션풀 획득/쿼리 플랜 컴파일 등) 비용이 300ms를 쉽게 넘길 수 있고,
+//      실측 결과 CREATE가 자신의 findByIdForUpdate()에 도달하기까지 ~1.5초가 걸려 Manual Bid가
+//      먼저 락을 잡아버렸다(그 결과 autoBidCanceled=false로 실패). sleep 추측 대신
+//      RaceWindowDelay.awaitEntry()로 "CREATE가 실제로 락을 쥐고 delay에 들어갔음"을 직접
+//      확인한 뒤에만 Manual Bid를 보낸다.
+//   2) 위 순서를 강제로 보장해도(5초 간격으로 완전히 순차 실행) 이번엔 다른 이유로 실패했다 -
+//      경쟁자가 전혀 없는 LIVE 경매에 첫 AutoBid가 등록되면 그 즉시 자기 자신이
+//      minNextBidAmount에 낙찰된다(ProxyPriceEngine의 "예약자 1명도 최소 한 단계는 응찰한다"
+//      규칙, #Day8). 같은 사용자가 CREATE(경쟁자 없음) 직후 그 금액 그대로 Manual Bid를
+//      보내면, 이미 자신이 최고입찰자가 돼 있어 AlreadyHighestBidderException(또는 가격이
+//      더 올라 BidAmountTooLowException)으로 거절된다 - 타이밍과 무관하게 항상 실패하는
+//      시나리오였다. CREATE 이전에 상한이 훨씬 높은 제3자 AutoBid(other)를 미리 ACTIVE로
+//      심어 두면 CREATE의 entrant는 낙찰자가 되지 못하고 CAP_REACHED로 남는다(그래도
+//      cancelOwnActiveAutoBidIfPresent()의 취소 대상인 ACTIVE/CAP_REACHED에는 포함된다) -
+//      이 상태에서 Manual Bid를 새 minNextBidAmount 이상으로 보내면 자기 자신과 경쟁하지
+//      않고도 검증 대상 취소 경로를 그대로 탄다.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("local")
 @Testcontainers
@@ -160,6 +183,19 @@ class AutoBidCancelOnConcurrentManualBidMySqlIT {
         Auction auction = persistLiveAuction(); // currentPrice=105000, minNextBidAmount=110000
         Long userId = 1L;
 
+        // CREATE(user1, maxAmount=200000)가 유일한 참가자면 #Day8 규칙에 따라 자기 자신이
+        // 즉시 110000에 낙찰돼 currentWinner=user1이 되고, 뒤이은 Manual Bid(같은 user1)는
+        // 금액과 무관하게 "이미 현재 최고입찰자"로 거절된다. 상한이 훨씬 높은 제3자를 먼저
+        // ACTIVE로 심어 CREATE의 entrant가 CAP_REACHED로 남게 만들면(그래도 cancel 대상에는
+        // 포함) 이 자기-충돌 없이 "CREATE 직후 Manual Bid가 own setting을 봐야 한다"는 원래
+        // 검증 대상만 분리해 테스트할 수 있다.
+        User strongerBidder = userRepository.save(User.register(
+                "stronger-" + System.identityHashCode(new Object()) + "@vintic.local", "stronger", null
+        ));
+        AutoBidSetting strongerSetting = AutoBidSetting.reserve(auction, strongerBidder, 500000L);
+        strongerSetting.activate();
+        autoBidSettingRepository.saveAndFlush(strongerSetting);
+
         String createUrl = "/api/auctions/" + auction.getId() + "/auto-bids";
         String bidsUrl = "/api/auctions/" + auction.getId() + "/bids";
 
@@ -176,14 +212,19 @@ class AutoBidCancelOnConcurrentManualBidMySqlIT {
                             }
                     )
             );
-            // CREATE가 Auction 락을 얻고 delay에 진입할 시간을 준다 - 그 뒤에 Manual Bid를 보내면
-            // Manual Bid의 idempotency claim 조회(= read view 확립)는 CREATE의 커밋보다 먼저
-            // 일어나지만, Manual Bid의 own-setting 조회는 CREATE의 커밋 이후(Auction 락 대기가
-            // 풀린 뒤)에야 실행된다 - 고쳐지기 전 코드라면 stale read가 발생했을 지점이다.
-            Thread.sleep(300);
+            // CREATE가 Auction 락을 실제로 쥐고 delay에 들어갈 때까지 기다린다 - 고정된
+            // sleep 추측(예: 300ms)은 이 클래스의 첫 HTTP 요청 콜드스타트 비용이 그보다 길 수
+            // 있어 "먼저 보낸 쪽이 먼저 락을 잡는다"를 보장하지 못하는 것으로 실측 확인됐다.
+            // awaitEntry()는 락을 실제로 쥔 시점을 직접 신호받으므로 타이밍 추측이 없다.
+            boolean entered = raceWindowDelay.awaitEntry(10, TimeUnit.SECONDS);
+            assertThat(entered)
+                    .as("CREATE가 제한 시간 안에 Auction 락을 잡고 delay에 진입하지 못했다")
+                    .isTrue();
             Future<ResponseEntity<ApiResponse<PlaceBidResponse>>> bidFuture = executor.submit(() ->
                     restTemplate.exchange(
-                            bidsUrl, HttpMethod.POST, bidRequest(userId, "cancel-race-bid", 110000L),
+                            // CREATE 이후 currentPrice=205000(제3자가 205000까지 반격), 새
+                            // minNextBidAmount=210000 - 그 이상으로 보내야 유효한 Manual Bid다.
+                            bidsUrl, HttpMethod.POST, bidRequest(userId, "cancel-race-bid", 210000L),
                             new ParameterizedTypeReference<>() {
                             }
                     )
