@@ -3,6 +3,14 @@
 `feature/#14-ai-infra-design` — Buyer Agent 재정의, Vector DB 후보 결정, 프롬프트 관리 방식을 정리한 문서.
 실제 코드 변경은 Vision 프롬프트 외부화(`PromptTemplateLoader`)만 포함하며, 나머지는 결정 사항 기록임.
 
+> 2026-10-01 기준: 이 문서는 #14 작성 당시 결정 기록이다. 이후 바뀐 것만 요약한다.
+> - 추천은 `recommendation/`(최상위 패키지)으로 #49에서 구현됐다. 벡터는 Redis Vector가 아니라 MySQL BLOB에
+>   저장하고 앱에서 코사인 유사도를 계산한다(`RecommendationService`, `ai-adr.md` 1번).
+> - 거래 도메인은 `buyer/`·`transaction/`이 아니라 `auction/`, `bid/`, `autobid/`, `order/`로 구현됐다.
+> - 운영 Vision은 `StagedVisionAnalysisService`(`@Primary`, 3단계)이고 `{silhouette,label,condition}-{prompt-version}.md`
+>   + `.schema.json`을 읽는다. `OpenAiVisionAnalysisService`·`product-analysis-system-v1.md`는 레거시다.
+> - 프롬프트/모델 메타데이터는 로그가 아니라 `ai_call_logs` 테이블(`AiCallLog`, `ai-adr.md` 7번)에 호출 단위로 남긴다.
+
 ## 1. Buyer Agent 재정의
 
 기존에는 "Vision/Pricing/Buyer Agent"를 같은 층위의 AI 에이전트로 묶어서 설계하려 했으나,
@@ -27,7 +35,7 @@
 
 | 패키지 | 책임 |
 |---|---|
-| `ai/recommendation/` (미구현) | 구매자 취향 기반 상품 추천, 유사 상품 추천, 자연어 조건 기반 상품 탐색 — `BuyerRecommendationService` 인터페이스로 향후 설계 |
+| `ai/recommendation/` (작성 당시 미구현 - 이후 `recommendation/`으로 구현) | 구매자 취향 기반 상품 추천, 유사 상품 추천, 자연어 조건 기반 상품 탐색 — `BuyerRecommendationService` 인터페이스로 향후 설계 |
 
 **이번 이슈 범위**: 위 경계를 문서화하는 것까지만 진행. `buyer/`, `auction/`, `transaction/`, `ai/recommendation/` 어느 것도 실제로 구현하지 않음.
 
@@ -39,7 +47,7 @@
 
 - 메인 DB: MySQL (RDS), `ddl-auto: update`로 스키마 관리
 - 크롤링 데이터 약 6천 건 + 카탈로그 15개 모델
-- 가격 계산(`PriceCalculationService`)은 브랜드/모델명 문자열 매칭 + KREAM/eBay 시세 조회 + 상태·구성품 보정으로 동작 — **벡터 검색을 쓰는 코드는 현재 어디에도 없음**
+- 가격 계산(`PriceCalculationService`)은 브랜드/모델명 문자열 매칭 + KREAM/eBay 시세 조회 + 상태·구성품 보정으로 동작 — **벡터 검색을 쓰는 코드는 현재 어디에도 없음** (작성 당시. 이후 #49 추천에서 MySQL BLOB + 앱 내 코사인으로 구현)
 
 ### 벡터 검색 예상 사용처 (실제 구현 전 정의만)
 
@@ -109,6 +117,7 @@ src/main/resources/
 - **배포 방식**: 프롬프트 변경 시 재빌드/재배포 (런타임 실시간 수정 없음)
 
 `OpenAiVisionAnalysisService`가 기동 시 `PromptTemplateLoader`로 프롬프트를 한 번 읽어 캐시해두고, 매 요청마다 재사용한다.
+(작성 당시. 지금 운영 경로는 `StagedVisionAnalysisService`가 같은 로더로 단계별 `.md` + `.schema.json`을 읽는다.)
 
 ```
 OpenAiVisionAnalysisService
@@ -158,9 +167,14 @@ log.info("Vision 분석 요청 - promptName={}, promptVersion={}, modelName={}",
 
 추후 이 메타데이터를 세션에도 영속화해야 할 필요가 생기면(예: 분석 이력 조회 API 등) 그때 컬럼 추가를 검토한다.
 
+(이후 `ai_call_logs` 테이블(`AiCallLog`)이 호출 단위로 프롬프트 버전·모델·토큰을 남기는 방식으로 대체됐다 - `ai-adr.md` 7번.)
+
 ---
 
 ## 5. 전체 서비스 경계
+
+(작성 당시 계획이다. 지금 `ai/`는 `vision/{agent,client,dto,image,service}`, `observability/`, `prompt/`, `purchase/`, `search/`이고,
+추천·거래는 최상위 `recommendation/`, `auction/`, `bid/`, `autobid/`, `order/`로 구현됐다.)
 
 ```
 ai/

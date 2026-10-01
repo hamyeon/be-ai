@@ -30,4 +30,4 @@ HTTP 응답뿐 아니라 매 시나리오마다 `auctions`/`bids` 테이블을 S
 
 ## 한계
 
-이 smoke test는 **단일 요청 기준 correctness**(정상/실패 경계, 상태 갱신, 에러 코드 매핑)만 확인한 것이다. 동시성(낙관적 락 충돌), Idempotency, Proxy Bidding 실행은 이번 검증 범위가 아니며, 동시성은 이후 별도 `experiment/no-lock` 브랜치에서 No-lock → `SELECT FOR UPDATE` 순으로 비교할 예정이다.
+이 smoke test는 **단일 요청 기준 correctness**(정상/실패 경계, 상태 갱신, 에러 코드 매핑)만 확인한 것이다. 동시성(낙관적 락 충돌), Idempotency, Proxy Bidding 실행은 이번 검증 범위가 아니며, 동시성은 이후 별도 실험에서 No-lock(#34) → `SELECT FOR UPDATE`(#35) → 성능(#36) → Optimistic Lock + Retry(#74) 순으로 비교했고, production은 Pessimistic Lock(`SELECT FOR UPDATE`)을 쓴다 — [docs/experiments/concurrency/summary.md](experiments/concurrency/summary.md) 참고.

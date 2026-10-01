@@ -18,7 +18,8 @@ POST /api/products/analyze
   → 세션 상태 QUEUED
   → 202 Accepted + { analysisId, status }  (여기서 응답 끝, Vision은 아직 안 돌아감)
 
-AnalysisTaskConsumer (같은 Spring 애플리케이션 안의 백그라운드 컴포넌트)
+AnalysisTaskConsumer (analysis.stream.consumer.enabled=true인 프로세스에서만 도는 백그라운드 컴포넌트.
+                      기본 false, local/dev/worker 프로필은 true, api 프로필은 false - 분리 배포에서는 Worker 프로세스)
   → Redis Stream에서 메시지 수신(XREADGROUP)
   → 세션이 QUEUED 상태인지 확인 (아니면 중복 메시지로 보고 버림)
   → VisionAnalysisService 호출
@@ -67,6 +68,8 @@ Vision 분석 결과를 확인하려면 응답으로 받은 `analysisId`로 `GET
   "analysisId": 1,
   "status": "AWAITING_USER_CONFIRMATION",
   "imageUrls": ["..."],
+  "visionProgress": null,
+  "preliminary": null,
   "brand": "Nike",
   "modelName": "Dunk Low",
   "color": "Panda",
@@ -90,6 +93,14 @@ Vision 분석 결과를 확인하려면 응답으로 받은 `analysisId`로 `GET
 `failureStage`/`failureMessage`가 채워진다. 리스트 필드(`defects`/`candidates`/`warnings`)는
 분석 전에도 `null`이 아니라 빈 배열로 나간다.
 
+`VISION_PROCESSING` 중에는 `visionProgress`(`{completedStages, totalStages}`)와 잠정 결과
+`preliminary`(`{brand, modelName, color, size}`)가 채워진다(#106). 그 밖의 상태이거나 아직 1단계도
+안 끝났으면 둘 다 `null`이다.
+
+> 2026-10-01 기준: `POST /api/products/analyze`와 `GET /api/products/analyze/{taskId}`는 로그인이 필요하다
+> (`JwtSecurityConfig` anonymous 목록에서 제거). 다른 사용자의 세션을 조회하면 존재 여부를 숨기려고
+> 403이 아니라 404를 준다(`ProductAnalyzeService.getStatus`).
+
 `warnings`와 `needsUserConfirmation`이 실려 나가는 이유는 #21의 근거 검증 때문이다. Vision이 근거
 없이 채운 값은 저장 전에 제거되는데(`VisionEvidenceValidator`), 그러면 프론트 입장에서는 그냥 `null`로만
 보인다. 위 예시처럼 `size`가 비었을 때 **왜 비었고 사용자에게 뭘 요청해야 하는지**는 `warnings`에만
@@ -110,7 +121,8 @@ analysis:
     consumer-prefix: ${ANALYSIS_STREAM_CONSUMER_PREFIX:worker}
 ```
 
-Consumer 이름은 기동할 때마다 `{consumer-prefix}-{UUID}`로 생성돼서 인스턴스별로 겹치지 않는다.
+Consumer 이름은 기동할 때마다 `{consumer-prefix}-{인스턴스UUID}-{번호}`로 생성돼서 인스턴스별로 겹치지 않는다
+(`concurrency`만큼 번호를 붙여 등록한다).
 
 ## ACK 정책 (요구사항 그대로 구현)
 
@@ -120,7 +132,8 @@ Consumer 이름은 기동할 때마다 `{consumer-prefix}-{UUID}`로 생성돼�
 - 세션이 아예 없거나(`analysisId`가 잘못됨), 이미 `QUEUED`가 아닌 상태(중복 전달)면 재처리할 이유가
   없으므로 바로 ack하고 버린다.
 - 메시지 자체가 파싱이 안 되면(손상된 JSON) ack하지 않고 남긴다.
-- ack하지 않고 남긴 메시지는 `AnalysisStreamRecovery`가 일정 시간 뒤 회수해 정리한다(아래 #106 절).
+- ack하지 않고 남긴 메시지는 `AnalysisStreamRecoveryScheduler`(#110)가 `analysis.stream.recovery.min-idle-time-ms`
+  (기본 240s)보다 오래 pending이면 XPENDING+XCLAIM으로 회수해 재처리한다(아래 "회수·재시도·실패 Stream" 절).
 
 ## 구독 안정화 · 동시 처리 (#106)
 
@@ -216,7 +229,8 @@ docker compose up -d redis   # Redis만 띄우기 (healthcheck 포함)
       이유: executor 포화로 인한 재전달도 함께 세면, 여유가 생겨 실제로 처음 Vision을 호출한
       순간 이미 상한을 넘겨 곧바로 최종 실패로 확정돼버린다.
   (3) 재시도 가치가 없는 오류(4xx 등) - 즉시 최종 실패로 기록한다.
-  `OpenAiVisionClient`의 단계별 자체 재시도(최대 5회)와 중복되지 않도록, 여기서는 그 재시도를
+  벤더 클라이언트의 단계별 자체 재시도(기본 Claude SDK `anthropic.max-retries` 4회,
+  `VISION_PROVIDER=openai`면 `OpenAiVisionClient` 최대 5회)와 중복되지 않도록, 여기서는 그 재시도를
   반복하지 않는다.
 - **실패 Stream**: 최종 실패는 `analysis.stream.failure-key`(기본 `ai:analysis:failures`)에
   analysisId 기반 이벤트로 발행된다. DB 커밋 → 발행 → 발행 플래그 커밋까지 성공해야 원본

@@ -23,13 +23,13 @@ KREAM(https://kream.co.kr) 공개 페이지에서 대상 브랜드 신발의 **�
 ## 실행
 
 ```bash
-python -m crawler.kream.main                                          # 전체 브랜드
+python -m crawler.kream.main                                          # 전체 키워드
 python -m crawler.kream.main --keywords 살로몬 --max-products-per-keyword 3
 ```
 
 | 옵션 | 기본값 | 설명 |
 |---|---|---|
-| `--keywords` | 전체 10개 | 검색 키워드 (나이키/조던/아디다스/아식스/뉴발란스/크록스/미즈노/호카/푸마/살로몬) |
+| `--keywords` | 전체 27개 | 검색 키워드. 우선순위 모델 17개(슈퍼스타/뉴발란스 530/코르테즈 등, `manual_reference_guide.md` 순위) 먼저, 이어서 브랜드 10개(나이키/조던/아디다스/아식스/뉴발란스/크록스/미즈노/호카/푸마/살로몬). 목록은 `config.SEARCH_KEYWORDS` |
 | `--max-products-per-keyword` | 20 | 키워드당 상세 수집할 상품 수 |
 | `--request-delay-min/max` | 10.0 / 20.0 | 요청 간 랜덤 지연(초) |
 
@@ -48,7 +48,7 @@ crawler/data/kream_trades.jsonl     체결: product_id, size(mm), price_krw, tra
 - **Jordan → Nike로 통일** (#27 결정. eBay 시세 데이터와 표기를 맞추기 위함 —
   검색은 "조던"으로 따로 하되 저장 시 brand는 Nike)
 - ASICS/HOKA 등 대문자 표기는 시세 CSV 표기(Asics/Hoka)로 흡수
-- 대상 9종 외 브랜드(콜라보 검색 결과에 섞여 나오는 것)는 버린다
+- 대상 11종(기존 9종 + #61에서 추가한 Converse/Dr. Martens) 외 브랜드(콜라보 검색 결과에 섞여 나오는 것)는 버린다
 
 ## 크롤링 정책
 
@@ -57,7 +57,7 @@ crawler/data/kream_trades.jsonl     체결: product_id, size(mm), price_krw, tra
   500을 반환한다(토큰 버킷식 속도 제한). 2~5초 간격으로는 상품 4~5개마다 냉각 구간에 부딪혀
   오히려 느렸다.
 - 상품 하나가 재시도까지 전부 실패하면 냉각 구간 진입으로 보고 120초 대기 후 계속한다
-- 실패 시 최대 3회 재시도(대기 시간 증가), 403/429 감지 시 전체 즉시 중단(수집분은 저장)
+- 실패 시 최대 2회 재시도(총 3회 시도, 대기 시간 증가), 403/429 감지 시 전체 즉시 중단(수집분은 저장)
 - **연속 5회 실패 시 전체 중단**: KREAM의 소프트 차단은 403이 아니라 "모든 페이지가
   10초씩 걸리는 500"으로 나타난다(실측). 이 상태에서 계속 두들기면 차단만 길어지고
   몇 시간을 돌아도 0건이라, 차단으로 판단하고 멈춘 뒤 시간을 두고 재실행한다
@@ -69,7 +69,9 @@ crawler/data/kream_trades.jsonl     체결: product_id, size(mm), price_krw, tra
    주기적 재수집으로 누적해야 한다 (지금 스코프에는 스케줄러 없음).
 2. **검색 첫 페이지만**: "더보기" 페이지네이션을 타지 않는다. 인기순 상위 50건 중
    신발만 걸러 수집한다. 브랜드당 더 필요하면 페이지네이션 지원이 추가로 필요하다.
-3. **backend 연동 없음**: `crawler/data/` 파일로만 남긴다. 시세 CSV(`kream_normalized.csv`)를
-   이 데이터로 대체하는 것은 별도 작업이다 (컬럼 매핑: 모델명/컬러웨이 분리 필요).
+3. **backend 연동은 수동 병합**: 크롤러 자체는 `crawler/data/` 파일로만 남긴다.
+   `crawler/calibration/merge_kream_crawl.py`가 `kream_trades.jsonl`을 시세 CSV
+   (`backend/src/main/resources/data/kream_normalized.csv`)에 병합하는데, 사람이 고른 상품
+   (`INCLUDE`, 표준 컬러웨이만)만 넣는다. 모델명/컬러웨이도 이 목록에서 지정한다.
 4. **`__NUXT_DATA__` 구조 의존**: 프론트 개편 시 파서가 깨질 수 있다. 키 조합으로 찾는
    방식이라 위치 변화에는 강하지만, 필드명 변화에는 깨진다 — 깨지면 `ParseError`로 드러난다.

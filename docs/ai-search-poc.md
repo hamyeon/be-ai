@@ -26,7 +26,7 @@ CurationResponse
     └─ imageUrl
 ```
 
-향후 실제 추천 로직(`ai/recommendation` 등, #14 문서 참고)이 준비되면 `CurationService.getCurations()` 내부 구현만 교체하면 되고, 스키마 변경은 필요 없다.
+향후 실제 추천 로직(`ai/recommendation` 등, #14 문서 참고. 이후 최상위 `recommendation/`으로 구현됨)이 준비되면 `CurationService.getCurations()` 내부 구현만 교체하면 되고, 스키마 변경은 필요 없다.
 
 ## 2. Document / Chunk / Embedding 구조
 
@@ -168,6 +168,7 @@ public interface EmbeddingStore {
    - 벡터 검색이 문자열 검색으로는 못 찾는 질의를 유의미하게 더 많이 찾아낸다 — **충족됨** (6-2의 3건)
    - 실제 상품 수가 늘어나 `InMemoryEmbeddingStore`의 O(n) 브루트포스 검색이 느려진다 (체감 지연 또는 실측 응답 시간 기준) — 아직 미충족 (실제 서비스 데이터로 검증 안 됨)
    - 자연어 검색/취향 기반 추천 기능을 실제로 만들기로 결정한다 — 아직 미충족 (기능 자체가 미구현)
+     → 2026-10-01 기준: 충족(#49 개인화 추천). 다만 저장소는 Redis Vector가 아니라 MySQL `LONGBLOB` + 앱 내 코사인으로 정했다(`ai-adr.md` 1번).
 4. 벡터 검색의 실익 자체는 이번 PoC로 확인됐지만, **아래 8번 결론에 따라 Redis 설치는 여전히 보류한다.**
 
 ## 8. 최종 결론
@@ -182,6 +183,8 @@ OpenAI Embedding 및 Vector 검색 가능성 확인
 ```
 
 이번 작업의 목표는 "Redis를 구축하는 것"이 아니라 **"벡터 검색이 이 프로젝트에서 실제로 의미가 있는지 확인하는 것"**이었다. PoC가 성공적이어도 실 사용처(추천 API, 유사 상품 검색 API)가 구현되기 전까지는 운영 인프라 도입을 보류한다.
+
+> 후속(2026-10-01 기준): `GET /api/recommendations/auctions`(#49)가 이 PoC의 임베딩(`ai/search/embedding`의 `EmbeddingClient`)과 `CosineSimilarity`를 그대로 쓴다. 벡터는 MySQL에 저장한다(`ai-adr.md` 1번).
 
 ## 포함 / 제외 범위
 

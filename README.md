@@ -26,9 +26,13 @@ isolation, Pessimistic Lock(`SELECT ... FOR UPDATE`), Optimistic Lock + retry, R
 
 **선택**: Pessimistic Lock 채택. 단일 MySQL `Auction` row가 contention point이고 authoritative
 read부터 직렬화가 필요한 구조라, correctness 실험에서 0/20 violation을 관찰한 이 방식을
-택했다(latency 비용은 감수 — 위 performance 수치 참고). 이 프로젝트에 실제로 구현/도입된
+택했다(latency 비용은 감수 — 위 performance 수치 참고). production write 경로가 실제로 쓰는
 concurrency-control 방식은 **Pessimistic Lock(`SELECT ... FOR UPDATE`) 하나뿐**이다 — 아래
-Redisson 등은 검토만 했고 코드에 없다.
+Redisson 등은 검토만 했고 코드에 없다. `Auction`에 `@Version` 필드가 있지만 #74 Optimistic
+Lock + Retry 비교 실험용으로 추가된 것이고, production 경로는 이 필드를 읽거나 조건으로 쓰지
+않는다(#74도 Optimistic 0/20 violation이었으나 conflict 표본 부족 등으로 Pessimistic 유지 —
+[summary.md §Experiment C](docs/experiments/concurrency/summary.md#experiment-c--optimistic-lock--retry-74),
+[§Production Strategy Reconsideration](docs/experiments/concurrency/summary.md#production-strategy-reconsideration-74)).
 
 **Idempotency vs Lock — 서로 대체 관계가 아니다.**
 
@@ -128,8 +132,9 @@ point는 단일 MySQL row(`Auction`)이고, 모든 write 경로가 이미 같은
 - **v1 제외 범위(계약 명시)**: 실제 PG 연동, 결제수단 선택 API, 환불/webhook, 배송, 강제
   만료용 production API는 FINAL contract §13이 v1 범위에 넣지 않은 항목이라 구현하지
   않았다.
-- 상세 트랜잭션 순서(lock ordering)/DB invariant/알려진 gap(특히 accept/decline의 소유자
-  검증 부재, FORFEITED의 bidRestrictedUntil 미반영):
+- 상세 트랜잭션 순서(lock ordering)/DB invariant/알려진 gap(특히 FORFEITED의
+  bidRestrictedUntil 미반영. accept/decline/조회의 candidate 본인 검증은 #75에서 추가됨 -
+  40305 `BACKUP_OFFER_ACCESS_DENIED`):
   [`docs/api/auction-api-contract-gap.md`](docs/api/auction-api-contract-gap.md)의
   `#56-1`~`#57 Implementation Notes` 참고.
 
@@ -154,8 +159,9 @@ scheduler. FINAL API contract는 변경 없음(새 endpoint 없음, 기존 20개
 - **설정**: `auction.lifecycle.batch-size`(두 scheduler 공유) /
   `auction.lifecycle.start.cron`·`.enabled` / `auction.lifecycle.end.cron`·`.enabled`.
   base 기본값은 `false`(`#57-2`와 동일한 이유 - MySqlIT가 `local` profile을 빌려 쓰는데
-  기본 활성화하면 간섭한다, `#58-3`에서 실측), `dev` profile에서만 명시적으로 `true`. 새
-  worker profile은 만들지 않았다.
+  기본 활성화하면 간섭한다, `#58-3`에서 실측), `dev` profile에서 명시적으로 `true`(API EC2의
+  `dev,api`도 그대로 물려받음). Worker EC2용 `worker` profile(`dev,worker`)은 API와 중복
+  실행되지 않도록 start/end를 `false`로 고정한다(`application-worker.yml`).
 - **운영 한계**: 리더 선출/분산 조정이 없는 단일 application scheduler 가정이다 - 여러
   인스턴스가 뜨면 각자 독립적으로 polling한다. MySQL `PESSIMISTIC_WRITE`가 실제 상태
   중복 반영은 막지만(동시 invocation을 실제 MySQL로 검증함), 인스턴스 수만큼 같은
@@ -172,10 +178,9 @@ scheduler. FINAL API contract는 변경 없음(새 endpoint 없음, 기존 20개
 Auction API contract frozen (#36-B)
 - canonical contract 확정: docs/auction-api-spec-final.md
 - 현재 구현과의 gap은 별도 audit 문서로 관리
-- 미구현 endpoint(17/20) 및 deferred implementation gap(정렬 검증/닉네임 마스킹/
+- endpoint 20/20 구현(계약 완전 일치와는 별개) 및 deferred implementation gap(정렬 검증/닉네임 마스킹/
   오류 코드 매핑/40909 처리) 존재 — "계약 확정"과 "구현 완료"는 다른 것으로 취급한다
 ```
 
 - canonical source of truth: [docs/auction-api-spec-final.md](docs/auction-api-spec-final.md)
 - freeze 상태 / endpoint별 gap / deferred 항목: [docs/api/auction-api-contract-gap.md](docs/api/auction-api-contract-gap.md)
-- 짧은 포인터 문서: [docs/api/README.md](docs/api/README.md)

@@ -22,8 +22,9 @@
 
 **알려진 위험**
 
-- `POST /api/products/analyze`가 비로그인으로 열려 있다(`JwtSecurityConfig` anonymous 목록). 호출마다 유료 Vision
-  API(케이스당 약 $0.05)를 부르므로, 호출 제한이나 인증이 없으면 누구나 비용을 쓸 수 있다.
+- `POST /api/products/analyze`는 2026-10-01부터 로그인이 필요하다(`JwtSecurityConfig` anonymous 목록에서 제거,
+  다른 사용자의 분석 조회는 404). 호출마다 유료 Vision API(케이스당 약 $0.05)를 부르는데 사용자별 호출 제한은
+  아직 없어, 로그인한 사용자는 제한 없이 비용을 쓸 수 있다.
 - OpenAI 크레딧이 소진된 상태다. Vision은 Claude로 옮겼지만 Goal 파서·Matcher·임베딩은 아직 OpenAI다.
   파서는 규칙 기반으로 대체되고(경고 부착), 임베딩 실패는 상품 등록을 막지 않는다. **Matcher는 대체 없이 실패 = 후보 제외**라
   Agent가 아무 경매에도 참여하지 못한다. 충전 전까지는 `PURCHASE_LISTING_MATCHER=rule`(실측 97%·거짓 양성 0)로 둔다.
@@ -48,6 +49,7 @@
 | 2026-09-27 | (백엔드, jchaeyun) Redis Streams Vision 워커 장애 복구(#110/#111): 전체 처리 상한, 실패 분류·실패 스트림, 회수 스케줄러. `ai-async-analysis.md` |
 | 2026-09-29 | **Vision 기본 벤더를 Claude Sonnet 5로 전환**(#106). GPT-4o·Claude Haiku 4.5·Sonnet 5·Opus 5 실측 비교. 사진 1장 18건 10.3 → 9.0초, 사진 여러 장 14건 14.9 → 11.4초, 등급 정확도 동일·모델명/색상 향상. 768px·v3·세 단계 동시·effort low. §3 |
 | 2026-09-29 | 문서 본문 갱신: 맨 위 "지금 상태" 추가, §3 Vision 성능표를 Sonnet 5 기준으로, 구성품 계수(§4-4)·서버 추정가(§4-5)·Purchase Agent(§6) 절 신설, 당근 수집 중단 반영. #109·#110·#112 머지 상태 반영, OpenAI 크레딧 소진 시 Matcher 위험 명시 |
+| 2026-10-01 | 문서 정합성 점검: analyze 인증 필수 반영(비로그인 차단, 타인 분석 조회 404), 관련 AI 문서들(`ai-vision-agent`, `ai-async-analysis`, `ai-purchase-agent` 등)을 현재 코드 기준으로 갱신 |
 
 ---
 
