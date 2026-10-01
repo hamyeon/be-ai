@@ -31,6 +31,12 @@ public class ProductAnalysisSession {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // 이 분석을 요청한 사용자(#analyze가 인증 필수로 바뀌면서 추가) - getStatus() 조회 시
+    // 소유자 검증에 쓴다(ProductAnalyzeService 참고). 기존 행(익명 시절 생성된 세션)은 null일
+    // 수 있어 nullable로 둔다 - 신규 시연 환경은 빈 DB에서 시작하므로 실질적으로는 항상 채워진다.
+    @Column(name = "user_id")
+    private Long userId;
+
     @Enumerated(EnumType.STRING)
     private AnalysisStatus status;
 
@@ -96,11 +102,18 @@ public class ProductAnalysisSession {
     protected ProductAnalysisSession() {
     }
 
-    public static ProductAnalysisSession create() {
+    public static ProductAnalysisSession create(Long userId) {
         ProductAnalysisSession session = new ProductAnalysisSession();
+        session.userId = userId;
         session.status = AnalysisStatus.CREATED;
         session.startedAt = LocalDateTime.now();
         return session;
+    }
+
+    // 조회자가 이 세션의 생성자인지 확인한다. 타인의 taskId로 분석 결과(brand/imageUrls 등)를
+    // 볼 수 없게 하는 것이 목적이다 - ProductAnalyzeService.getStatus()가 호출한다.
+    public boolean isOwnedBy(Long userId) {
+        return Objects.equals(this.userId, userId);
     }
 
     public void markImageUploaded(List<String> imageUrls) {

@@ -11,6 +11,7 @@ import com.vintic.backend.analyze.service.AnalysisProgressRecorder;
 import com.vintic.backend.analyze.service.VisionAttemptCoordinator;
 import com.vintic.backend.analyze.service.VisionFailureStreamRecorder;
 import com.vintic.backend.common.exception.AiApiException;
+import com.vintic.backend.common.util.S3UrlPresigner;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.connection.stream.MapRecord;
@@ -18,6 +19,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.stream.StreamListener;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -60,6 +62,11 @@ public class AnalysisTaskConsumer implements StreamListener<String, MapRecord<St
     private static final String PAYLOAD_FIELD = "payload";
     private static final int FAILURE_MESSAGE_MAX_LENGTH = 1000;
 
+    // Vision 호출 한 번(3단계 x 재시도, OpenAiVisionClient 참고)이 이 시간 안에 끝난다는 전제로
+    // 넉넉히 잡는다 - analysis.vision.overall-timeout-ms(기본 180s)보다 훨씬 길게 둬, 백오프가
+    // 몰려 오래 걸려도 presign이 먼저 만료돼 실패하는 일이 없게 한다.
+    private static final Duration IMAGE_URL_TTL = Duration.ofHours(1);
+
     private final VisionAnalysisService visionAnalysisService;
     private final VisionAttemptCoordinator coordinator;
     private final AnalysisFailureRecorder failureRecorder;
@@ -73,6 +80,7 @@ public class AnalysisTaskConsumer implements StreamListener<String, MapRecord<St
     private final AnalysisStreamProperties properties;
     private final AnalysisVisionProcessingProperties visionProperties;
     private final ExecutorService visionAnalysisExecutor;
+    private final S3UrlPresigner s3UrlPresigner;
 
     private final AtomicInteger inFlight = new AtomicInteger();
 
@@ -152,9 +160,17 @@ public class AnalysisTaskConsumer implements StreamListener<String, MapRecord<St
             MapRecord<String, String, String> record, Long sessionId, List<String> imageUrls,
             String token, long deliveryCount
     ) {
+        // 메시지에는 공개 형식 URL(S3UploaderService가 만든 값)이 실려 있다 - 버킷이 public-read가
+        // 아니므로, 실제로 OpenAI/Claude가 GET할 수 있도록 호출 직전에 presign한다(S3UrlPresigner
+        // 참고). 미리(업로드 시점에) presign해 두지 않는 이유: PEL 회수로 한참 뒤에 재처리될 수 있어
+        // 그때는 이미 서명이 만료돼 있을 수 있다.
+        List<String> presignedImageUrls = imageUrls.stream()
+                .map(url -> s3UrlPresigner.presign(url, IMAGE_URL_TTL))
+                .toList();
+
         VisionAnalysisResult result;
         try {
-            result = callVisionWithDeadline(imageUrls, sessionId);
+            result = callVisionWithDeadline(presignedImageUrls, sessionId);
         } catch (RuntimeException visionError) {
             handleVisionFailure(record, sessionId, token, deliveryCount, visionError);
             return;

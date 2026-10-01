@@ -5,6 +5,7 @@ import com.vintic.backend.auction.repository.AuctionRepository;
 import com.vintic.backend.auction.service.AuctionSchedulePolicy;
 import com.vintic.backend.common.exception.UserNotFoundException;
 import com.vintic.backend.common.util.BidIncrementPolicy;
+import com.vintic.backend.common.util.S3UrlPresigner;
 import com.vintic.backend.common.util.TimePolicy;
 import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.product.dto.CreateProductRequest;
@@ -40,19 +41,22 @@ public class ProductRegistrationService {
     private final ProductVectorService productVectorService;
     private final AuctionRepository auctionRepository;
     private final Clock clock;
+    private final S3UrlPresigner s3UrlPresigner;
 
     public ProductRegistrationService(
             ProductRepository productRepository,
             UserRepository userRepository,
             ProductVectorService productVectorService,
             AuctionRepository auctionRepository,
-            Clock clock
+            Clock clock,
+            S3UrlPresigner s3UrlPresigner
     ) {
         this.productRepository = productRepository;
         this.userRepository = userRepository;
         this.productVectorService = productVectorService;
         this.auctionRepository = auctionRepository;
         this.clock = clock;
+        this.s3UrlPresigner = s3UrlPresigner;
     }
 
     @Transactional
@@ -92,14 +96,14 @@ public class ProductRegistrationService {
         );
         Auction savedAuction = auctionRepository.save(auction);
 
-        return ProductResponse.from(savedProduct, savedAuction);
+        return ProductResponse.from(savedProduct, savedAuction, s3UrlPresigner);
     }
 
     @Transactional(readOnly = true)
     public List<ProductListResponse> getProducts() {
         return productRepository.findAllByOrderByCreatedAtDesc()
                 .stream()
-                .map(ProductListResponse::from)
+                .map(product -> ProductListResponse.from(product, s3UrlPresigner))
                 .toList();
     }
 }

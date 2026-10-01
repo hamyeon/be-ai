@@ -3,6 +3,7 @@ package com.vintic.backend.order.service;
 import com.vintic.backend.common.exception.OrderAccessDeniedException;
 import com.vintic.backend.common.exception.OrderNotFoundException;
 import com.vintic.backend.common.util.ProductDisplayName;
+import com.vintic.backend.common.util.S3UrlPresigner;
 import com.vintic.backend.common.util.TimePolicy;
 import com.vintic.backend.order.domain.Order;
 import com.vintic.backend.order.dto.OrderResponse;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 
 // FINAL contract §12. Order는 별도 persisted result가 아니라 이 서비스가 조회 시점의 status를
@@ -21,12 +23,17 @@ import java.time.LocalDateTime;
 @Service
 public class OrderQueryService {
 
+    // 버킷을 public-read로 열지 않으므로(S3Config 참고) 조회마다 새로 presign한다.
+    private static final Duration IMAGE_URL_TTL = Duration.ofHours(24);
+
     private final OrderRepository orderRepository;
     private final Clock clock;
+    private final S3UrlPresigner s3UrlPresigner;
 
-    public OrderQueryService(OrderRepository orderRepository, Clock clock) {
+    public OrderQueryService(OrderRepository orderRepository, Clock clock, S3UrlPresigner s3UrlPresigner) {
         this.orderRepository = orderRepository;
         this.clock = clock;
+        this.s3UrlPresigner = s3UrlPresigner;
     }
 
     @Transactional(readOnly = true)
@@ -48,7 +55,9 @@ public class OrderQueryService {
                         product.getId(),
                         ProductDisplayName.name(product),
                         ProductDisplayName.subName(product),
-                        product.getImageUrls().isEmpty() ? null : product.getImageUrls().get(0)
+                        product.getImageUrls().isEmpty()
+                                ? null
+                                : s3UrlPresigner.presign(product.getImageUrls().get(0), IMAGE_URL_TTL)
                 ),
                 order.getPurchasePrice(),
                 order.getShippingFee(),

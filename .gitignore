@@ -152,6 +152,13 @@ activemq-data/
 # Environments
 .env
 .envrc
+
+# Terraform local state/plan artifacts - 실수로라도 자원 ID·자격증명 흔적이 남은 상태 파일이
+# 커밋되지 않도록 로컬에 뭐가 있든 항상 막는다.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan*
 .venv
 env/
 venv/

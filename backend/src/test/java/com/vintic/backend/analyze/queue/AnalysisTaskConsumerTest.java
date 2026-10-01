@@ -13,6 +13,7 @@ import com.vintic.backend.analyze.service.AnalysisProgressRecorder;
 import com.vintic.backend.analyze.service.VisionAttemptCoordinator;
 import com.vintic.backend.analyze.service.VisionFailureStreamRecorder;
 import com.vintic.backend.common.exception.AiApiException;
+import com.vintic.backend.common.util.S3UrlPresigner;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -79,6 +80,9 @@ class AnalysisTaskConsumerTest {
     @Mock
     private StreamOperations<String, Object, Object> streamOperations;
 
+    @Mock
+    private S3UrlPresigner s3UrlPresigner;
+
     // 실제 의존성이 없는 순수 판정 로직이라 mock 대신 실제 인스턴스를 쓴다.
     private final VisionFailureClassifier failureClassifier = new VisionFailureClassifier();
     private final AnalysisStreamMetrics metrics = new AnalysisStreamMetrics(new SimpleMeterRegistry());
@@ -96,6 +100,9 @@ class AnalysisTaskConsumerTest {
         // 기본값: 발행할 실패 이벤트가 없다고 가정 - 실패 Stream 자체를 검증하는 테스트에서 재정의한다.
         // lenient(): 이 경로를 타지 않는 테스트(정상 완료 등)에서는 "쓰이지 않은 스텁"으로 잡히지 않게 한다.
         lenient().when(failureStreamRecorder.pendingFailureEvent(anyLong())).thenReturn(Optional.empty());
+        // presign은 이 테스트의 관심사가 아니다 - 입력 URL을 그대로 돌려줘 기존 URL 기반 검증에
+        // 영향을 주지 않는다(S3UrlPresignerTest가 presign 자체 동작을 검증한다).
+        lenient().when(s3UrlPresigner.presign(anyString(), any())).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @AfterEach
@@ -109,8 +116,12 @@ class AnalysisTaskConsumerTest {
 
     private AnalysisTaskConsumer newConsumer(ExecutorService executor) {
         return new AnalysisTaskConsumer(
-                visionAnalysisService, coordinator, failureRecorder, progressRecorder, failureStreamRecorder, failureStreamProducer,
-                failureClassifier, metrics, objectMapper, redisTemplate, properties, visionProperties, executor
+
+                visionAnalysisService, coordinator, failureRecorder, progressRecorder,
+                failureStreamRecorder, failureStreamProducer,
+                failureClassifier, metrics, objectMapper, redisTemplate, properties,
+                visionProperties, executor, s3UrlPresigner
+
         );
     }
 

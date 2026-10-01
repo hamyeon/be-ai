@@ -15,10 +15,13 @@ spring:
 cloud:
   aws:
     credentials:
-      access-key: ${AWS_ACCESS_KEY_ID}
-      secret-key: ${AWS_SECRET_ACCESS_KEY}
+      # 로컬 개발은 이 값들을 채워 정적 키로 인증한다. 비워두면(배포 환경) S3Config가
+      # EC2 인스턴스 IAM 역할로 인증한다 - 정적 액세스 키를 배포 환경에 넣지 않기 위함이다.
+      access-key: ${AWS_ACCESS_KEY_ID:}
+      secret-key: ${AWS_SECRET_ACCESS_KEY:}
     s3:
-      bucket: vintic-mvp-bucket-123
+      bucket: ${CLOUD_AWS_S3_BUCKET:vintic-mvp-bucket-123}
+     
       # 사진을 동시에 올리는 수(#106). 한 장당 원본+분석용 사본 두 번을 올려서 순차로 하면
       # 그 시간이 분석 대기 시간에 그대로 더해진다.
       upload-concurrency: ${S3_UPLOAD_CONCURRENCY:4}
@@ -120,6 +123,13 @@ analysis:
     # XADD 때 스트림을 대략 이 길이로 자른다. ACK해도 엔트리가 지워지지 않아 두면 계속 쌓인다. 0이면 안 자른다.
     max-length: ${ANALYSIS_STREAM_MAX_LENGTH:10000}
     failure-key: ${ANALYSIS_STREAM_FAILURE_KEY:ai:analysis:failures}
+
+    # API/Worker EC2 분리 배포에서 이 프로세스가 RedisStreamConsumerConfig를 시작할지 가르는 게이트
+    # (RedisStreamConsumerConfig 참고). 기본은 false지만 application-local.yml/application-dev.yml이
+    # true로 올려, 단일 프로세스로 쓰는 로컬/공유 dev 환경의 기존 동작은 그대로 유지한다.
+    # application-worker.yml만 명시적으로 true로 켠다.
+    consumer:
+      enabled: ${ANALYSIS_STREAM_CONSUMER_ENABLED:false}
 
     # 종료 신호 후 진행 중인 작업을 기다려줄 최대 시간(RedisStreamConsumerConfig 참고). Docker의
     # stop_grace_period(docker-compose.yml)가 이 값보다 짧으면 SIGKILL이 먼저 와서 무의미해진다.
@@ -278,6 +288,13 @@ jwt:
   secret: ${JWT_SECRET}
   access-ttl-seconds: ${JWT_ACCESS_TTL_SECONDS:1800}
   refresh-ttl-seconds: ${JWT_REFRESH_TTL_SECONDS:1209600}
+
+# 브라우저 프론트가 이 API를 다른 오리진에서 호출할 수 있게 허용할 오리진 목록(콤마 구분,
+# JwtSecurityConfig.corsConfigurationSource() 참고). 로컬 개발은 보통 신경 쓸 필요가 없어
+# 기본값을 비워둔다 - 비워두면 CORS 헤더가 나가지 않아 브라우저 cross-origin 호출은 막히지만,
+# 같은 오리진 호출이나 curl/Postman 같은 비-브라우저 클라이언트는 영향받지 않는다.
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:}
 
 ---
 # #75-4B: local/test(그리고 profile을 지정하지 않는 대부분의 @WebMvcTest 슬라이스, on-profile

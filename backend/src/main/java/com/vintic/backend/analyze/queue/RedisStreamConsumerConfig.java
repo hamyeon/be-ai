@@ -4,6 +4,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.connection.stream.Consumer;
 import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.connection.stream.ReadOffset;
@@ -22,6 +23,10 @@ import java.util.stream.IntStream;
 // 애플리케이션 기동 시 Consumer Group을 만들고(없으면), AnalysisTaskConsumer를 Redis Stream에
 // 구독시킨다. 지금은 별도 Worker 서버가 아니라 같은 Spring 애플리케이션 안의 백그라운드 컴포넌트다.
 //
+// enabled(analysis.stream.consumer.enabled, 기본 false): API/Worker EC2 분리 배포에서 어느 프로세스가
+// 소비자를 실행할지 가르는 게이트다. 기본값은 false지만 application-local.yml/application-dev.yml이
+// true로 올려 기존 단일 프로세스(로컬 docker-compose, dev) 동작은 그대로 유지한다 - 배포 환경에서만
+// application-api.yml이 false로, application-worker.yml이 true로 명시적으로 가른다.
 // #106에서 바꾼 것:
 // - 구독이 예외 한 번에 죽지 않게 했다. Spring Data Redis의 기본값(cancelOnError = 항상 true)은
 //   Redis 읽기 실패나 리스너 예외가 한 번만 나도 구독을 영구히 취소한다(3.5.11 StreamPollTask 확인).
@@ -36,13 +41,26 @@ public class RedisStreamConsumerConfig {
     private final AnalysisStreamProperties properties;
     private final AnalysisTaskConsumer analysisTaskConsumer;
 
+    @Value("${analysis.stream.consumer.enabled:false}")
+    private boolean enabled;
     // 인스턴스마다 고유해야 하는 Consumer 이름의 앞부분 (여러 인스턴스로 늘어나도 서로 겹치지 않도록)
     private final String instanceId = UUID.randomUUID().toString();
 
     private StreamMessageListenerContainer<String, MapRecord<String, String, String>> container;
 
+    // Worker 배포의 actuator health indicator(StreamConsumerHealthIndicator)가 쓴다 - Redis
+    // 쪽 레지스트리(XINFO GROUPS)가 아니라 이 프로세스 자신이 실제로 컨테이너를 돌리고 있는지를
+    // 직접 반영한다(죽은 프로세스의 흔적이 한동안 Redis에 남아있는 문제를 피한다).
+    public boolean isRunning() {
+        return container != null && container.isRunning();
+    }
+
     @PostConstruct
     public void start() {
+        if (!enabled) {
+            log.info("analysis.stream.consumer.enabled=false - 이 프로세스는 Redis Stream Consumer를 시작하지 않습니다.");
+            return;
+        }
         createConsumerGroupIfAbsent();
 
         StreamMessageListenerContainer.StreamMessageListenerContainerOptions<String, MapRecord<String, String, String>> options =

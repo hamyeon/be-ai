@@ -1,9 +1,11 @@
 package com.vintic.backend.product.dto;
 
 import com.vintic.backend.auction.domain.Auction;
+import com.vintic.backend.common.util.S3UrlPresigner;
 import com.vintic.backend.common.util.TimePolicy;
 import com.vintic.backend.product.domain.Product;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -34,11 +36,19 @@ public record ProductResponse(
         OffsetDateTime auctionStartAt,
         OffsetDateTime auctionEndAt
 ) {
-    public static ProductResponse from(Product product, Auction auction) {
+    // 버킷을 public-read로 열지 않으므로(S3Config 참고), 저장된 공개 형식 URL을 응답 시점에
+    // presigned GET URL로 바꿔 내보낸다 - 브라우저가 직접 열람하는 값이라 요청마다 새로 서명한다.
+    private static final Duration IMAGE_URL_TTL = Duration.ofHours(24);
+
+    public static ProductResponse from(Product product, Auction auction, S3UrlPresigner s3UrlPresigner) {
+        List<String> presignedImageUrls = product.getImageUrls().stream()
+                .map(url -> s3UrlPresigner.presign(url, IMAGE_URL_TTL))
+                .toList();
+
         return new ProductResponse(
                 product.getId(),
                 product.getSeller().getId(),
-                product.getImageUrls(),
+                presignedImageUrls,
                 product.getBrand(),
                 product.getModel(),
                 product.getColorway(),

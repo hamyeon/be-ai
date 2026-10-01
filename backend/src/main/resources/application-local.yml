@@ -16,6 +16,13 @@ spring:
       host: ${LOCAL_REDIS_HOST:localhost}
       port: ${LOCAL_REDIS_PORT:6379}
 
+# local도 dev와 마찬가지로 단일 프로세스 배포다 - base(application.yml)의 기본값 false를 올려
+# 이 프로세스가 직접 Redis Stream Consumer를 실행하는 기존 동작을 유지한다(RedisStreamConsumerConfig 참고).
+analysis:
+  stream:
+    consumer:
+      enabled: true
+
 # 로컬에서는 관리 엔드포인트를 서비스 포트에서 그대로 쓴다.
 # 포트 분리는 배포 환경에서 보안그룹으로 막기 위한 것이라 로컬에서는 번거롭기만 하다.
 management:

@@ -17,7 +17,7 @@ class ProductAnalysisSessionRepositoryTest {
 
     @Test
     void 세션을_저장하고_id로_조회할_수_있다() {
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
         session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/a.jpg"));
 
         ProductAnalysisSession saved = sessionRepository.save(session);
@@ -31,7 +31,7 @@ class ProductAnalysisSessionRepositoryTest {
 
     @Test
     void 완료된_세션의_결과_JSON과_완료시각이_저장된다() {
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
         session.markQueued();
         session.claimVisionProcessing("test-token");
         session.completeVision("test-token", "{\"brand\":\"Nike\"}");
@@ -53,7 +53,7 @@ class ProductAnalysisSessionRepositoryTest {
 
     @Test
     void 이미지_업로드_실패_상태가_저장된다() {
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
         session.failImageUpload("S3 업로드 실패");
 
         ProductAnalysisSession saved = sessionRepository.save(session);

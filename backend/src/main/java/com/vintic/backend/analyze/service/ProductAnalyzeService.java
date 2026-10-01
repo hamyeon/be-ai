@@ -13,11 +13,13 @@ import com.vintic.backend.analyze.queue.AnalysisTaskMessage;
 import com.vintic.backend.analyze.queue.AnalysisTaskProducer;
 import com.vintic.backend.common.exception.AnalysisSessionNotFoundException;
 import com.vintic.backend.common.exception.InvalidImageException;
+import com.vintic.backend.common.util.S3UrlPresigner;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.Duration;
 import java.util.List;
 
 // 이미지 검증 -> S3 업로드 -> Queue 적재까지만 담당하는 오케스트레이터(Producer 쪽).
@@ -28,6 +30,11 @@ import java.util.List;
 public class ProductAnalyzeService {
 
     private static final int FAILURE_MESSAGE_MAX_LENGTH = 1000;
+
+    // 분석 세션 조회 응답에 실을 이미지 URL의 presign 유효 기간. 세션은 아직 공개 상품이 아니라
+    // 소유자만 볼 수 있어야 하므로(#analyze 인증 필수화, ProductAnalysisSession.userId 참고) 버킷을
+    // public-read로 열지 않고, 폴링마다 짧게 새로 서명한다.
+    private static final Duration IMAGE_URL_TTL = Duration.ofHours(6);
 
     // Vision 분석 전/실패 상태에서 응답을 채울 때 쓰는 빈 결과
     private static final VisionAnalysisResult EMPTY_VISION_RESULT = new VisionAnalysisResult(
@@ -40,15 +47,16 @@ public class ProductAnalyzeService {
     private final AnalysisFailureRecorder failureRecorder;
     private final AnalysisTaskProducer analysisTaskProducer;
     private final ObjectMapper objectMapper;
+    private final S3UrlPresigner s3UrlPresigner;
 
-    public AnalyzeAcceptedResponse submitForAnalysis(List<MultipartFile> imageFiles) {
+    public AnalyzeAcceptedResponse submitForAnalysis(List<MultipartFile> imageFiles, Long userId) {
 
         // 방어 로직: 리스트 자체가 null이거나 비어있는지, 첫 번째 파일이 비어있는지 확인
         if (imageFiles == null || imageFiles.isEmpty() || imageFiles.get(0).isEmpty()) {
             throw new InvalidImageException("이미지 파일이 존재하지 않습니다.");
         }
 
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(userId);
         sessionRepository.save(session);
 
         List<S3UploaderService.UploadedImage> uploaded;
@@ -80,11 +88,18 @@ public class ProductAnalyzeService {
         return new AnalyzeAcceptedResponse(session.getId(), session.getStatus().name());
     }
 
-    public AnalysisStatusResponse getStatus(Long analysisId) {
+    public AnalysisStatusResponse getStatus(Long analysisId, Long userId) {
         ProductAnalysisSession session = sessionRepository.findById(analysisId)
                 .orElseThrow(() -> new AnalysisSessionNotFoundException(
                         "분석 세션을 찾을 수 없습니다. analysisId: " + analysisId
                 ));
+
+        // 타인의 세션인지 여부를 노출하지 않기 위해, 존재하지 않을 때와 같은 예외로 통일한다
+        // (403 대신 404) - "그 taskId는 있는데 내 것이 아니다"와 "애초에 없다"를 응답에서
+        // 구분할 수 없게 한다.
+        if (!session.isOwnedBy(userId)) {
+            throw new AnalysisSessionNotFoundException("분석 세션을 찾을 수 없습니다. analysisId: " + analysisId);
+        }
 
         // 아직 분석 전이거나 결과를 못 읽으면 빈 결과로 대체한다.
         // 필드마다 null 검사를 반복하는 것보다 읽기 쉽고, 리스트 필드가 null 대신 빈 배열로 나간다.
@@ -93,12 +108,16 @@ public class ProductAnalyzeService {
             vision = EMPTY_VISION_RESULT;
         }
 
+        List<String> presignedImageUrls = session.getImageUrls().stream()
+                .map(url -> s3UrlPresigner.presign(url, IMAGE_URL_TTL))
+                .toList();
         VisionProgress progress = parseVisionProgress(session);
 
         return new AnalysisStatusResponse(
                 session.getId(),
                 session.getStatus().name(),
-                session.getImageUrls(),
+                presignedImageUrls,
+                
                 progress == null ? null
                         : new AnalysisStatusResponse.VisionProgress(progress.completedStages(), progress.totalStages()),
                 progress == null ? null

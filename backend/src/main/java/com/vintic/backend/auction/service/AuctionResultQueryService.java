@@ -11,6 +11,7 @@ import com.vintic.backend.bid.domain.Bid;
 import com.vintic.backend.bid.repository.BidRepository;
 import com.vintic.backend.common.exception.AuctionNotFoundException;
 import com.vintic.backend.common.util.ProductDisplayName;
+import com.vintic.backend.common.util.S3UrlPresigner;
 import com.vintic.backend.common.util.TimePolicy;
 import com.vintic.backend.order.domain.Order;
 import com.vintic.backend.order.domain.OrderStatus;
@@ -22,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -51,6 +53,10 @@ public class AuctionResultQueryService {
     private final BackupOfferRepository backupOfferRepository;
     private final PenaltyRepository penaltyRepository;
     private final Clock clock;
+    private final S3UrlPresigner s3UrlPresigner;
+
+    // 버킷을 public-read로 열지 않으므로(S3Config 참고) 조회마다 새로 presign한다.
+    private static final Duration IMAGE_URL_TTL = Duration.ofHours(24);
 
     public AuctionResultQueryService(
             AuctionRepository auctionRepository,
@@ -58,7 +64,8 @@ public class AuctionResultQueryService {
             OrderRepository orderRepository,
             BackupOfferRepository backupOfferRepository,
             PenaltyRepository penaltyRepository,
-            Clock clock
+            Clock clock,
+            S3UrlPresigner s3UrlPresigner
     ) {
         this.auctionRepository = auctionRepository;
         this.bidRepository = bidRepository;
@@ -66,6 +73,7 @@ public class AuctionResultQueryService {
         this.backupOfferRepository = backupOfferRepository;
         this.penaltyRepository = penaltyRepository;
         this.clock = clock;
+        this.s3UrlPresigner = s3UrlPresigner;
     }
 
     @Transactional(readOnly = true)
@@ -135,7 +143,9 @@ public class AuctionResultQueryService {
                         product.getId(),
                         ProductDisplayName.name(product),
                         ProductDisplayName.subName(product),
-                        product.getImageUrls().isEmpty() ? null : product.getImageUrls().get(0)
+                        product.getImageUrls().isEmpty()
+                                ? null
+                                : s3UrlPresigner.presign(product.getImageUrls().get(0), IMAGE_URL_TTL)
                 ),
                 rank,
                 finalPrice,

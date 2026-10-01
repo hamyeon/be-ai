@@ -37,6 +37,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 
@@ -166,7 +168,11 @@ class AiTrackE2EMySqlIT {
         return vector;
     }
 
+    // 경매 시작/종료 시각은 AuctionSchedulePolicy.validate()가 강제한다: 시작은 현재 이후,
+    // 진행시간은 최소 1시간(MIN_DURATION) - 완화하지 않고 그 정책을 그대로 만족시키는 값을 만든다.
     private String productJson(String brand, String model, String color) {
+        OffsetDateTime startAt = OffsetDateTime.now().plusMinutes(10);
+        OffsetDateTime endAt = startAt.plusHours(2);
         return """
                 {
                   "imageUrls": ["https://example.com/a.jpg","https://example.com/b.jpg","https://example.com/c.jpg"],
@@ -174,26 +180,45 @@ class AiTrackE2EMySqlIT {
                   "conditionGrade": "A", "componentStatus": "FULL",
                   "recommendedPrice": 180000, "baseMarketPrice": 185000,
                   "priceRange": "170,000원 ~ 190,000원", "sellingPrice": 180000,
-                  "reason": "E2E", "sellerDescription": "E2E"
+                  "reason": "E2E", "sellerDescription": "E2E",
+                  "auctionStartPrice": 100000,
+                  "auctionStartAt": "%s",
+                  "auctionEndAt": "%s"
                 }
-                """.formatted(brand, model, color);
+                """.formatted(
+                brand, model, color,
+                startAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                endAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        );
     }
 
-    private Long registerProduct(String brand, String model, String color) throws Exception {
+    // #상품+첫 경매 등록(6bda509)부터는 POST /api/products 자체가 첫 경매까지 한 트랜잭션으로
+    // 만든다(ProductRegistrationService, CreateProductRequest 문서 참고) - 이 응답의 auctionId를
+    // 그대로 쓴다. 예전처럼 별도로 Auction을 새로 insert하면 상품당 활성 경매 1개 제약
+    // (uk_auction_product_active_slot)에 걸린다.
+    private record RegisteredProduct(Long productId, Long auctionId) {
+    }
+
+    private RegisteredProduct registerProduct(String brand, String model, String color) throws Exception {
         String body = mockMvc.perform(post("/api/products")
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("X-User-Id", sellerId)
                         .content(productJson(brand, model, color)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        return objectMapper.readTree(body).path("data").path("id").asLong();
+        var data = objectMapper.readTree(body).path("data");
+        return new RegisteredProduct(data.path("id").asLong(), data.path("auctionId").asLong());
     }
 
-    private Long openAuction(Long productId) {
-        Product product = productRepository.findById(productId).orElseThrow();
-        Auction auction = Auction.schedule(product, 100_000L, 5_000L,
-                LocalDateTime.now().minusHours(1), LocalDateTime.now().plusHours(3));
+    // 등록 시 함께 생성된 경매(SCHEDULED, 시작 10분 뒤)를 스케줄러 전이를 기다리지 않고 즉시
+    // LIVE로 흉내낸다 - 이 테스트 묶음의 관심사는 경매 시작 전이 로직(AuctionStartService)이
+    // 아니라 그 뒤의 조회/추천/입찰 흐름이다. 새 Auction을 만들지 않고 등록이 이미 만든 행만
+    // 갱신한다.
+    private Long markAuctionLive(Long auctionId) {
+        Auction auction = auctionRepository.findById(auctionId).orElseThrow();
         ReflectionTestUtils.setField(auction, "status", AuctionStatus.LIVE);
+        ReflectionTestUtils.setField(auction, "startAt", LocalDateTime.now().minusHours(1));
+        ReflectionTestUtils.setField(auction, "endAt", LocalDateTime.now().plusHours(3));
         return auctionRepository.save(auction).getId();
     }
 
@@ -204,7 +229,7 @@ class AiTrackE2EMySqlIT {
     @Test
     @DisplayName("상품을 등록하면 추천용 벡터가 실제 컬럼에 저장된다")
     void 상품_등록이_벡터_생성까지_이어진다() throws Exception {
-        Long productId = registerProduct("Nike", "Dunk Low", "Panda");
+        Long productId = registerProduct("Nike", "Dunk Low", "Panda").productId();
 
         // 단위 테스트는 리포지토리를 목으로 대체해 DDL 경로를 지나지 않는다.
         // 컬럼이 실제로 6,144바이트를 받아내는지는 진짜 DB에 붙어야 알 수 있다.
@@ -219,7 +244,7 @@ class AiTrackE2EMySqlIT {
         // 추천은 부가 기능이다. 임베딩이 죽었다고 판매자가 상품을 못 올리면 안 된다.
         when(embeddingClient.embed(anyString())).thenThrow(new RuntimeException("OpenAI 장애"));
 
-        Long productId = registerProduct("Nike", "Dunk Low", "Panda");
+        Long productId = registerProduct("Nike", "Dunk Low", "Panda").productId();
 
         assertThat(productRepository.findById(productId)).isPresent();
         assertThat(productVectorRepository.findById(productId)).isEmpty();
@@ -228,10 +253,10 @@ class AiTrackE2EMySqlIT {
     @Test
     @DisplayName("조회 이력이 쌓이면 추천이 개인화로 전환된다")
     void 행동_로그가_개인화_추천으로_이어진다() throws Exception {
-        Long nikeProduct = registerProduct("Nike", "Dunk Low", "Panda");
-        Long adidasProduct = registerProduct("Adidas", "Samba OG", "Cloud White");
-        Long nikeAuction = openAuction(nikeProduct);
-        Long adidasAuction = openAuction(adidasProduct);
+        RegisteredProduct nike = registerProduct("Nike", "Dunk Low", "Panda");
+        RegisteredProduct adidas = registerProduct("Adidas", "Samba OG", "Cloud White");
+        Long nikeAuction = markAuctionLive(nike.auctionId());
+        Long adidasAuction = markAuctionLive(adidas.auctionId());
 
         // 개인화 전환 기준은 행동 3건이다(ADR 6번).
         for (int i = 0; i < 3; i++) {
@@ -257,13 +282,14 @@ class AiTrackE2EMySqlIT {
     @Test
     @DisplayName("벡터가 없는 상품도 개인화 추천에서 사라지지 않고, 백필 후에는 순위를 받는다")
     void 벡터_없는_상품이_추천에서_사라지지_않는다() throws Exception {
-        Long nikeProduct = registerProduct("Nike", "Dunk Low", "Panda");
-        Long nikeAuction = openAuction(nikeProduct);
+        RegisteredProduct nike = registerProduct("Nike", "Dunk Low", "Panda");
+        Long nikeAuction = markAuctionLive(nike.auctionId());
 
         // 임베딩이 실패한 상품 - 벡터 없이 등록된다 (등록 자체는 성공해야 한다)
         when(embeddingClient.embed(contains("Adidas"))).thenThrow(new RuntimeException("OpenAI 장애"));
-        Long adidasProduct = registerProduct("Adidas", "Samba OG", "Cloud White");
-        Long adidasAuction = openAuction(adidasProduct);
+        RegisteredProduct adidas = registerProduct("Adidas", "Samba OG", "Cloud White");
+        Long adidasProduct = adidas.productId();
+        Long adidasAuction = markAuctionLive(adidas.auctionId());
         assertThat(productVectorRepository.findById(adidasProduct)).isEmpty();
 
         for (int i = 0; i < 3; i++) {
@@ -302,8 +328,8 @@ class AiTrackE2EMySqlIT {
     @Test
     @DisplayName("Cold Start: 행동이 없으면 Fallback으로 응답한다")
     void 행동이_없는_유저는_Fallback을_받는다() throws Exception {
-        Long productId = registerProduct("Nike", "Dunk Low", "Panda");
-        openAuction(productId);
+        RegisteredProduct product = registerProduct("Nike", "Dunk Low", "Panda");
+        markAuctionLive(product.auctionId());
 
         mockMvc.perform(get("/api/recommendations/auctions?limit=10").header("X-User-Id", buyerId))
                 .andExpect(status().isOk())
@@ -316,8 +342,8 @@ class AiTrackE2EMySqlIT {
     @Test
     @DisplayName("Fallback 목록은 캐시되고, 입찰이 들어오면 비워진다")
     void Fallback_캐시가_입찰에_무효화된다() throws Exception {
-        Long productId = registerProduct("Nike", "Dunk Low", "Panda");
-        Long auctionId = openAuction(productId);
+        RegisteredProduct product = registerProduct("Nike", "Dunk Low", "Panda");
+        Long auctionId = markAuctionLive(product.auctionId());
 
         // 1) 첫 호출 - DB를 읽고 캐시에 넣는다
         mockMvc.perform(get("/api/recommendations/auctions?limit=10"))
@@ -346,8 +372,8 @@ class AiTrackE2EMySqlIT {
     @Test
     @DisplayName("비로그인 요청도 Fallback으로 응답한다")
     void 비로그인_요청도_추천을_받는다() throws Exception {
-        Long productId = registerProduct("Nike", "Dunk Low", "Panda");
-        openAuction(productId);
+        RegisteredProduct product = registerProduct("Nike", "Dunk Low", "Panda");
+        markAuctionLive(product.auctionId());
 
         mockMvc.perform(get("/api/recommendations/auctions?limit=10"))
                 .andExpect(status().isOk())
@@ -416,7 +442,7 @@ class AiTrackE2EMySqlIT {
     @DisplayName("존재하지 않는 분석 세션은 40402를 반환한다")
     void 없는_세션을_조회하면_40402다() throws Exception {
         // #46에서 경매 쪽이 40401로 옮겨오면서 번호가 겹쳐 40402로 분리했다.
-        mockMvc.perform(get("/api/products/analyze/{taskId}", 999_999L))
+        mockMvc.perform(get("/api/products/analyze/{taskId}", 999_999L).header("X-User-Id", sellerId))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value(40402));
     }
@@ -432,7 +458,7 @@ class AiTrackE2EMySqlIT {
 
     /** 가격 계산이 가능한 상태(AWAITING_USER_CONFIRMATION)의 세션을 만든다. */
     private Long awaitingConfirmationSession() throws Exception {
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(sellerId);
         session.markImageUploaded(List.of("https://example.com/a.jpg"));
         session.markQueued();
         session.claimVisionProcessing("test-token");
@@ -443,7 +469,7 @@ class AiTrackE2EMySqlIT {
     @Test
     @DisplayName("AI 분석이 실패하면 세션이 VISION_FAILED로 남는다")
     void 분석_실패가_상태로_기록된다() throws Exception {
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(sellerId);
         session.markImageUploaded(List.of("https://example.com/a.jpg"));
         session.markQueued();
         session.claimVisionProcessing("test-token");
@@ -452,7 +478,7 @@ class AiTrackE2EMySqlIT {
 
         // 분석 작업의 실패와 API 요청의 실패는 다르다. 조회 자체는 성공(200)이고,
         // 실패 여부는 status/failureStage로 전달한다.
-        mockMvc.perform(get("/api/products/analyze/{taskId}", analysisId))
+        mockMvc.perform(get("/api/products/analyze/{taskId}", analysisId).header("X-User-Id", sellerId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.status").value(AnalysisStatus.VISION_FAILED.name()))
@@ -467,14 +493,14 @@ class AiTrackE2EMySqlIT {
                 "Nike", "Dunk Low", "Panda", 270, "앞코 주름", ConditionGrade.B, true,
                 0.9, false, List.of(), List.of(), List.of(), List.of());
 
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(sellerId);
         session.markImageUploaded(List.of("https://example.com/a.jpg"));
         session.markQueued();
         session.claimVisionProcessing("test-token");
         session.completeVision("test-token", objectMapper.writeValueAsString(result));
         Long analysisId = sessionRepository.save(session).getId();
 
-        mockMvc.perform(get("/api/products/analyze/{taskId}", analysisId))
+        mockMvc.perform(get("/api/products/analyze/{taskId}", analysisId).header("X-User-Id", sellerId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status")
                         .value(AnalysisStatus.AWAITING_USER_CONFIRMATION.name()))

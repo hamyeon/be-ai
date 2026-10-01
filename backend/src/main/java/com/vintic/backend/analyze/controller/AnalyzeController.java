@@ -23,15 +23,21 @@ public class AnalyzeController {
     private final ProductAnalyzeService productAnalyzeService;
 
     @PostMapping(value = "/analyze", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<ApiResponse<AnalyzeAcceptedResponse>> analyzeImage(@RequestPart("images") List<MultipartFile> images) {
+    public ResponseEntity<ApiResponse<AnalyzeAcceptedResponse>> analyzeImage(
+            @RequestPart("images") List<MultipartFile> images,
+            @RequestAttribute("currentUserId") Long userId
+    ) {
         // 에러나면 서비스가 알아서 던지고 Advice가 알아서 처리함
-        AnalyzeAcceptedResponse response = productAnalyzeService.submitForAnalysis(images);
+        AnalyzeAcceptedResponse response = productAnalyzeService.submitForAnalysis(images, userId);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(response));
     }
 
     @GetMapping("/analyze/{taskId}")
-    public ResponseEntity<ApiResponse<AnalysisStatusResponse>> getAnalysisStatus(@PathVariable Long taskId) {
-        AnalysisStatusResponse response = productAnalyzeService.getStatus(taskId);
+    public ResponseEntity<ApiResponse<AnalysisStatusResponse>> getAnalysisStatus(
+            @PathVariable Long taskId,
+            @RequestAttribute("currentUserId") Long userId
+    ) {
+        AnalysisStatusResponse response = productAnalyzeService.getStatus(taskId, userId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 }

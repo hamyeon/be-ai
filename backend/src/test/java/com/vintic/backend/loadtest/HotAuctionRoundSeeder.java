@@ -8,6 +8,7 @@ import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.product.repository.ProductRepository;
 import com.vintic.backend.user.domain.User;
 import com.vintic.backend.user.repository.UserRepository;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -36,6 +37,7 @@ import java.util.Map;
 // 재사용한다 - User는 상태가 없어 run마다 새로 만들 필요가 없다.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @ActiveProfiles("local")
+@Tag("performance")
 class HotAuctionRoundSeeder {
 
     private static final Path USERS_PATH = Path.of("..", "loadtest", "k6", "data", "hot-auction-users.json");

@@ -17,6 +17,7 @@ import com.vintic.backend.common.exception.AnalysisQueueException;
 import com.vintic.backend.common.exception.AnalysisSessionNotFoundException;
 import com.vintic.backend.common.exception.InvalidImageException;
 import com.vintic.backend.common.exception.S3UploadException;
+import com.vintic.backend.common.util.S3UrlPresigner;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -42,6 +43,9 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ProductAnalyzeServiceTest {
 
+    private static final Long USER_ID = 42L;
+    private static final Long OTHER_USER_ID = 43L;
+
     @Mock
     private S3UploaderService s3UploaderService;
 
@@ -54,11 +58,15 @@ class ProductAnalyzeServiceTest {
     @Mock
     private AnalysisTaskProducer analysisTaskProducer;
 
+    @Mock
+    private S3UrlPresigner s3UrlPresigner;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private ProductAnalyzeService newService() {
         return new ProductAnalyzeService(
-                s3UploaderService, sessionRepository, failureRecorder, analysisTaskProducer, objectMapper
+                s3UploaderService, sessionRepository, failureRecorder, analysisTaskProducer, objectMapper,
+                s3UrlPresigner
         );
     }
 
@@ -72,7 +80,7 @@ class ProductAnalyzeServiceTest {
                 uploadedUrls.get(0), "https://bucket.s3.amazonaws.com/analysis/shoe.jpg"));
         when(s3UploaderService.uploadImages(List.of(image))).thenReturn(uploaded);
 
-        AnalyzeAcceptedResponse response = newService().submitForAnalysis(List.of(image));
+        AnalyzeAcceptedResponse response = newService().submitForAnalysis(List.of(image), USER_ID);
 
         assertThat(response.status()).isEqualTo("QUEUED");
 
@@ -84,6 +92,7 @@ class ProductAnalyzeServiceTest {
         ArgumentCaptor<ProductAnalysisSession> sessionCaptor = ArgumentCaptor.forClass(ProductAnalysisSession.class);
         verify(sessionRepository, atLeastOnce()).save(sessionCaptor.capture());
         assertThat(sessionCaptor.getValue().getStatus()).isEqualTo(AnalysisStatus.QUEUED);
+        assertThat(sessionCaptor.getValue().getUserId()).isEqualTo(USER_ID);
 
         verify(failureRecorder, never()).recordImageUploadFailure(anyLong(), anyString());
         verify(failureRecorder, never()).recordQueueingFailure(anyLong(), anyString());
@@ -91,7 +100,7 @@ class ProductAnalyzeServiceTest {
 
     @Test
     void 이미지가_비어있으면_InvalidImageException을_던진다() {
-        assertThatThrownBy(() -> newService().submitForAnalysis(List.of()))
+        assertThatThrownBy(() -> newService().submitForAnalysis(List.of(), USER_ID))
                 .isInstanceOf(InvalidImageException.class);
     }
 
@@ -103,7 +112,7 @@ class ProductAnalyzeServiceTest {
         when(s3UploaderService.uploadImages(List.of(image)))
                 .thenThrow(new S3UploadException("S3 이미지 업로드 중 문제가 발생했습니다."));
 
-        assertThatThrownBy(() -> newService().submitForAnalysis(List.of(image)))
+        assertThatThrownBy(() -> newService().submitForAnalysis(List.of(image), USER_ID))
                 .isInstanceOf(S3UploadException.class);
 
         verify(failureRecorder).recordImageUploadFailure(any(), anyString());
@@ -122,7 +131,7 @@ class ProductAnalyzeServiceTest {
         doThrow(new AnalysisQueueException("Redis 연결 실패"))
                 .when(analysisTaskProducer).enqueue(any());
 
-        assertThatThrownBy(() -> newService().submitForAnalysis(List.of(image)))
+        assertThatThrownBy(() -> newService().submitForAnalysis(List.of(image), USER_ID))
                 .isInstanceOf(AnalysisQueueException.class);
 
         verify(failureRecorder).recordQueueingFailure(any(), anyString());
@@ -138,7 +147,7 @@ class ProductAnalyzeServiceTest {
         when(s3UploaderService.uploadImages(List.of(image)))
                 .thenThrow(new S3UploadException("원래 S3 실패"));
 
-        assertThatThrownBy(() -> newService().submitForAnalysis(List.of(image)))
+        assertThatThrownBy(() -> newService().submitForAnalysis(List.of(image), USER_ID))
                 .isInstanceOf(S3UploadException.class)
                 .hasMessage("원래 S3 실패");
     }
@@ -157,7 +166,7 @@ class ProductAnalyzeServiceTest {
         doThrow(new AnalysisQueueException("원래 Queue 실패"))
                 .when(analysisTaskProducer).enqueue(any());
 
-        assertThatThrownBy(() -> newService().submitForAnalysis(List.of(image)))
+        assertThatThrownBy(() -> newService().submitForAnalysis(List.of(image), USER_ID))
                 .isInstanceOf(AnalysisQueueException.class)
                 .hasMessage("원래 Queue 실패");
     }
@@ -166,18 +175,31 @@ class ProductAnalyzeServiceTest {
     void 세션이_없으면_상태조회에서_AnalysisSessionNotFoundException을_던진다() {
         when(sessionRepository.findById(1L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> newService().getStatus(1L))
+        assertThatThrownBy(() -> newService().getStatus(1L, USER_ID))
+                .isInstanceOf(AnalysisSessionNotFoundException.class);
+    }
+
+    @Test
+    void 타인의_세션을_조회하면_존재하지_않는_것과_동일하게_AnalysisSessionNotFoundException을_던진다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create(USER_ID);
+        session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
+        session.markQueued();
+        when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
+
+        // 세션은 실제로 존재하지만 조회자가 소유자가 아니다 - 타인 세션의 존재 여부가
+        // 드러나지 않도록 "없음"과 동일한 예외로 응답해야 한다(403이 아니라 404).
+        assertThatThrownBy(() -> newService().getStatus(1L, OTHER_USER_ID))
                 .isInstanceOf(AnalysisSessionNotFoundException.class);
     }
 
     @Test
     void QUEUED_상태면_Vision_필드가_비어있는_상태로_조회된다() {
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(USER_ID);
         session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
         session.markQueued();
         when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
 
-        AnalysisStatusResponse response = newService().getStatus(1L);
+        AnalysisStatusResponse response = newService().getStatus(1L, USER_ID);
 
         assertThat(response.status()).isEqualTo("QUEUED");
         assertThat(response.brand()).isNull();
@@ -191,7 +213,7 @@ class ProductAnalyzeServiceTest {
 
     @Test
     void Vision_완료_상태면_저장된_결과를_읽어_응답에_채운다() throws Exception {
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(USER_ID);
         session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
         session.markQueued();
         session.claimVisionProcessing("test-token");
@@ -203,7 +225,7 @@ class ProductAnalyzeServiceTest {
         session.completeVision("test-token", objectMapper.writeValueAsString(visionResult));
         when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
 
-        AnalysisStatusResponse response = newService().getStatus(1L);
+        AnalysisStatusResponse response = newService().getStatus(1L, USER_ID);
 
         assertThat(response.status()).isEqualTo("AWAITING_USER_CONFIRMATION");
         assertThat(response.brand()).isEqualTo("Nike");
@@ -216,7 +238,7 @@ class ProductAnalyzeServiceTest {
 
     @Test
     void 근거가_없어_비워진_필드는_사유와_함께_조회된다() throws Exception {
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(USER_ID);
         session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
         session.markQueued();
         session.claimVisionProcessing("test-token");
@@ -232,7 +254,7 @@ class ProductAnalyzeServiceTest {
         session.completeVision("test-token", objectMapper.writeValueAsString(visionResult));
         when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
 
-        AnalysisStatusResponse response = newService().getStatus(1L);
+        AnalysisStatusResponse response = newService().getStatus(1L, USER_ID);
 
         // 사이즈가 왜 비었는지를 프론트가 알 수 있어야 사용자에게 추가 사진을 요청할 수 있다
         assertThat(response.size()).isNull();
@@ -298,14 +320,14 @@ class ProductAnalyzeServiceTest {
 
     @Test
     void Vision_실패_상태면_실패_단계와_메시지가_응답에_채워진다() {
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(USER_ID);
         session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
         session.markQueued();
         session.claimVisionProcessing("test-token");
         session.failVision("test-token", "OpenAI 호출 실패");
         when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
 
-        AnalysisStatusResponse response = newService().getStatus(1L);
+        AnalysisStatusResponse response = newService().getStatus(1L, USER_ID);
 
         assertThat(response.status()).isEqualTo("VISION_FAILED");
         assertThat(response.failureStage()).isEqualTo(AnalysisFailureStage.VISION.name());
