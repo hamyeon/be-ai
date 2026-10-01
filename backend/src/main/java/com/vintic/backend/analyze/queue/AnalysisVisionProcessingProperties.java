@@ -5,14 +5,16 @@ import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
-// Vision 전체 처리(3단계 x 재시도)에 Consumer가 기다려주는 최대 시간. OpenAiVisionClient의
-// 재시도(단계별 최대 5회, 백오프/서버 힌트 대기 포함)는 이 상한을 모르고 동작하므로, 여기서
+// Vision 전체 처리(3단계 x 재시도)에 Consumer가 기다려주는 최대 시간. 재시도는 벤더 클라이언트
+// 안에서 일어나고(OpenAiVisionClient 단계별 최대 5회, 백오프/서버 힌트 대기 포함 / ClaudeChatClient는
+// SDK 내장 재시도 anthropic.max-retries 4회) 이 상한을 모르고 동작하므로, 여기서
 // 정한 시간을 넘기면 AnalysisTaskConsumer가 강제로 끊어 VISION_FAILED로 처리한다.
-// 기본값(180s)은 openai.vision.http.read-timeout-ms(단일 호출 상한, 기본 30s)와
-// OpenAiVisionClient.MAX_ATTEMPTS(5)를 근거로 잡은 값이다 - docs/ai-async-analysis.md 참고.
+// 기본값(180s)은 OpenAI 경로의 openai.vision.http.read-timeout-ms(단일 호출 상한, 기본 30s)와
+// OpenAiVisionClient.MAX_ATTEMPTS(5)를 근거로 잡은 값이다(Claude 경로는 visionRestTemplate을 쓰지
+// 않고 SDK 기본 타임아웃을 따른다) - docs/ai-async-analysis.md 참고.
 // PEL 회수 minIdleTime(analysis.stream.recovery.min-idle-time-ms)은 이 값 + 여유시간으로 도출한다.
 //
-// executorQueueCapacity: overallTimeoutMs가 지나 Future.get()을 포기해도, RestTemplate의
+// executorQueueCapacity: overallTimeoutMs가 지나 Future.get()을 포기해도, (OpenAI 경로의) RestTemplate
 // readTimeout이 걸린 소켓 I/O는 Thread.interrupt()로 즉시 끊어지지 않는다(java.net 블로킹
 // 소켓은 인터럽트에 반응하지 않고, read-timeout-ms가 지나야 스스로 풀린다) - 그래서 타임아웃난
 // 시도도 executor 스레드를 한동안(최악의 경우 read-timeout-ms x 재시도 횟수만큼) 붙잡고 있을 수

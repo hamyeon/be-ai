@@ -2,7 +2,7 @@ package com.vintic.backend.ai.vision.client;
 
 import java.util.List;
 
-// OpenAI Chat Completions(Vision) 호출 한 번에 필요한 입력.
+// ChatCompletionClient 호출 한 번에 필요한 입력. 특정 벤더 형식에 묶이지 않는다(OpenAI/Claude 공용).
 //
 // 단계별로 모델/해상도/응답 스키마가 달라지므로 호출 옵션을 값 객체로 묶어 클라이언트에 넘긴다.
 public record VisionChatRequest(

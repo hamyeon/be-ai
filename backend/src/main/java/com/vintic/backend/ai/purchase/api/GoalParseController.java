@@ -15,8 +15,8 @@ import org.springframework.web.bind.annotation.RestController;
 // 자연어 → GoalDraft. 설계안 6-3의 POST /api/purchase-goals/parse.
 //
 // DB에 아무것도 남기지 않는다. 응답은 초안이고, 사용자가 확인 화면에서 고친 값이
-// POST /api/purchase-goals(백엔드 담당, 별도 컨트롤러)로 확정된다. 그래서 이 엔드포인트는
-// PurchaseGoal 엔티티가 없어도 먼저 올라갈 수 있고, 프론트는 mock 없이 붙을 수 있다.
+// POST /api/purchase-goals(PurchaseGoalController)로 확정된다. 그래서 이 엔드포인트는
+// PurchaseGoal 엔티티와 독립적으로 동작한다.
 //
 // 인증은 기본 정책(authenticated)을 따른다 - 유료 LLM 호출이라 익명에 열지 않는다.
 @RestController

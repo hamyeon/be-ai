@@ -55,7 +55,7 @@ anthropic:
 vision:
   provider: ${VISION_PROVIDER:claude}
   model: ${VISION_MODEL:claude-sonnet-5}
-  # 프롬프트/스키마 묶음 버전(#106). v2 = 기본, v3 = 출력을 줄인 판(근거는 짧은 영어, 설명 길이 제한).
+  # 프롬프트/스키마 묶음 버전(#106). v2 = 기존판, v3 = 출력을 줄인 판(기본, 근거는 짧은 영어, 설명 길이 제한).
   # 응답 생성 시간이 출력 토큰 수에 비례한다. Claude는 한국어 근거 문장을 토큰으로 더 잘게 쪼개 출력이 길어지므로
   # v3를 기본으로 둔다.
   prompt-version: ${VISION_PROMPT_VERSION:v3}
@@ -127,7 +127,7 @@ analysis:
     # API/Worker EC2 분리 배포에서 이 프로세스가 RedisStreamConsumerConfig를 시작할지 가르는 게이트
     # (RedisStreamConsumerConfig 참고). 기본은 false지만 application-local.yml/application-dev.yml이
     # true로 올려, 단일 프로세스로 쓰는 로컬/공유 dev 환경의 기존 동작은 그대로 유지한다.
-    # application-worker.yml만 명시적으로 true로 켠다.
+    # 분리 배포에서는 application-worker.yml이 true, application-api.yml이 false로 가른다.
     consumer:
       enabled: ${ANALYSIS_STREAM_CONSUMER_ENABLED:false}
 
@@ -138,7 +138,8 @@ analysis:
     # PEL(pending entries list) 회수(XPENDING+XCLAIM). enabled 기본값을 false로 두는 이유는
     # auction.lifecycle.*/payment.expiration과 동일 - 다수의 *MySqlIT가 application-local
     # 프로필을 공유하는데, 기본 활성화하면 그 테스트들의 컨텍스트에서도 세션을 회수해버릴 수
-    # 있다. 실제 배포 프로필(application-dev.yml)에서 명시적으로 켠다.
+    # 있다. 실제 배포 프로필(application-dev.yml, 분리 배포에서는 application-worker.yml)에서
+    # 명시적으로 켠다.
     # min-idle-time-ms(기본 240s) 근거: analysis.vision.overall-timeout-ms(180s, Vision 처리
     # 강제 상한) + 여유시간(claim DB 왕복 30s + 스케줄러 지연/시계 오차 30s). Vision 처리는
     # overall-timeout-ms가 먼저 강제로 끊으므로, 이 값보다 오래 걸리는 "살아있는" 처리는 설계상
@@ -149,12 +150,14 @@ analysis:
       batch-size: ${ANALYSIS_STREAM_RECOVERY_BATCH_SIZE:20}
       scan-interval-ms: ${ANALYSIS_STREAM_RECOVERY_SCAN_INTERVAL_MS:30000}
 
-  # Vision 전체 처리(3단계 x 재시도)의 강제 상한. OpenAiVisionClient의 재시도(단계별 최대 5회)는
+  # Vision 전체 처리(3단계 x 재시도)의 강제 상한. 재시도는 벤더 클라이언트 안에서 일어나고
+  # (OpenAiVisionClient MAX_ATTEMPTS 5회 / Claude는 SDK 내장 재시도 anthropic.max-retries 4회)
   # 이 상한을 모르고 동작하므로, 넘기면 AnalysisTaskConsumer가 더 이상 기다리지 않고 실패 처리로
-  # 넘어간다. overall-timeout-ms(기본 180s) 근거: openai.vision.http.read-timeout-ms(단일 호출
-  # 상한, 기본 30s) 기준으로 재시도가 몰리는 최악의 경우에도 무한정 늘어나지 않게 잡은 값이다 -
+  # 넘어간다. overall-timeout-ms(기본 180s) 근거: OpenAI 경로의 openai.vision.http.read-timeout-ms
+  # (단일 호출 상한, 기본 30s) 기준으로 재시도가 몰리는 최악의 경우에도 무한정 늘어나지 않게 잡은
+  # 값이다(Claude 경로는 visionRestTemplate을 쓰지 않고 SDK 기본 타임아웃을 따른다) -
   # 이 값이 stream.recovery.min-idle-time-ms 계산의 기준이 된다.
-  # executor-pool-size/executor-queue-capacity: 타임아웃난 시도도 readTimeout이 지날 때까지
+  # executor-pool-size/executor-queue-capacity: 타임아웃난 시도도 HTTP 호출이 풀릴 때까지
   # 스레드를 붙잡고 있을 수 있어(VisionExecutorConfig 참고) 무한정 큐잉하지 않고 유한하게 둔다.
   vision:
     overall-timeout-ms: ${ANALYSIS_VISION_OVERALL_TIMEOUT_MS:180000}
@@ -207,7 +210,7 @@ penalty:
   bid-restriction-days: ${PENALTY_BID_RESTRICTION_DAYS:7}
 
 # 결제 기한 만료 scheduler(#57-2). PAYMENT_PENDING Order 중 paymentDeadline이 지난 것만 대상.
-# 기본은 꺼둔다(recommendation.vector-backfill-on-startup/ai.call-log.cleanup-enabled와 동일한
+# 기본은 꺼둔다(recommendation.vector-backfill-on-startup과 동일한
 # 이유) - 이 프로젝트의 MySqlIT 다수가 @ActiveProfiles("local")을 데이터소스 설정 모양만
 # 빌리는 용도로 재사용한다(#56-3 harness부터의 기존 관례). 기본 활성화하면 그 테스트들의
 # @SpringBootTest 컨텍스트에도 이 스케줄러가 함께 뜨는데, 1분 주기 cron이 여러 테스트 클래스가

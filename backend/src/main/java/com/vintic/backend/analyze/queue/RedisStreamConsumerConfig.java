@@ -21,7 +21,8 @@ import java.util.UUID;
 import java.util.stream.IntStream;
 
 // 애플리케이션 기동 시 Consumer Group을 만들고(없으면), AnalysisTaskConsumer를 Redis Stream에
-// 구독시킨다. 지금은 별도 Worker 서버가 아니라 같은 Spring 애플리케이션 안의 백그라운드 컴포넌트다.
+// 구독시킨다. 분리 배포에서는 Worker 프로세스(worker 프로필)에서, 로컬/dev에서는 단일 프로세스 안의
+// 백그라운드 컴포넌트로 돈다 - 어느 쪽이든 아래 enabled 게이트로 가른다.
 //
 // enabled(analysis.stream.consumer.enabled, 기본 false): API/Worker EC2 분리 배포에서 어느 프로세스가
 // 소비자를 실행할지 가르는 게이트다. 기본값은 false지만 application-local.yml/application-dev.yml이

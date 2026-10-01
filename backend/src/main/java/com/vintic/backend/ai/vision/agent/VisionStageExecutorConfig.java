@@ -7,7 +7,8 @@ import org.springframework.context.annotation.Configuration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-// 2·3단계를 동시에 부를 때 쓰는 스레드 풀(#106).
+// 단계를 동시에 부를 때 쓰는 스레드 풀(#106). PARALLEL_LABEL_CONDITION이면 2·3단계,
+// ALL_PARALLEL이면 1·2·3단계 전부를 여기서 돌린다.
 //
 // 공용 ForkJoinPool을 쓰지 않는다. 거기 있는 스레드 수는 CPU 코어 수 기준인데 이 작업은 계산이 아니라
 // API 응답을 기다리는 일이라, 다른 병렬 작업까지 같이 막힐 수 있다.

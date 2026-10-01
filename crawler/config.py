@@ -6,6 +6,8 @@ RAW_JSONL_PATH = OUTPUT_DIR / "daangn_shoes_raw.jsonl"
 METRICS_PATH = OUTPUT_DIR / "daangn_shoes_metrics.json"
 
 # search 경로만 사용 (robots.txt: /kr/buy-sell/s/* 카테고리 브라우징 경로는 크롤러에 차단되어 있음)
+# 2026-09-17부터 수집 중단: 검색 경로가 /kr/search/buy-sell/?q= 로 바뀌어 크롤러가 읽던 ld+json이 없고,
+# robots.txt가 AI 에이전트·크롤러를 막는다. 2026-09-04 수집분(46,146건)이 마지막 데이터다. 우회하지 않는다.
 SEARCH_URL = "https://www.daangn.com/kr/buy-sell/"
 
 REQUEST_DELAY_SECONDS = 1.5

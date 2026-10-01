@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
 
 // LLM Goal 파서. 자연어 한 문장을 Structured Outputs로 LlmGoalDraft로 받고 서버가 검증한다.
 //
-// 시스템 프롬프트에 시세 카탈로그(45개 모델의 키·이름·별칭)를 실어 보낸다. 모델이 "뉴발 990"을
+// 시스템 프롬프트에 시세 카탈로그(ModelAliases.catalog() 전체 모델의 키·이름·별칭)를 실어 보낸다. 모델이 "뉴발 990"을
 // nb990으로 접는 일을 프롬프트가 하고, 카탈로그 밖 모델은 modelKey=null로 두게 한다.
 // 그래도 엉뚱한 키가 오면 GoalDraftValidator가 걷어낸다 - LLM 값이 검증 없이 나가는 길은 없다.
 //

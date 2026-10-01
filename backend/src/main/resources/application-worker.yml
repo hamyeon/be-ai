@@ -2,7 +2,7 @@
 # JWT 보안 설정과 대부분의 배포 기본값을 물려받되, 아래 값만 이 파일이 뒤에 오는 profile로서
 # 덮어쓴다(application-api.yml과 동일한 profile 문서 우선순위 규칙).
 #
-# 이 프로세스가 실제로 맡는 일: Redis Streams 소비(XREADGROUP)·PEL 회수(XAUTOCLAIM)·Vision
+# 이 프로세스가 실제로 맡는 일: Redis Streams 소비(XREADGROUP)·PEL 회수(XPENDING+XCLAIM)·Vision
 # 분석·DB 저장·XACK. 웹 API 트래픽은 받지 않는다(공인 인터넷에 미노출). 도메인 스케줄러(경매
 # 시작/종료 등)는 API EC2가 전담하므로 전부 false로 고정한다 - dev의 true를 그대로 두면 API와
 # 중복 실행된다.

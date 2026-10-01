@@ -41,11 +41,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 //   COMMITTED/ALREADY_FINALIZED -> ACK(단, VISION_FAILED면 실패 Stream 발행까지 확인한 뒤),
 //   OWNERSHIP_LOST -> ACK 안 함(다른 시도가 소유권을 가짐).
 //
-// 재시도: OpenAiVisionClient가 이미 단계별로 429/5xx/네트워크 오류를 최대 5회 재시도하므로,
-// 여기서는 그 재시도를 반복하지 않는다. VisionFailureClassifier가 "재시도 가치가 있는지"를
-// 판정하고, 재시도 가치가 있고 배달 횟수가 아직 상한(maxDeliveryAttempts)을 안 넘었으면 그냥
+// 재시도: 벤더 클라이언트가 이미 단계별로 429/5xx/네트워크 오류를 재시도하므로(OpenAiVisionClient
+// 최대 5회 / Claude SDK anthropic.max-retries 4회), 여기서는 그 재시도를 반복하지 않는다.
+// VisionFailureClassifier가 "재시도 가치가 있는지"를 판정하고, 재시도 가치가 있고 Vision 실패 횟수
+// (ProductAnalysisSession.visionFailureAttemptCount)가 아직 상한(maxVisionFailureAttempts)을 안 넘었으면 그냥
 // ACK하지 않고 끝낸다 - AnalysisStreamRecoveryScheduler가 minIdleTime 간격으로 다시 넘겨주는
-// 것 자체가 재시도다. 재시도 가치가 없거나 배달 횟수를 넘겼을 때만 최종 실패로 기록한다.
+// 것 자체가 재시도다. 재시도 가치가 없거나 실패 횟수를 넘겼을 때만 최종 실패로 기록한다.
 //
 // AnalysisStreamRecoveryScheduler가 PEL에서 회수한 메시지는 processReclaimed()로 들어오는데,
 // claim 대상 상태가 다를 뿐(QUEUED만 vs QUEUED/VISION_PROCESSING) Vision 호출과 완료/실패 처리는
@@ -62,7 +63,7 @@ public class AnalysisTaskConsumer implements StreamListener<String, MapRecord<St
     private static final String PAYLOAD_FIELD = "payload";
     private static final int FAILURE_MESSAGE_MAX_LENGTH = 1000;
 
-    // Vision 호출 한 번(3단계 x 재시도, OpenAiVisionClient 참고)이 이 시간 안에 끝난다는 전제로
+    // Vision 호출 한 번(3단계 x 재시도, 벤더 클라이언트 참고)이 이 시간 안에 끝난다는 전제로
     // 넉넉히 잡는다 - analysis.vision.overall-timeout-ms(기본 180s)보다 훨씬 길게 둬, 백오프가
     // 몰려 오래 걸려도 presign이 먼저 만료돼 실패하는 일이 없게 한다.
     private static final Duration IMAGE_URL_TTL = Duration.ofHours(1);
@@ -122,7 +123,8 @@ public class AnalysisTaskConsumer implements StreamListener<String, MapRecord<St
     // 직접 호출한다 - Redis 재배달이 아니라 스케줄러가 이미 XCLAIM으로 소유권을 가져온 뒤 넘겨주는
     // 메시지다. QUEUED뿐 아니라 VISION_PROCESSING(이전 Worker가 죽었을 가능성)도 회수 대상이다.
     // deliveryCount는 이번 회수를 포함해 이 메시지가 총 몇 번째로 배달됐는지다(Redis가 추적) -
-    // 재시도 가능한 오류라도 이 값이 상한을 넘으면 최종 실패로 기록한다.
+    // 로그용일 뿐이고, 재시도 상한은 visionFailureAttemptCount가 maxVisionFailureAttempts를
+    // 넘는지로 판정한다(handleVisionFailure 참고).
     public void processReclaimed(MapRecord<String, String, String> record, long deliveryCount) {
         inFlight.incrementAndGet();
         try {
@@ -238,15 +240,17 @@ public class AnalysisTaskConsumer implements StreamListener<String, MapRecord<St
         }
     }
 
-    // visionAnalysisService.analyze()는 3단계 x 재시도로 구성돼 상한이 없다(OpenAiVisionClient
-    // 참고) - PEL 회수(minIdleTime)가 "처리에 상한이 있다"는 전제로 동작하려면 여기서 상한을
+    // visionAnalysisService.analyze()는 3단계 x 재시도로 구성돼 상한이 없다(재시도는 벤더
+    // 클라이언트 안에서 일어난다 - OpenAiVisionClient MAX_ATTEMPTS 5 / Claude SDK anthropic.max-retries 4)
+    // - PEL 회수(minIdleTime)가 "처리에 상한이 있다"는 전제로 동작하려면 여기서 상한을
     // 걸어야 한다.
     //
     // 주의: 여기서 "타임아웃"은 이 메서드가 더 이상 기다리지 않고 실패 처리로 넘어간다는 뜻일
-    // 뿐, 이미 제출된 시도를 즉시 멈추는 게 아니다. future.cancel(true)는 백오프 sleep() 중이면
-    // 바로 끊지만(OpenAiVisionClient.sleep() 참고), RestTemplate의 블로킹 소켓 I/O는
+    // 뿐, 이미 제출된 시도를 즉시 멈추는 게 아니다. OpenAI 경로 기준으로, future.cancel(true)는 백오프
+    // sleep() 중이면 바로 끊지만(OpenAiVisionClient.sleep() 참고), RestTemplate의 블로킹 소켓 I/O는
     // Thread.interrupt()에 반응하지 않아 visionRestTemplate의 readTimeout(기본 30s)이 지나야
     // 스스로 풀린다 - 그 사이 해당 OpenAI 호출은 계속 나가고 executor 스레드도 계속 점유된다.
+    // Claude 경로는 visionRestTemplate을 쓰지 않고 SDK 기본 타임아웃을 따른다.
     // 이 시도의 결과(성공/실패 어느 쪽이든)는 아무도 다시 읽지 않으므로 DB에 쓰이는 일은 없다 -
     // 이미 실패로 확정하고 ACK한 뒤이기 때문이다. 스레드 점유가 누적되는 것 자체는
     // VisionExecutorConfig의 유한한 풀+큐(RejectedExecutionException으로 빠르게 실패)로 막는다.

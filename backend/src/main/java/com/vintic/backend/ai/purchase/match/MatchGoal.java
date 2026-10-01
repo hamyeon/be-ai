@@ -2,8 +2,8 @@ package com.vintic.backend.ai.purchase.match;
 
 // Matcher에 넘기는 Goal의 조각. 설계안 6-2 요청의 goal 부분.
 //
-// PurchaseGoal 엔티티는 백엔드 담당이 만든다(미구현). 엔티티가 생기면 거기서 이 record로
-// 변환하는 어댑터 한 줄이면 된다 - Matcher가 엔티티에 의존하지 않게 여기서 끊는다.
+// PurchaseGoalCandidateRanker가 PurchaseGoal 엔티티에서 이 record를 만들어 넘긴다. 엔티티를 직접
+// 넘기지 않고 따로 둔 것은 Matcher가 엔티티에 의존하지 않게 여기서 끊기 위해서다.
 //
 // minCondition·hardMaxAmount·sizeKr는 넘기지 않는다. 등급·예산·사이즈는 pre-filter가
 // 구조화 필드로 끝내므로 Matcher는 "이 매물이 그 모델이 맞는가"와 자유 조건 충족만 본다.

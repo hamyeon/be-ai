@@ -12,8 +12,8 @@ import java.util.List;
 //   - brand, modelKey: pre-filter와 시세 조회가 문자열 비교 대신 이 키로 매칭하기 위해.
 //     modelKey가 null이면 시세 카탈로그 밖의 모델이라 v1 Agent는 후보를 찾지 못한다.
 //   - sizeKr: 신발은 사이즈 없이 살 수 없는데 계약에 사이즈 칸이 없었다. 자유 조건에 섞어
-//     soft로 두면 다른 사이즈를 사게 되므로 구조화 필드로 뺐다. 백엔드 pre-filter가 hard로
-//     써야 한다(팀 합의 필요).
+//     soft로 두면 다른 사이즈를 사게 되므로 구조화 필드로 뺐다. 백엔드 pre-filter
+//     (PurchaseGoalCandidateFinder)가 hard 필터로 쓴다.
 //   - warnings: 확인 화면에 띄울 안내. "사이즈 없음", "'박스 필수'는 v1에서 참고 사항" 등.
 public record GoalDraft(
         String modelQuery,
