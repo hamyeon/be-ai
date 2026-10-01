@@ -266,7 +266,7 @@ class ProductAnalyzeServiceTest {
     @Test
     void 분석_중이면_끝난_단계_수와_잠정_결과를_내려준다() throws Exception {
         // #106: 3단계가 다 끝나기 전에 1단계 결과(브랜드·모델·색상)를 먼저 보여준다.
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
         session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
         session.markQueued();
         session.claimVisionProcessing("token");
@@ -274,7 +274,7 @@ class ProductAnalyzeServiceTest {
                 new VisionProgress(1, 3, "Nike", "Air Force 1", "White", null)));
         when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
 
-        AnalysisStatusResponse response = newService().getStatus(1L);
+        AnalysisStatusResponse response = newService().getStatus(1L, 1L);
 
         assertThat(response.status()).isEqualTo("VISION_PROCESSING");
         assertThat(response.visionProgress()).isEqualTo(new AnalysisStatusResponse.VisionProgress(1, 3));
@@ -286,13 +286,13 @@ class ProductAnalyzeServiceTest {
 
     @Test
     void 분석_중이어도_아직_1단계가_안_끝났으면_진행_필드는_null이다() {
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
         session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
         session.markQueued();
         session.claimVisionProcessing("token");
         when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
 
-        AnalysisStatusResponse response = newService().getStatus(1L);
+        AnalysisStatusResponse response = newService().getStatus(1L, 1L);
 
         assertThat(response.visionProgress()).isNull();
         assertThat(response.preliminary()).isNull();
@@ -300,7 +300,7 @@ class ProductAnalyzeServiceTest {
 
     @Test
     void 분석이_끝나면_잠정_결과는_내려가지_않는다() throws Exception {
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
         session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
         session.markQueued();
         session.claimVisionProcessing("token");
@@ -311,7 +311,7 @@ class ProductAnalyzeServiceTest {
                 List.of(), List.of(), List.of(), List.of())));
         when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
 
-        AnalysisStatusResponse response = newService().getStatus(1L);
+        AnalysisStatusResponse response = newService().getStatus(1L, 1L);
 
         assertThat(response.visionProgress()).isNull();
         assertThat(response.preliminary()).isNull();

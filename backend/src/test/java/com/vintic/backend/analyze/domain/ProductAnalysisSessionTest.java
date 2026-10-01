@@ -215,7 +215,7 @@ class ProductAnalysisSessionTest {
 
     @Test
     void 분석_중일_때만_잠정_결과를_받고_끝나면_비운다() {
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
         session.markQueued();
         // 분석 시작 전에 온 진행 기록은 버린다
         assertThat(session.recordVisionProgress("{\"completedStages\":1}")).isFalse();
@@ -234,7 +234,7 @@ class ProductAnalysisSessionTest {
 
     @Test
     void Vision이_실패하면_잠정_결과를_비운다() {
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
         session.markQueued();
         session.claimVisionProcessing(TOKEN_A);
         session.recordVisionProgress("{\"completedStages\":1}");
