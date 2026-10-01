@@ -1,0 +1,8 @@
+# API EC2의 공인 IP를 그대로 담은 무료 호스트명(예: <ip-with-dashes>.sslip.io)에 자동 HTTPS를
+# 붙인다 - 도메인 구매/Elastic IP 없이, EC2가 재기동해 공인 IP가 바뀌면 SITE_ADDRESS 환경변수만
+# 새 호스트명으로 바꿔 caddy 컨테이너를 재기동하면 그 호스트명으로 새 인증서가 자동 발급된다
+# (docs/aws-demo-deployment.md IP 변경 절차 참고). 인증서/계정 정보는 docker-compose.aws-api.yml의
+# caddy_data 볼륨에 영속화된다.
+{$SITE_ADDRESS} {
+	reverse_proxy api:8080
+}

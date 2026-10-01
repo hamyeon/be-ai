@@ -1,0 +1,162 @@
+{
+    "metrics": {
+        "unrelated_get_duration": {
+            "max": 1054.0023,
+            "count": 38,
+            "avg": 101.64952368421055,
+            "min": 25.8444,
+            "med": 38.5492,
+            "p(95)": 339.4783999999988,
+            "p(99)": 1052.254198
+        },
+        "vus_max": {
+            "value": 152,
+            "min": 152,
+            "max": 152
+        },
+        "http_req_waiting": {
+            "count": 188,
+            "avg": 1286.026314893617,
+            "min": 25.8444,
+            "med": 1477.2849,
+            "p(95)": 1967.482155,
+            "p(99)": 2011.214557,
+            "max": 2022.6389
+        },
+        "http_req_failed": {
+            "passes": 148,
+            "fails": 40,
+            "value": 0.7872340425531915
+        },
+        "iteration_duration": {
+            "avg": 1503.5037617021276,
+            "min": 1026.0382,
+            "med": 1509.07255,
+            "p(95)": 1999.91255,
+            "p(99)": 2043.9361259999998,
+            "max": 2071.1151,
+            "count": 188
+        },
+        "http_reqs": {
+            "count": 188,
+            "rate": 8.969251388159826
+        },
+        "http_req_sending": {
+            "avg": 0.20169893617021276,
+            "min": 0,
+            "med": 0,
+            "p(95)": 1.0105,
+            "p(99)": 1.5155,
+            "max": 2.7583,
+            "count": 188
+        },
+        "data_sent": {
+            "count": 41774,
+            "rate": 1992.986741962705
+        },
+        "bid_duration": {
+            "min": 1119.4366,
+            "med": 1606.0598,
+            "p(95)": 1979.2173699999998,
+            "p(99)": 2013.595439,
+            "max": 2024.1544,
+            "count": 150,
+            "avg": 1586.8179086666664
+        },
+        "http_req_receiving": {
+            "med": 0.52335,
+            "p(95)": 1.04336,
+            "p(99)": 1.757713999999999,
+            "max": 3.9141,
+            "count": 188,
+            "avg": 0.3962851063829787,
+            "min": 0
+        },
+        "vus": {
+            "value": 2,
+            "min": 2,
+            "max": 152
+        },
+        "http_req_duration{expected_response:true}": {
+            "max": 1554.1022,
+            "count": 40,
+            "avg": 163.40551749999997,
+            "min": 25.8444,
+            "med": 39.11565,
+            "p(95)": 1057.274015,
+            "p(99)": 1384.5826159999997
+        },
+        "http_req_blocked": {
+            "count": 188,
+            "avg": 14.481722340425527,
+            "min": 0,
+            "med": 17.26,
+            "p(95)": 21.0113,
+            "p(99)": 21.646278,
+            "max": 22.134
+        },
+        "http_req_connecting": {
+            "med": 0.5617,
+            "p(95)": 1.9244500000000029,
+            "p(99)": 5.7922,
+            "max": 5.7922,
+            "count": 188,
+            "avg": 0.6975670212765956,
+            "min": 0
+        },
+        "checks": {
+            "fails": 0,
+            "passes": 150,
+            "value": 1
+        },
+        "bid_success": {
+            "count": 2,
+            "rate": 0.09541756795914708
+        },
+        "data_received": {
+            "count": 82503,
+            "rate": 3936.1178046667555
+        },
+        "bid_business_rejection": {
+            "count": 148,
+            "rate": 7.060900028976884
+        },
+        "http_req_duration": {
+            "p(95)": 1967.667235,
+            "p(99)": 2011.745257,
+            "max": 2024.1544,
+            "count": 188,
+            "avg": 1286.6242989361704,
+            "min": 25.8444,
+            "med": 1477.9875499999998
+        },
+        "http_req_tls_handshaking": {
+            "p(99)": 0,
+            "max": 0,
+            "count": 188,
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "p(95)": 0
+        },
+        "iterations": {
+            "count": 188,
+            "rate": 8.969251388159826
+        }
+    },
+    "root_group": {
+        "groups": {},
+        "checks": {
+                "bid response has a body": {
+                    "name": "bid response has a body",
+                    "path": "::bid response has a body",
+                    "id": "ea4ad41a3f7ca34cb527d85f25b7a8bd",
+                    "passes": 150,
+                    "fails": 0
+                }
+            },
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+}

@@ -1,0 +1,99 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["conditionGrade", "conditionDescription", "defects", "confidence", "needsUserConfirmation", "evidence", "unreadable"],
+  "properties": {
+    "conditionGrade": {
+      "type": "string",
+      "enum": ["DS", "A", "B", "C", "UNKNOWN"],
+      "description": "DS = unused/deadstock. A = very good used. B = normal used with visible wear. C = heavily used. UNKNOWN = the photos do not show enough to judge."
+    },
+    "conditionDescription": {
+      "type": "string",
+      "description": "In Korean, why this grade was given, referring only to what is visible in the photos."
+    },
+    "defects": {
+      "type": "array",
+      "description": "Every defect actually visible. Empty when none is visible.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "location", "severity", "description"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["crease", "stain", "discoloration", "yellowing", "sole_wear", "scuff", "tear", "peeling", "missing_part", "deformation", "other"]
+          },
+          "location": {
+            "type": "string",
+            "enum": ["toe_box", "upper", "side", "heel", "collar", "tongue", "midsole", "outsole", "insole", "laces", "overall", "other"]
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["minor", "moderate", "severe"]
+          },
+          "description": {
+            "type": "string",
+            "description": "In Korean, one sentence describing the defect as seen."
+          }
+        }
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "description": "0.0 to 1.0. How well the photos support this grade."
+    },
+    "needsUserConfirmation": {
+      "type": "boolean",
+      "description": "True when the photos do not cover the parts needed to grade confidently."
+    },
+    "evidence": {
+      "type": "array",
+      "description": "One entry for conditionGrade, plus one for each defect. A grade other than UNKNOWN must have evidence.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "imageIndex", "region", "observedText", "observation", "sourceChunkId"],
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": ["conditionGrade", "defects"]
+          },
+          "imageIndex": {
+            "type": "integer",
+            "description": "0-based index of the image this was seen in."
+          },
+          "region": {
+            "type": "string",
+            "enum": ["toe_box", "upper", "side", "heel", "collar", "tongue", "midsole", "outsole", "insole", "laces", "overall", "other"]
+          },
+          "observedText": {
+            "type": ["string", "null"],
+            "description": "Almost always null here. Only set when a condition claim rests on readable text, such as an unremoved retail tag."
+          },
+          "observation": {
+            "type": "string",
+            "description": "In Korean, one sentence stating what is visible at that spot."
+          },
+          "sourceChunkId": {
+            "type": ["string", "null"],
+            "description": "Always null. Reserved for citing reference data supplied in the prompt."
+          }
+        }
+      }
+    },
+    "unreadable": {
+      "type": "array",
+      "description": "Parts that could not be checked because no photo covers them, with the reason. In Korean.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "reason"],
+        "properties": {
+          "field": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}

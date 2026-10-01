@@ -1,0 +1,17 @@
+run=15
+workerCount=8 bidderCount=8 delayMs=1000 initialPrice=10000 bidIncrement=5000
+successCount=1 failureCount=7
+  bidderId=131 amount=15000 success=false exceptionType=CannotAcquireLockException attemptsUsed=1 conflictCount=0 exhausted=false
+  bidderId=132 amount=20000 success=false exceptionType=BidAmountTooLowException attemptsUsed=2 conflictCount=1 exhausted=false
+  bidderId=133 amount=25000 success=false exceptionType=CannotAcquireLockException attemptsUsed=1 conflictCount=0 exhausted=false
+  bidderId=134 amount=30000 success=false exceptionType=CannotAcquireLockException attemptsUsed=1 conflictCount=0 exhausted=false
+  bidderId=135 amount=35000 success=false exceptionType=CannotAcquireLockException attemptsUsed=1 conflictCount=0 exhausted=false
+  bidderId=136 amount=40000 success=true exceptionType=null attemptsUsed=1 conflictCount=0 exhausted=false
+  bidderId=137 amount=45000 success=false exceptionType=CannotAcquireLockException attemptsUsed=1 conflictCount=0 exhausted=false
+  bidderId=138 amount=50000 success=false exceptionType=CannotAcquireLockException attemptsUsed=1 conflictCount=0 exhausted=false
+persistedBidCount=1 actualMaxBidAmount=40000 actualMaxBidderId=136
+finalCurrentPrice=40000 finalWinnerId=136
+invariantViolated=false
+violations=[]
+elapsedMillis=2089
+

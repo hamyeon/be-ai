@@ -1,11 +1,15 @@
 package com.vintic.backend.common.exception;
 
+import com.vintic.backend.common.auth.mock.MockAuthException;
 import com.vintic.backend.common.dto.ApiResponse;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -26,11 +30,60 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail(40001, message));
     }
 
+    // mock 인증 실패: X-User-Id 헤더 누락/형식 오류/존재하지 않는 사용자 (401 Unauthorized)
+    @ExceptionHandler(MockAuthException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMockAuthException(MockAuthException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.fail(40101, e.getMessage()));
+    }
+
+    // Kakao가 access token을 invalid/expired로 판단(신원 확인 실패) - POST /api/auth/kakao 전용
+    // (401 Unauthorized, #75-4C)
+    @ExceptionHandler(KakaoTokenInvalidException.class)
+    public ResponseEntity<ApiResponse<Void>> handleKakaoTokenInvalidException(KakaoTokenInvalidException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.fail(40102, e.getMessage()));
+    }
+
+    // Kakao 5xx/timeout/network 등 예기치 않은 upstream 실패 - Kakao 원본 payload/예외 메시지를
+    // 그대로 노출하지 않고 고정 문구만 반환한다(502 Bad Gateway, #75-4C)
+    @ExceptionHandler(KakaoApiException.class)
+    public ResponseEntity<ApiResponse<Void>> handleKakaoApiException(KakaoApiException e) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(ApiResponse.fail(50201, "Kakao 사용자 정보 조회에 실패했습니다."));
+    }
+
+    // Refresh Token이 유효하지 않음 - malformed/서명 불일치/만료/Access token 오사용/Redis entry
+    // 없음(revoked)/Redis userId 불일치 전부 여기로 수렴한다. POST /api/auth/refresh 전용
+    // (401 Unauthorized, #75-4D). logout은 Redis entry가 없어도 이 예외를 던지지 않고 200으로
+    // 처리한다(RefreshTokenService.logout() 참고) - 이 핸들러가 다루는 대상이 아니다.
+    @ExceptionHandler(RefreshTokenInvalidException.class)
+    public ResponseEntity<ApiResponse<Void>> handleRefreshTokenInvalidException(RefreshTokenInvalidException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.fail(40103, e.getMessage()));
+    }
+
+    // 필수 요청 헤더 누락 (400 Bad Request) — 없으면 catch-all Exception 핸들러가 500으로 잘못 응답한다.
+    // 위 MockAuthException(401)과는 다른 경로다: 이쪽은 컨트롤러 @RequestHeader 바인딩
+    // 단계에서 발생하므로 인증 실패가 아니라 요청 형식 문제로 본다.
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingRequestHeaderException(MissingRequestHeaderException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.fail(40004, e.getHeaderName() + " 헤더가 없습니다."));
+    }
+
     // 빈 이미지 에러 처리 (400 Bad Request)
     @ExceptionHandler(InvalidImageException.class)
     public ResponseEntity<ApiResponse<Void>> handleInvalidImageException(InvalidImageException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.fail(40002, e.getMessage()));
+    }
+
+    // 구매 목표(PurchaseGoal) 예산/마감/조건 검증 실패 (400 Bad Request)
+    @ExceptionHandler(InvalidPurchaseGoalException.class)
+    public ResponseEntity<ApiResponse<Void>> handleInvalidPurchaseGoalException(InvalidPurchaseGoalException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.fail(40005, e.getMessage()));
     }
 
     // S3 업로드 에러 처리 (500 Internal Server Error)
@@ -45,6 +98,335 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleAiApiException(AiApiException e) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResponse.fail(50003, e.getMessage()));
+    }
+
+    // 존재하지 않는 분석 세션 (404 Not Found)
+    //
+    // 원래 40401을 쓰다가 40402로 옮겼다. #46에서 AuctionNotFoundException이 40402에서
+    // 40401로 이동하면서 이 예외와 같은 번호를 쓰게 됐는데, 그러면 프론트가 40401만으로는
+    // "분석 세션이 없다"와 "경매가 없다"를 구분할 수 없다.
+    //
+    // 옮기는 쪽을 이 예외로 정한 이유는 #46 FINAL contract가 40401=AUCTION_NOT_FOUND를
+    // 확정했기 때문이다. 경매 쪽을 되돌리면 그 계약을 깨게 된다.
+    @ExceptionHandler(AnalysisSessionNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAnalysisSessionNotFoundException(AnalysisSessionNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40402, e.getMessage()));
+    }
+
+    // 잘못된 분석 상태에서의 요청 (400 Bad Request)
+    @ExceptionHandler(InvalidAnalysisStatusException.class)
+    public ResponseEntity<ApiResponse<Void>> handleInvalidAnalysisStatusException(InvalidAnalysisStatusException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.fail(40003, e.getMessage()));
+    }
+
+    // 분석 작업을 Redis Stream에 적재하지 못한 경우 (500 Internal Server Error)
+    @ExceptionHandler(AnalysisQueueException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAnalysisQueueException(AnalysisQueueException e) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.fail(50004, e.getMessage()));
+    }
+
+    // 존재하지 않는 경매 조회 (404 Not Found)
+    // #46: FINAL contract §0-A는 40401=AUCTION_NOT_FOUND, 40402=ORDER_NOT_FOUND로 확정한다.
+    // Order 도메인이 아직 없어 40402가 다른 예외에 점유되지 않은 상태를 확인한 뒤 40402→40401로
+    // 옮겼다(단독 renumbering, 다른 4xx 코드는 이번에 건드리지 않았다).
+    @ExceptionHandler(AuctionNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAuctionNotFoundException(AuctionNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40401, e.getMessage()));
+    }
+
+    // 존재하지 않는 사용자 참조 (401 Unauthorized)
+    // #56-2: FINAL contract §0-A는 40403=BACKUP_OFFER_NOT_FOUND로 확정한다. UserNotFoundException이
+    // 그 자리를 점유하고 있었는데, BackupOffer 도메인이 이번에 실제로 40403을 쓰기 시작해 번호가
+    // 충돌한다(#56-0/#56-1에서 이미 예견하고 남겨둔 gap). 기존 6개 호출부(AuctionQueryService x2/
+    // BidCommandService/AutoBidCommandService/AuctionLikeCommandService/ProductRegistrationService)를
+    // 전수 확인한 결과 전부 "MockAuthInterceptor가 인증 시점(401/40101)에 이미 존재를 검증한
+    // currentUserId"를 서비스 내부에서 재조회하는 방어적 중복 체크였다 - 별도의 public
+    // "USER_NOT_FOUND" semantics가 필요한 신규 요구가 아니므로, #56-0 §9가 정한 대로
+    // "인증/current user resolution 실패는 기존 40101 흐름 사용"에 맞춰 40403/404에서 40101/401로
+    // 옮긴다. 이 코드가 실제로 응답에 노출될 일은 production에서 거의 없다(인터셉터가 먼저 막는다).
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUserNotFoundException(UserNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.fail(40101, e.getMessage()));
+    }
+
+    // 존재하지 않는 차순위 제안 (404 Not Found)
+    @ExceptionHandler(BackupOfferNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBackupOfferNotFoundException(BackupOfferNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40403, e.getMessage()));
+    }
+
+    // 차순위 제안의 candidate 본인이 아닌 사용자의 조회/수락/거절 시도 (403 Forbidden, #75)
+    @ExceptionHandler(BackupOfferAccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBackupOfferAccessDeniedException(BackupOfferAccessDeniedException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.fail(40305, e.getMessage()));
+    }
+
+    // 차순위 구매 기한 만료 후 accept 시도 (409 Conflict)
+    @ExceptionHandler(BackupOfferExpiredException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBackupOfferExpiredException(BackupOfferExpiredException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40911, e.getMessage()));
+    }
+
+    // 이미 처리된(ACCEPTED/DECLINED) 제안에 accept/decline 재시도 (409 Conflict)
+    @ExceptionHandler(BackupOfferAlreadyResolvedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBackupOfferAlreadyResolvedException(BackupOfferAlreadyResolvedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40912, e.getMessage()));
+    }
+
+    // 낙찰자가 아닌 사용자의 forfeit 시도 (403 Forbidden)
+    @ExceptionHandler(NotAwardeeException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotAwardeeException(NotAwardeeException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.fail(40303, e.getMessage()));
+    }
+
+    // 결제 완료 후 낙찰 포기 시도 (409 Conflict)
+    @ExceptionHandler(AlreadyPaidException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAlreadyPaidException(AlreadyPaidException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40914, e.getMessage()));
+    }
+
+    // 결제 기한 만료 (409 Conflict). #57-1부터 POST /orders/{id}/pay가 Order.status ==
+    // PAYMENT_EXPIRED일 때 이 예외를 재사용한다(AuctionForfeitService의 forfeit 경로와 공유) -
+    // 다만 Order를 PAYMENT_PENDING -> PAYMENT_EXPIRED로 실제 전이시키는 scheduler(#57-2)가 아직
+    // 없어, seed 데이터로 미리 PAYMENT_EXPIRED를 심어두지 않는 한 이 분기는 여전히 production
+    // 경로로 자연 도달하지 않는다(PaymentExpiredException 클래스 주석 참고).
+    @ExceptionHandler(PaymentExpiredException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePaymentExpiredException(PaymentExpiredException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40910, e.getMessage()));
+    }
+
+    // 존재하지 않는 주문 조회/결제 (404 Not Found)
+    @ExceptionHandler(OrderNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleOrderNotFoundException(OrderNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40402, e.getMessage()));
+    }
+
+    // 주문 소유자가 아닌 사용자의 조회/결제 시도 (403 Forbidden)
+    @ExceptionHandler(OrderAccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleOrderAccessDeniedException(OrderAccessDeniedException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.fail(40304, e.getMessage()));
+    }
+
+    // 낙찰 포기로 취소된 주문에 결제 시도 (409 Conflict)
+    @ExceptionHandler(OrderCanceledException.class)
+    public ResponseEntity<ApiResponse<Void>> handleOrderCanceledException(OrderCanceledException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40915, e.getMessage()));
+    }
+
+    // 판매자 본인 입찰 시도 (403 Forbidden)
+    @ExceptionHandler(SellerCannotBidException.class)
+    public ResponseEntity<ApiResponse<Void>> handleSellerCannotBidException(SellerCannotBidException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.fail(40301, e.getMessage()));
+    }
+
+    // 입찰 제한 기간 중인 사용자의 입찰 시도 (403 Forbidden)
+    @ExceptionHandler(PenaltyRestrictedException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePenaltyRestrictedException(PenaltyRestrictedException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.fail(40302, e.getMessage()));
+    }
+
+    // 현재 최고입찰자의 추가 직접 입찰 시도 (409 Conflict)
+    @ExceptionHandler(AlreadyHighestBidderException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAlreadyHighestBidderException(AlreadyHighestBidderException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40901, e.getMessage()));
+    }
+
+    // 아직 시작되지 않은 경매에 대한 입찰 시도 (409 Conflict)
+    @ExceptionHandler(AuctionNotStartedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAuctionNotStartedException(AuctionNotStartedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40902, e.getMessage()));
+    }
+
+    // 종료되었거나 취소된 경매에 대한 입찰 시도 (409 Conflict)
+    @ExceptionHandler(AuctionClosedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAuctionClosedException(AuctionClosedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40903, e.getMessage()));
+    }
+
+    // 최소 입찰 금액 미만 (409 Conflict)
+    @ExceptionHandler(BidAmountTooLowException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBidAmountTooLowException(BidAmountTooLowException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40904, e.getMessage()));
+    }
+
+    // 최소금액 이상이지만 bidIncrement 배수로 정렬되지 않음 (409 Conflict)
+    @ExceptionHandler(BidNotAlignedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBidNotAlignedException(BidNotAlignedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40913, e.getMessage()));
+    }
+
+    // 동일 Idempotency-Key에 이전과 다른 요청 내용이 감지됨 (409 Conflict)
+    @ExceptionHandler(IdempotencyPayloadMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleIdempotencyPayloadMismatchException(IdempotencyPayloadMismatchException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40905, e.getMessage()));
+    }
+
+    // 등록된 자동입찰이 없음 (404 Not Found)
+    @ExceptionHandler(AutoBidNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAutoBidNotFoundException(AutoBidNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40404, e.getMessage()));
+    }
+
+    // 존재하지 않는 구매 목표(PurchaseGoal) 조회/취소 (404 Not Found)
+    @ExceptionHandler(PurchaseGoalNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePurchaseGoalNotFoundException(PurchaseGoalNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40406, e.getMessage()));
+    }
+
+    // 본인 소유가 아닌 구매 목표 조회/취소 시도 (403 Forbidden)
+    @ExceptionHandler(PurchaseGoalAccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePurchaseGoalAccessDeniedException(PurchaseGoalAccessDeniedException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.fail(40306, e.getMessage()));
+    }
+
+    // 존재하지 않거나 본인 소유가 아닌 알림 (404 Not Found, #75) - 두 경우를 구분해서 노출하지
+    // 않는다(findByIdAndRecipientId가 애초에 둘을 구분하지 않는 단일 조회이므로 자연히 통일된다).
+    @ExceptionHandler(NotificationNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotificationNotFoundException(NotificationNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40405, e.getMessage()));
+    }
+
+    // 자동입찰 상한가가 minCapAmount 미만 (409 Conflict)
+    @ExceptionHandler(CapTooLowException.class)
+    public ResponseEntity<ApiResponse<Void>> handleCapTooLowException(CapTooLowException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40906, e.getMessage()));
+    }
+
+    // ACTIVE/CAP_REACHED 상태에서 상한가를 올리지 않고 수정 시도 (409 Conflict)
+    @ExceptionHandler(CapNotIncreasedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleCapNotIncreasedException(CapNotIncreasedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40907, e.getMessage()));
+    }
+
+    // 이미 현재 자동입찰 설정이 존재함(RESERVED/ACTIVE/CAP_REACHED) (409 Conflict)
+    @ExceptionHandler(AutoBidAlreadyExistsException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAutoBidAlreadyExistsException(AutoBidAlreadyExistsException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40908, e.getMessage()));
+    }
+
+    // ACTIVE/ENGAGED가 아닌 구매 목표에 취소를 재요청 (409 Conflict)
+    @ExceptionHandler(InvalidPurchaseGoalStatusException.class)
+    public ResponseEntity<ApiResponse<Void>> handleInvalidPurchaseGoalStatusException(InvalidPurchaseGoalStatusException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40916, e.getMessage()));
+    }
+
+    // Purchase Agent가 관리 중인 경매에 AutoBid 수정/취소 또는 수동 입찰 시도 (409 Conflict)
+    @ExceptionHandler(AgentManagedAuctionException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAgentManagedAuctionException(AgentManagedAuctionException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40917, e.getMessage()));
+    }
+
+    // 존재하지 않는 상품 조회 (404 Not Found) - 경매 등록 대상 상품이 없음
+    @ExceptionHandler(ProductNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleProductNotFoundException(ProductNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40407, e.getMessage()));
+    }
+
+    // 본인 상품/경매가 아닌 사용자의 경매 등록·취소·시작가 수정 시도 (403 Forbidden)
+    @ExceptionHandler(AuctionSellerMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAuctionSellerMismatchException(AuctionSellerMismatchException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.fail(40307, e.getMessage()));
+    }
+
+    // 경매 등록 요청의 시작/종료 시각이 정책(미래 시각, 최소 진행시간 1시간)을 위반 (400 Bad Request)
+    @ExceptionHandler(InvalidAuctionTimeException.class)
+    public ResponseEntity<ApiResponse<Void>> handleInvalidAuctionTimeException(InvalidAuctionTimeException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.fail(40006, e.getMessage()));
+    }
+
+    // 같은 상품에 SCHEDULED/LIVE 경매가 이미 존재함 (409 Conflict)
+    @ExceptionHandler(ActiveAuctionAlreadyExistsException.class)
+    public ResponseEntity<ApiResponse<Void>> handleActiveAuctionAlreadyExistsException(ActiveAuctionAlreadyExistsException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40918, e.getMessage()));
+    }
+
+    // 같은 상품의 경매 등록 이력(취소 포함)이 이미 총 2회에 도달함 (409 Conflict)
+    @ExceptionHandler(AuctionRegistrationLimitExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAuctionRegistrationLimitExceededException(AuctionRegistrationLimitExceededException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40919, e.getMessage()));
+    }
+
+    // 이전 경매에 실제 입찰이 있었던 상품의 재경매 시도 (409 Conflict) - 결제 실패/차순위 제안
+    // 상태만으로는 이 예외를 던지지 않는다(입찰 존재 여부만 본다)
+    @ExceptionHandler(AuctionNotEligibleForReregistrationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAuctionNotEligibleForReregistrationException(AuctionNotEligibleForReregistrationException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40920, e.getMessage()));
+    }
+
+    // 경매가 이미 시작된 뒤(또는 SCHEDULED가 아닌 상태에서)의 취소 시도 (409 Conflict)
+    @ExceptionHandler(AuctionCancelWindowClosedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAuctionCancelWindowClosedException(AuctionCancelWindowClosedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40921, e.getMessage()));
+    }
+
+    // 시작 1시간 이내(또는 SCHEDULED가 아닌 상태에서)의 시작가 수정 시도 (409 Conflict)
+    @ExceptionHandler(StartPriceChangeWindowClosedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleStartPriceChangeWindowClosedException(StartPriceChangeWindowClosedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40922, e.getMessage()));
+    }
+
+    // Auction row PESSIMISTIC_WRITE 획득 실패(락 대기 타임아웃/데드락) (409 Conflict)
+    // - Spring 예외 계층: CannotAcquireLockException(락 대기 타임아웃)과
+    //   DeadlockLoserDataAccessException(데드락 희생자)이 모두 이 클래스의 하위 타입이다.
+    //   #45에서 이 두 경로만 좁게 매핑한다 - 일반 DataAccessException까지 넓히지 않는다.
+    @ExceptionHandler(PessimisticLockingFailureException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePessimisticLockingFailureException(PessimisticLockingFailureException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(40909, "다른 요청과 충돌이 발생했습니다. 잠시 후 다시 시도해주세요."));
+    }
+
+    // 존재하지 않는 경로 (404 Not Found)
+    //
+    // 이 핸들러가 없으면 아래 Exception 포괄 핸들러가 잡아서 500을 준다. 그러면 오타 난 URL과
+    // 서버 장애가 응답으로 구분되지 않는다. 헬스체크나 모니터링이 경로를 잘못 치면
+    // "앱이 죽었다"로 읽힌다. 관리 엔드포인트를 별도 포트로 분리하면서 실제로 겪었다.
+    //
+    // 부수 효과로 로그도 정리된다. 포괄 핸들러가 printStackTrace를 호출하기 때문에
+    // 그동안 404가 날 때마다 스택트레이스가 찍히고 있었다.
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFoundException(NoResourceFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(40400, "존재하지 않는 경로입니다: " + e.getResourcePath()));
     }
 
     @ExceptionHandler(Exception.class)

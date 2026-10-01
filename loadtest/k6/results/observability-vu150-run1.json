@@ -1,0 +1,10 @@
+{
+  "hikariActiveMax": 8,
+  "hikariPendingMax": 0,
+  "hikariConfiguredMax": 10,
+  "innodbRowLockWaitsDelta": 108,
+  "innodbRowLockTimeDeltaMs": 4590,
+  "innodbRowLockTimeMaxMs": 166,
+  "mysqlLockWaitTimeout1205Delta": 0,
+  "mysqlDeadlock1213Delta": 0
+}

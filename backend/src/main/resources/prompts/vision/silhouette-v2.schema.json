@@ -1,0 +1,86 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["silhouette", "brand", "modelName", "color", "candidates", "evidence", "unreadable"],
+  "properties": {
+    "silhouette": {
+      "type": "string",
+      "description": "What kind of footwear this is, described only from its shape. e.g. 'high-top leather sneaker', 'rubber rain boot', 'slide sandal'."
+    },
+    "brand": {
+      "type": ["string", "null"],
+      "description": "Brand name in English. Null unless a logo, wordmark, or an unmistakable brand-specific design element is actually visible."
+    },
+    "modelName": {
+      "type": ["string", "null"],
+      "description": "Model name in English. Null unless the silhouette and visible design details identify a specific model."
+    },
+    "color": {
+      "type": ["string", "null"],
+      "description": "Main colorway in English, as seen. Do not use official colorway names unless printed on a visible label."
+    },
+    "candidates": {
+      "type": "array",
+      "description": "Alternative brand/model readings, most likely first. Empty when the identification is unambiguous.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["brand", "modelName", "color", "confidence"],
+        "properties": {
+          "brand": { "type": ["string", "null"] },
+          "modelName": { "type": ["string", "null"] },
+          "color": { "type": ["string", "null"] },
+          "confidence": { "type": "number", "description": "0.0 to 1.0" }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "description": "One entry for every non-null field above. A field without evidence must be null.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "imageIndex", "region", "observedText", "observation", "sourceChunkId"],
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": ["silhouette", "brand", "modelName", "color"]
+          },
+          "imageIndex": {
+            "type": "integer",
+            "description": "0-based index of the image this was seen in."
+          },
+          "region": {
+            "type": "string",
+            "enum": ["overall", "side_logo", "tongue", "heel_tab", "toe_box", "midsole", "outsole", "upper", "other"]
+          },
+          "observedText": {
+            "type": ["string", "null"],
+            "description": "Text literally readable in the image. Null when the evidence is not text."
+          },
+          "observation": {
+            "type": "string",
+            "description": "In Korean, one sentence stating what is visible. Describe only what is in the image."
+          },
+          "sourceChunkId": {
+            "type": ["string", "null"],
+            "description": "Always null. Reserved for citing reference data supplied in the prompt."
+          }
+        }
+      }
+    },
+    "unreadable": {
+      "type": "array",
+      "description": "Fields left null, with the reason. In Korean.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "reason"],
+        "properties": {
+          "field": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}

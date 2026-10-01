@@ -1,0 +1,10 @@
+{
+  "auctionId" : 48,
+  "finalCurrentPrice" : 860000,
+  "finalWinnerId" : 156,
+  "persistedBidCount" : 2,
+  "completedIdempotencyClaims" : 2,
+  "bidsAfterEndAt" : 0,
+  "priceReversalCount" : 0,
+  "violations" : [ ]
+}

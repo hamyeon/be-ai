@@ -1,0 +1,69 @@
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 공유 RDS. EC2로 SSH 포트포워딩을 열어두고 접속한다.
+    url: ${DEV_DB_URL}
+    username: ${DEV_DB_USERNAME}
+    password: ${DEV_DB_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: update # 자바 코드로 테이블을 정의하면 DB에 알아서 테이블을 만들어주는 옵션
+    show-sql: true
+
+# #57-2: 실제 API가 떠 있는 profile(docker-compose.yml SPRING_PROFILES_ACTIVE=dev)에서는
+# 결제 기한 만료 / 차순위 제안 만료 scheduler를 명시적으로 켠다. base(application.yml)의
+# 기본값 false는 local이 borrow하는 MySqlIT 컨텍스트와의 간섭을 막기 위한 것이라 여기서는
+# 적용되지 않는다 - dev는 실제 스케줄러가 돌아야 하는 유일한 배포 profile이다.
+payment:
+  expiration:
+    enabled: true
+
+backup-offer:
+  expiration:
+    enabled: true
+
+# #73-3: 실제 API 실행 profile에서는 Auction lifecycle scheduler(SCHEDULED->LIVE/LIVE->ENDED)도
+# 위와 동일한 이유로 명시적으로 켠다. 새 worker profile을 만들지 않고 기존 dev profile을 그대로
+# 재사용한다.
+auction:
+  lifecycle:
+    start:
+      enabled: true
+    end:
+      enabled: true
+
+# #107: 실제 API 실행 profile에서는 PEL(pending entries list) 회수 스케줄러도 위와 동일한
+# 이유로 명시적으로 켠다. base(application.yml)의 기본값 false는 local이 borrow하는 MySqlIT
+# 컨텍스트와의 간섭을 막기 위한 것이라 여기서는 적용되지 않는다.
+#
+# consumer.enabled: dev는 API/Worker로 나뉘지 않는 단일 프로세스 배포(공유 EC2)이므로, 이 프로세스가
+# 직접 Redis Stream Consumer도 실행한다(RedisStreamConsumerConfig 참고) - base의 기본값 false를
+# 여기서만 true로 올린다. application-api.yml/application-worker.yml이 각자 이 값을 다시 덮어써
+# API/Worker로 실제 분리되는 배포에서는 dev의 이 값이 적용되지 않는다.
+analysis:
+  stream:
+    recovery:
+      enabled: true
+    consumer:
+      enabled: true
+
+# 배포 환경 관리 엔드포인트.
+#
+# 관리 포트(기본 8081)는 보안그룹에서 외부 인바운드를 막는 것이 전제다.
+# 그 전까지는 8080만 열려 있어도 8081이 열려 있으면 지표가 그대로 노출된다.
+management:
+  endpoint:
+    health:
+      # 포트 차단이 확인되기 전까지는 상세 정보를 열지 않는다.
+      # 차단이 확인되면 MANAGEMENT_HEALTH_DETAILS=always로 올려도 된다.
+      show-details: ${MANAGEMENT_HEALTH_DETAILS:never}
+
+# 배포 환경에서는 벡터 백필을 켠다.
+#
+# base(application.yml)에서 꺼둔 이유는 테스트 컨텍스트 오염 방지(payment.expiration 주석)라
+# 배포와는 무관하다. 정작 벡터 구멍이 생기고 메워져야 하는 곳은 배포 서버다 - 여기서 켜지
+# 않으면 "필요할 때 켠다"는 실제로는 "아무도 안 켠다"가 된다(#84에서 확인).
+recommendation:
+  vector-backfill-on-startup: ${RECOMMENDATION_VECTOR_BACKFILL:true}
+  vector-backfill-scheduled: ${RECOMMENDATION_VECTOR_BACKFILL_SCHEDULED:true}

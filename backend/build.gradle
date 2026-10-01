@@ -19,6 +19,10 @@ repositories {
 
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+	// 이미지 리사이즈(#102). EXIF 회전 보정과 단계적 축소를 함께 제공한다 -
+	// ImageIO만으로는 EXIF를 직접 파싱해야 하고, 한 번에 줄이면 계단 현상이 생긴다.
+	implementation 'net.coobird:thumbnailator:0.4.20'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
@@ -27,11 +31,63 @@ dependencies {
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testAnnotationProcessor 'org.projectlombok:lombok'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+	implementation 'org.springframework.boot:spring-boot-starter-cache'
+	// 배포된 서버의 상태(DB·Redis 연결)를 밖에서 확인할 수단. 지금은 API를 직접 찔러보는 방법뿐이다.
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.6'
 	runtimeOnly 'com.h2database:h2'
 	implementation 'software.amazon.awssdk:s3:2.25.11'
+	// Claude(Anthropic Messages API) 공식 SDK. Vision·Goal 파서·Matcher가 보는 ChatCompletionClient의
+	// 두 번째 구현체(ClaudeChatClient)가 쓴다. 벤더 비교 하네스가 목적이라 OpenAI 쪽은 그대로 둔다.
+	implementation 'com.anthropic:anthropic-java:2.34.0'
 	runtimeOnly 'com.mysql:mysql-connector-j'
+	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+	testImplementation 'org.testcontainers:junit-jupiter'
+	testImplementation 'org.testcontainers:mysql'
+
+	// #75-4A: 자체 Access/Refresh JWT 발급/검증. spring-security-oauth2-client/Kakao SDK는
+	// 추가하지 않는다 - Kakao는 REST 호출(#75-4B)로만 신원을 확인하고, 이후 인증은 이 JWT로 한다.
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+	// #75-4B: @WebMvcTest에 실제 SecurityFilterChain을 적용해 검증하기 위한 공식 테스트 전용
+	// companion(spring-boot-starter-security의 짝) - 새 인증 library가 아니다.
+	testImplementation 'org.springframework.security:spring-security-test'
 }
 
 tasks.named('test') {
-	useJUnitPlatform()
+	// performance/experiment 태그는 기본 실행에서 뺀다 - 실제 MySQL 위에서 20회 동시성 실험을
+	// 반복하는 벤치마크(ManualBid/OptimisticConcurrency*), 실제 OpenAI API를 호출하는 PoC처럼
+	// 결정적이지 않거나(동시성 타이밍에 좌우) 유료 외부 호출이 필요해 CI 기본 게이트에 넣으면
+	// 안 되는 테스트들이다(AWS 시연 배포 CI 도입 시 발견 - .github/workflows/pr.yml·deploy.yml
+	// 참고). 명시적으로 다시 포함하려면 `./gradlew test -PincludeSlowTests`로 실행한다.
+	if (project.hasProperty('includeSlowTests')) {
+		useJUnitPlatform()
+	} else {
+		useJUnitPlatform {
+			excludeTags 'performance', 'experiment'
+		}
+	}
+
+	// 커맨드라인 -D 옵션은 Gradle JVM에만 설정된다. 테스트는 별도 JVM에서 돌기 때문에
+	// 명시적으로 넘겨주지 않으면 Vision 하네스 옵션(-Dvision.harness*)이 전달되지 않고
+	// 테스트가 조용히 skip된다.
+	def harnessProperties = System.properties.findAll { it.key.toString().startsWith('vision.harness') }
+	harnessProperties.each { key, value -> systemProperty(key.toString(), value.toString()) }
+
+	if (!harnessProperties.isEmpty()) {
+		// 하네스는 실제 API를 호출해 매번 새 수치를 내는 게 목적이다.
+		// UP-TO-DATE로 건너뛰면 두 번째 실행부터 아무것도 안 하고 성공만 찍힌다.
+		outputs.upToDateWhen { false }
+
+		// Gradle은 테스트의 System.out을 기본으로 숨긴다. 하네스는 출력이 곧 결과물이라
+		// 이걸 켜지 않으면 수 분을 기다린 끝에 BUILD SUCCESSFUL만 보게 된다.
+		testLogging {
+			showStandardStreams = true
+			// 케이스마다 몇 초씩 걸려서, 진행 표시가 없으면 멈춘 것처럼 보인다.
+			events 'started', 'passed', 'failed'
+		}
+	}
 }

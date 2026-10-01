@@ -1,11 +1,20 @@
-version: '3.8'
 services:
   backend:
     build: .
     ports:
       - "8080:8080"
     restart: always
+    # Docker 기본값(10s)은 analysis.stream.shutdown-grace-period-ms(기본 200s, Vision 처리
+    # 강제 상한 + 여유)보다 훨씬 짧다 - 기본값 그대로면 SIGKILL이 애플리케이션의 종료 대기
+    # 로직보다 먼저 와서 그 대기 자체가 무의미해진다. 애플리케이션 쪽 값보다 여유를 더 줘서
+    # SIGTERM 처리(진행 중인 작업 대기)가 끝날 시간을 먼저 보장한다.
+    stop_grace_period: 210s
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
+      - SPRING_PROFILES_ACTIVE=dev
+
       # AWS S3 설정
       - AWS_ACCESS_KEY=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_KEY=${AWS_SECRET_ACCESS_KEY}
@@ -14,3 +23,21 @@ services:
 
       # OpenAI 설정
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+
+      # Anthropic 설정 (Vision 분석 기본 벤더)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+
+      # Redis 설정 (분석 작업 Queue 전달 용도)
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: always
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5

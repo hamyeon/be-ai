@@ -1,0 +1,166 @@
+{
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "bid response has a body": {
+                    "fails": 41,
+                    "name": "bid response has a body",
+                    "path": "::bid response has a body",
+                    "id": "ea4ad41a3f7ca34cb527d85f25b7a8bd",
+                    "passes": 109
+                }
+            }
+    },
+    "metrics": {
+        "http_req_connecting": {
+            "med": 0.5448,
+            "p(95)": 1.3586,
+            "p(99)": 1.977,
+            "max": 3.8156,
+            "count": 189,
+            "avg": 0.46702433862433834,
+            "min": 0
+        },
+        "http_req_failed": {
+            "passes": 143,
+            "fails": 46,
+            "value": 0.7566137566137566
+        },
+        "iteration_duration": {
+            "max": 1391.7292,
+            "count": 189,
+            "avg": 473.6627894179896,
+            "min": 63.1988,
+            "med": 435.2759,
+            "p(95)": 1040.64374,
+            "p(99)": 1078.9519440000001
+        },
+        "iterations": {
+            "count": 189,
+            "rate": 9.102319739670573
+        },
+        "http_req_duration{expected_response:true}": {
+            "max": 371.5251,
+            "count": 46,
+            "avg": 62.92690434782611,
+            "min": 21.5686,
+            "med": 36.4317,
+            "p(95)": 220.6972,
+            "p(99)": 334.2606449999998
+        },
+        "bid_duration": {
+            "avg": 292.92486333333335,
+            "min": 0,
+            "med": 314.50665,
+            "p(95)": 649.8203849999999,
+            "p(99)": 682.943134,
+            "max": 689.7691,
+            "count": 150
+        },
+        "checks": {
+            "passes": 109,
+            "fails": 41,
+            "value": 0.7266666666666667
+        },
+        "http_req_blocked": {
+            "min": 0,
+            "med": 18.3157,
+            "p(95)": 20.6505,
+            "p(99)": 21.2558,
+            "max": 22.7932,
+            "count": 189,
+            "avg": 11.345903703703698
+        },
+        "http_reqs": {
+            "rate": 9.102319739670573,
+            "count": 189
+        },
+        "http_req_sending": {
+            "count": 189,
+            "avg": 0.11164338624338624,
+            "min": 0,
+            "med": 0,
+            "p(95)": 0.7986,
+            "p(99)": 1.7712840000000025,
+            "max": 2.6803
+        },
+        "unrelated_get_duration": {
+            "med": 32.2199,
+            "p(95)": 63.72029000000002,
+            "p(99)": 259.84929399999925,
+            "max": 371.5251,
+            "count": 39,
+            "avg": 44.5360358974359,
+            "min": 21.5686
+        },
+        "bid_business_rejection": {
+            "count": 102,
+            "rate": 4.912363034107928
+        },
+        "http_req_receiving": {
+            "p(99)": 2.1771640000000003,
+            "max": 4.1761,
+            "count": 189,
+            "avg": 0.20089682539682538,
+            "min": 0,
+            "med": 0,
+            "p(95)": 0.6608399999999998
+        },
+        "bid_system_failure": {
+            "count": 41,
+            "rate": 1.9745772980237752
+        },
+        "vus": {
+            "value": 2,
+            "min": 2,
+            "max": 2
+        },
+        "vus_max": {
+            "value": 152,
+            "min": 152,
+            "max": 152
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "p(95)": 0,
+            "p(99)": 0,
+            "max": 0,
+            "count": 189
+        },
+        "http_req_duration": {
+            "p(95)": 638.32624,
+            "p(99)": 680.7071080000001,
+            "max": 689.7691,
+            "count": 189,
+            "avg": 241.67002592592578,
+            "min": 0,
+            "med": 173.791
+        },
+        "data_sent": {
+            "count": 29827,
+            "rate": 1436.480904101345
+        },
+        "http_req_waiting": {
+            "avg": 241.35748571428567,
+            "min": 0,
+            "med": 171.5767,
+            "p(95)": 637.7868199999999,
+            "p(99)": 680.642896,
+            "max": 689.7691,
+            "count": 189
+        },
+        "bid_success": {
+            "count": 7,
+            "rate": 0.33712295332113235
+        },
+        "data_received": {
+            "count": 73695,
+            "rate": 3549.1822921429784
+        }
+    }
+}

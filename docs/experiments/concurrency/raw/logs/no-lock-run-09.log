@@ -1,0 +1,10 @@
+run=9
+workerCount=8 bidderCount=8 delayMs=1000 initialPrice=10000 bidIncrement=5000
+successCount=1 failureCount=7 cannotAcquireLockCount=7 otherExceptionCount=0
+exceptionTypes=[CannotAcquireLockException, CannotAcquireLockException, CannotAcquireLockException, CannotAcquireLockException, CannotAcquireLockException, CannotAcquireLockException, CannotAcquireLockException]
+persistedBidCount=1 actualMaxBidAmount=35000 actualMaxBidderId=81
+finalCurrentPrice=35000 finalWinnerId=81
+invariantViolated=false
+violations=[]
+elapsedMillis=1052
+

@@ -1,0 +1,530 @@
+# Concurrency Experiment Protocol
+
+## 목적
+
+수동 입찰(`POST /api/auctions/{auctionId}/bids`)에서 동일 `Auction`에 대한 동시 요청이
+read-modify-write 경쟁을 일으킬 수 있는 조건을 재현 가능하게 고정하고, 이후 no-lock →
+pessimistic lock(그리고 필요하면 다른 전략) 비교 실험이 **락 전략 외의 모든 조건을 동일하게**
+유지한 채 이루어질 수 있도록 하는 것이 목적이다. 단발성으로 race 1회를 재현하는 것이 목표가
+아니라, 반복 실행 가능한 harness와 고정된 workload/환경 조건을 만드는 것이 목표다.
+
+## 비교 대상
+
+- **no-lock baseline**: `experiment/no-lock` 브랜치, `Auction.@Version` 제거.
+- **이후 적용할 concurrency-control strategy**: pessimistic lock(`SELECT ... FOR UPDATE`) 등,
+  이후 별도 이슈/브랜치에서 진행. 이 문서의 "공통 환경"/"Workload" 절이 그 비교의 공통 기준선이 된다.
+
+## 공통 환경
+
+| 항목 | 값 | 확인 방법 |
+|---|---|---|
+| MySQL version | `8.4.10` (Testcontainers `mysql:8.4`) | harness가 매 실행 시 `SELECT VERSION()`으로 자동 조회해 로그에 출력 |
+| Transaction isolation | `REPEATABLE-READ` (MySQL/InnoDB 기본값, 별도 설정 없음) | harness가 매 실행 시 `SELECT @@transaction_isolation`으로 자동 조회 |
+| HikariCP maximumPoolSize | `20` (테스트 컨텍스트에서 `@DynamicPropertySource`로 고정) | harness가 주입받은 `DataSource`가 `HikariDataSource`면 `getMaximumPoolSize()`로 자동 조회해 로그에 출력 |
+| Spring Boot application instance count | `1` (전제, 자동 조회 대상 아님) | 문서에만 기록 |
+| Driver | `mysql-connector-j 9.7.0` | `./gradlew dependencies` 결과 |
+
+HikariCP `maximumPoolSize=20`은 프로덕션 기본값(명시 설정 없음 → Spring Boot 기본 10)이 아니라
+**이 실험 전용으로 고정한 값**이다. worker thread 수(파일럿 기준 최대 10 내외)가 커넥션 풀
+부족으로 인위적으로 직렬화되는 것을 막기 위해 여유 있게 잡았다 — 이렇게 해야 관찰되는 경쟁이
+"커넥션 풀 대기" 때문이 아니라 순수하게 `Auction` row에 대한 read-modify-write 경쟁이라고
+말할 수 있다.
+
+## Workload
+
+- **thread count / bidder count**: `1 thread = 1 bidder = 1 bid request`. 값은 파일럿 단계에서
+  조정(§Pilot Procedure), 확정되면 §Frozen Main Experiment Conditions에 기록.
+- **bid amounts**: 모든 bidder가 같은 시작 상태(`currentPrice`, `bidIncrement`)를 기준으로
+  `minAmount = currentPrice + bidIncrement`부터 `bidIncrement`씩 서로 다른 금액을 사용한다.
+  race가 없다면 가장 큰 금액을 제출한 bidder가 항상 최종 승자여야 한다 — 그래야 결과 검증 시
+  "정상적으로는 누가 이겨야 하는가"가 항상 명확하다.
+- **idempotency key 정책**: 요청마다 `UUID.randomUUID()` 기반으로 완전히 서로 다른 키를 사용한다.
+  이 실험은 Idempotency UNIQUE 경쟁(#32)이 아니라 `Auction` row 경쟁을 재현하는 것이 목적이므로,
+  같은 key를 재사용해 idempotency conflict를 유발하지 않는다.
+
+## Initial DB State
+
+각 run 시작 시 새로 생성:
+- `Auction`: `status=LIVE`, `currentPrice=startPrice`, `currentWinner=null`, `bidIncrement` 고정값
+- 해당 `Auction`에 연결된 `Bid`: 0건
+- 판매자 1명 + `workerCount`만큼의 서로 다른 bidder `User`(UUID 기반 email로 매 run마다 새로 생성)
+
+## DB Reset Method
+
+- Testcontainers `mysql:8.4` 컨테이너를 테스트 클래스 실행마다 새로 띄운다(완전히 빈 스키마에서 시작).
+- 각 run(파일럿 반복)은 **이전 run과 다른 새 `Auction`/`Product`/`User` row**를 생성해서 사용한다
+  (auto-increment PK라 이전 run의 데이터와 절대 겹치지 않음). 기존 데이터를 TRUNCATE/DELETE로
+  지우는 방식이 아니라 "항상 새 대상"을 쓰는 방식으로 결정성을 확보했다 — 실행 순서에 의존하지 않는다.
+
+## Synchronization Method
+
+`CountDownLatch` 2단 구조:
+
+```text
+ready latch (workerCount) : 각 worker thread가 실행 준비(스레드 시작)를 마쳤음을 신호
+start latch (1)            : 메인 스레드가 모든 worker의 ready를 확인한 뒤 한 번에 release
+```
+
+`ExecutorService`(고정 크기 = workerCount)에 전부 제출한 뒤 `ready.await()` → `start.countDown()`
+순서로 최대한 동시에 시작시킨다. 기존 `ManualBidIdempotencyMySqlIT`(#32)의 2-thread 패턴을
+N-thread로 일반화한 것이다.
+
+## Test-only Delay
+
+- **위치**: production `AuctionRepository` 빈을 감싼 test-only Mockito 대리 빈이 `findById(auctionId)`의
+  **실제 조회 결과를 받은 직후**(반환 전)에 `Thread.sleep()`한다.
+  `Auction 조회 → [여기] → 검증/상태변경(placeManualBid) → flush/commit` 구간에 정확히 대응한다.
+- **적용 범위 제어**: `RaceWindowDelay`가 (1) 실험이 `arm()`되어 있고, (2) 조회 대상 `auctionId`가
+  이번 run의 대상 auction과 일치할 때만 sleep한다. run이 끝나면 즉시 `disarm()`해서, 이후 결과
+  검증을 위한 재조회(`findById`)에는 지연이 걸리지 않는다.
+- **값**: `WorkloadConfig.delayMillis` — run마다 configurable, 하드코딩 아님.
+- **production 코드 영향**: 0. `BidCommandService`를 포함한 어떤 main 소스도 수정하지 않았다.
+  `AuctionRepository`의 `@Primary` 대체 빈은 해당 테스트의 `@TestConfiguration` 안에서만 존재한다.
+- **barrier/latch를 쓰지 않은 이유**: 모든 worker가 "read 완료" 시점에 서로를 기다리는
+  barrier 구조는 이론적으로 race window를 완벽히 동기화할 수 있지만, `worker thread 수 >
+  HikariCP maximumPoolSize`인 경우 커넥션을 아직 획득하지 못한 thread 때문에 이미 커넥션을
+  쥔 채 barrier에서 기다리는 다른 thread들이 영원히 풀리지 않는 connection starvation 구조가
+  될 위험이 있다. 이번 baseline은 `CountDownLatch`로 요청 시작 시점만 동기화하고, 각 thread가
+  독립적으로 sleep하는 단순한 방식을 우선 사용했다 — worker 수를 pool 크기보다 항상 작게
+  유지하는 한 이 방식으로도 파일럿에서 경쟁을 재현하기에 충분했다(§Pilot Procedure 참고).
+- **한계**: 이 delay는 운영 환경에서 실제 발생 확률이나 발생 빈도를 의미하지 않는다.
+  순수하게 테스트 재현성을 위해 race window를 인위적으로 넓힌 것이다.
+
+## Invariants
+
+동시 실행 종료 후, 실제 DB를 재조회해서 다음을 검사한다(기존 6개 precondition 테스트를
+대체하는 것이 아니라 별도의 post-state 검증이다 — §Invariants 처리 방식은 아래 참고):
+
+1. **Auction price consistency**: 저장된 `Bid` 중 최고 금액과 `Auction.currentPrice`가 일치하는가.
+2. **Winner consistency**: 최고 `Bid`의 bidder와 `Auction.currentWinner`가 일치하는가.
+3. **Bid-Auction consistency (lost update)**: `Auction.currentPrice`보다 큰 금액의 `Bid`가
+   존재하는가(존재하면 lost-update).
+4. **Success/Bid count consistency**: 애플리케이션이 성공으로 보고한 요청 수와 실제 저장된
+   `Bid` row 수가 일치하는가(성공 보고와 실제 영속 상태의 불일치를 잡기 위함).
+
+### 기존 6개 business-rule regression 테스트와의 관계
+
+`BidCommandServiceTest`의 6개 규칙(`AuctionNotStartedException`, `AuctionClosedException`,
+`SellerCannotBidException`, `AlreadyHighestBidderException`, `BidAmountTooLowException`,
+`PenaltyRestrictedException`)은 **precondition/error-rule regression 테스트**이지
+concurrency post-state invariant가 아니다 — "수동 입찰 6불변식"이라고 부르지 않는다.
+재사용 가능한 상태 checker도 아니라서 이 문서의 post-state invariant를 위해 억지로 추출하지
+않았다. 대신 기존 6개 regression 테스트 + 수동 입찰/Idempotency 테스트를 그대로 regression
+suite로 유지하고, 이번 concurrency harness는 그 위에 "동시 실행 후 상태가 여전히
+일관적인가"라는 별도 관점(concurrency post-state invariant)만 추가한다.
+
+## Pilot
+
+파일럿 단계(조건 탐색)의 절차와 결과. **본 실험(§Main Experiment Procedure) 조건 탐색은
+여기서 끝났고, 이후 조건은 변경하지 않는다.**
+
+### Pilot Procedure
+
+1. `setting/#33-concurrency-baseline`에서 harness 자체가 정상 동작하는지 확인
+   (`Auction.@Version` 유지 상태, `ManualBidConcurrencyRaceIT`) — 완료.
+2. `experiment/no-lock`에서 `Auction.@Version` 제거 후 동일 harness로 파일럿 실행 — 완료.
+3. 1차 탐색은 한 번에 한 변수씩 escalation: `(workers=3,delay=200)` →
+   `(3,500)` → `(8,500)` → `(8,1000)` → `(10,1000)`. `(8,1000)`에서만 위반 재현(1/1).
+4. 재현성 확인을 위해 `(workers=8, delay=1000)`을 동일 조건으로 5회 반복 — 2/5 위반.
+5. 조정 불가(고정)로 유지: 입찰 비즈니스 로직, transaction 구조, Idempotency 로직, DB isolation
+   level, repository 구현, `Auction` 상태 변경 로직, invariant/assertion 기준.
+
+### Pilot Results
+
+#### 1차 탐색 (한 변수씩 escalation)
+
+| Pilot | Workers | Delay(ms) | Success | Failure | Persisted Bids | Actual Max Bid | Auction.currentPrice | Invariant Violation | 주요 결과 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
+| 1 | 3 | 200 | 1 | 2 | 1 | 15000 | 15000 | No | 정상 — 1건만 성공, 나머지 deadlock |
+| 2 | 3 | 500 | 1 | 2 | 1 | 25000 | 25000 | No | 정상 |
+| 3 | 8 | 500 | 2 | 6 | 2 | 45000 | 45000 | No | 2건 성공, currentPrice가 실제 최고 Bid와 일치(위반 없음) |
+| 4 | 8 | 1000 | 2 | 6 | 2 | 50000 | 30000 | **Yes** | PRICE_MISMATCH / WINNER_MISMATCH / LOST_UPDATE |
+| 5 | 10 | 1000 | 1 | 9 | 1 | 25000 | 25000 | No | 정상 — 1건만 성공 |
+
+#### 재현성 확인 (workers=8, delay=1000ms 고정, 5회 반복)
+
+| Pilot | Success | Failure | Persisted Bids | Actual Max Bid | Auction.currentPrice | Invariant Violation | 주요 결과 |
+|---:|---:|---:|---:|---:|---:|---|---|
+| 1 | 1 | 7 | 1 | 45000 | 45000 | No | 정상 |
+| 2 | 1 | 7 | 1 | 45000 | 45000 | No | 정상 |
+| 3 | 2 | 6 | 2 | 45000 | 20000 | **Yes** | PRICE_MISMATCH / WINNER_MISMATCH / LOST_UPDATE |
+| 4 | 1 | 7 | 1 | 40000 | 40000 | No | 정상 |
+| 5 | 3 | 5 | 3 | 35000 | 30000 | **Yes** | PRICE_MISMATCH / WINNER_MISMATCH / LOST_UPDATE |
+
+**동일한 통제된 파일럿 조건(workers=8, delay=1000ms) 5회 중 2회에서 invariant violation 관찰.**
+이 수치를 운영 환경의 race 발생 확률이나 no-lock failure rate로 표현하지 않는다 — §Interpretation Rules 참고.
+
+`SUCCESS_COUNT_MISMATCH`(성공 보고 수와 persisted Bid 수 불일치)는 5회 전부 발생하지 않았다 —
+deadlock으로 롤백된 트랜잭션의 Bid insert도 정확히 함께 롤백된다는 뜻이다(ACID 자체는 깨지지
+않음). violation이 관찰된 두 run 모두, `@Version`이 제거되어 `UPDATE auctions ...`에
+버전 조건이 없는 상태에서 여러 트랜잭션이 같은 stale 상태를 읽고 각자 커밋에 성공했고, 그
+결과 `Auction.currentPrice`가 실제 persisted 최고 Bid보다 낮게 남았다 — **어느 트랜잭션이
+실제로 몇 번째로 commit됐는지는 로그로 특정하지 않았으므로, "나중에 커밋한 트랜잭션이 이전
+값을 덮어썼다"를 확정 사실로 서술하지 않는다.** 확인된 사실은 (1) stale read가 발생했고
+(2) 버전 조건 없는 UPDATE라 lost update가 구조적으로 가능했으며 (3) 관찰된 최종 상태가 이
+가능성과 부합한다는 것이다.
+
+## Frozen Conditions
+
+파일럿에서 확정되어 본 실험(§Main Experiment Procedure)까지 변경 없이 그대로 사용하는 조건.
+
+### Frozen Main Experiment Conditions
+
+```text
+MySQL version: 8.4.10 (Testcontainers mysql:8.4)
+transaction isolation: REPEATABLE-READ
+Spring Boot instances: 1
+Hikari maximumPoolSize: 20 (실험 전용 고정값)
+
+worker count: 8
+bidder count: 8 (1 thread = 1 bidder)
+delayMillis: 1000
+
+initial auction price(startPrice): 10000
+bidIncrement: 5000
+bid amounts: 15000, 20000, 25000, 30000, 35000, 40000, 45000, 50000 (worker i → 15000 + i*5000)
+
+DB reset method: run마다 새 Auction/Product/User row 생성(§DB Reset Method)
+concurrency start mechanism: CountDownLatch(ready N + start 1) — §Synchronization Method
+
+관찰 결과: 동일한 통제된 파일럿 조건 5회 중 2회에서 post-state invariant violation 관찰
+(운영 환경 race 발생 확률이나 no-lock failure rate로 해석하지 않는다 — §Interpretation Rules 참고)
+```
+
+이 조건은 **frozen no-lock baseline으로 확정**되었다. worker/bidder 수, delay, bid amount,
+initialPrice, bidIncrement, Hikari maximumPoolSize, MySQL version, isolation level, application
+instance count, DB reset 방식, CountDownLatch 구조 — 전부 더 이상 변경하지 않는다. 이후
+pessimistic lock 등 비교 실험은 이 표의 값을 그대로 사용한다.
+
+### Baseline Git Reference
+
+- Branch: `experiment/no-lock`
+- Tag: `exp/baseline-no-lock`
+- Baseline commit: `5bfe881e48f5400b3279c3d04b4191e427742381`
+
+## Main Experiment Procedure
+
+#33 파일럿에서 확정한 frozen 조건(§Frozen Main Experiment Conditions)으로 동일 workload를
+20회 반복 실행하는 것이 #34 본 실험이다. 파일럿의 5회 반복은 재현성 확인용이었고, 본 실험은
+**반복 횟수만 20으로 고정**한다 — workload 자체(worker/bidder 수, delay, bid amount, 초기
+상태, DB reset 방식, CountDownLatch 구조)는 변경하지 않는다.
+
+- 각 run은 §DB Reset Method와 동일하게 이전 run과 독립적인 새 `Auction`/`Product`/`User`
+  row에서 시작한다(PK만 다르고 의미상 초기 상태는 동일).
+- 각 run 종료 직후 결과를 즉시 raw data(§Data Storage)에 append + flush한다 — 20회를 메모리에
+  들고 있다가 마지막에 한 번에 기록하지 않는다. 실험 도중 중단되어도 이미 끝난 run의 결과는
+  남는다.
+- run-level 지표(예: "invariant violation 발생 run 수 / 20")와 request-level 지표(예: "전체
+  160 request attempts 중 성공/실패/CannotAcquireLockException 수")는 서로 다른 분모이므로
+  섞어서 보고하지 않는다. 한 run = 8 concurrent request attempts, 20 runs = 160 attempts.
+- contention/request failure(`CannotAcquireLockException` 등 MySQL 1213)와 post-state
+  correctness violation(PRICE_MISMATCH 등)은 서로 다른 지표다. 요청 예외가 발생했다고 자동으로
+  invariant violation으로 세지 않고, 요청이 성공했어도 최종 DB state가 틀리면 correctness
+  violation으로 센다.
+- post-state invariant 검사는 동시 실행이 끝난 뒤 별도 트랜잭션에서 `AuctionRepository`/
+  `BidRepository`를 재조회해 판정한다. 테스트 클래스가 `@Transactional`이 아니고
+  `WebEnvironment.NONE`이라 Open-Session-In-View도 적용되지 않으므로, worker 스레드들의
+  트랜잭션이 각자 커밋된 뒤 메인 스레드의 재조회는 항상 새 영속성 컨텍스트로 실제 커밋된
+  DB 상태를 읽는다 — 별도의 `EntityManager.clear()` 없이도 stale 1차 캐시 문제가 없다.
+
+## Data Storage
+
+본 실험(#34)부터 raw data를 README/summary와 분리해서 저장한다.
+
+```text
+docs/experiments/concurrency/
+├─ protocol.md          (본 문서)
+├─ environment.md        (#34/#35/#36-A 실행 시점의 실제 환경 조회값)
+├─ summary.md            (raw CSV를 집계한 결과만)
+└─ raw/
+   ├─ no-lock-correctness.csv       (#34, 20 rows — read-only 참고 자료, 이후 실험에서 수정 안 함)
+   ├─ pessimistic-correctness.csv   (#35, 20 rows — 위와 동일하게 read-only)
+   ├─ no-lock-performance.csv       (#36-A, 400 rows, request-level raw)
+   ├─ pessimistic-performance.csv   (#36-A, 400 rows, request-level raw)
+   └─ logs/
+      ├─ no-lock-run-01.log         (#34 run별 원본 로그)
+      ├─ ...
+      ├─ no-lock-run-20.log
+      ├─ pessimistic-run-01.log     (#35 run별 원본 로그)
+      ├─ ...
+      └─ pessimistic-run-20.log
+```
+
+`*-correctness.csv`/`*-performance.csv` 전부 최초 생성 후 실수로 덮어쓰지 않도록, harness가
+실행 시작 시 파일이 이미 존재하면 즉시 실패한다 — 재측정하려면 사람이 명시적으로 기존
+파일을 옮기거나 지워야 한다. `*-performance.csv`는 request-level raw(batch당 8행)라 별도
+run-log 디렉터리를 두지 않았다 — CSV 자체가 이미 요청 단위로 충분히 세분화되어 있다.
+
+## Pessimistic Lock Strategy (#35)
+
+독립변수는 **Auction read-modify-write의 최초 authoritative read에 `PESSIMISTIC_WRITE`를
+적용하는지 여부** 하나뿐이다. no-lock(#34) 대비 다른 조건(workload, 환경, transaction
+구조, Idempotency 로직)은 전혀 바꾸지 않았다.
+
+- **repository method**: `AuctionRepository.findByIdForUpdate(Long auctionId)`,
+  `@Lock(LockModeType.PESSIMISTIC_WRITE)` + `@Query("select a from Auction a where a.id = :auctionId")`.
+- **RMW 경로 변경**: `BidCommandService.placeManualBid()`에서 기존 `auctionRepository.findById(auctionId)`
+  호출 한 곳만 `findByIdForUpdate(auctionId)`로 교체했다. 이 호출이 입찰 read-modify-write의
+  최초 authoritative read이므로, lock 획득 이전에 stale 상태를 읽는 경로는 없다.
+- **확인된 SQL**(Hibernate 로그, MySQL 8.4.10): `select a1_0.id, ... from auctions a1_0 where
+  a1_0.id=? for update` — 개념적으로 `SELECT ... FOR UPDATE`가 실제로 실행됨을 확인했다.
+- **transaction boundary**: `ManualBidService.placeBid()` → `IdempotencyClaimService.claimAndPlaceBid()`
+  (`@Transactional`) → `BidCommandService.placeManualBid()`(`@Transactional`, 기본
+  propagation `REQUIRED`라 outer transaction에 합류)로 이어지는 기존 구조를 그대로 유지했다.
+  즉 `findByIdForUpdate()`로 획득한 row lock은 `placeManualBid()` 메서드가 끝나는 시점이
+  아니라 `claimAndPlaceBid()`의 물리적 트랜잭션이 commit/rollback될 때까지 유지된다(같은
+  물리 트랜잭션이므로 lock을 별도로 유지하기 위한 추가 코드가 필요 없다).
+- **rollback 시 lock 해제**: production에 별도 코드를 추가하지 않았고, 특정 트랜잭션이
+  rollback되는 순간 row lock이 해제되는 시점을 로그로 직접 관찰하지도 않았다. #35 20회
+  본 실험에서 직접 확인한 사실은 (1) 20회 모두 `future.get(30, TimeUnit.SECONDS)` 안에
+  timeout 없이 완료됐고 (2) 매 run에서 일부 request가 `BidAmountTooLowException`으로
+  종료된 뒤에도 후속 request들이 정상적으로 진행됐으며 (3) `CannotAcquireLockException`이
+  0/160건이었다는 것이다 — lock이 계속 남아 이후 요청을 막는 lock leak은 관찰되지 않았다.
+  트랜잭션 종료 후 후속 요청들이 정상 진행됐으며 lock 누수는 관찰되지 않았다. InnoDB의
+  row lock은 transaction-scoped라 commit뿐 아니라 rollback 시에도 해제되는 구조이며,
+  이번 실험 관찰 결과는 그 동작 특성과 일치한다 — 다만 이는 InnoDB의 알려진 동작 특성에
+  근거한 설명이지, 이번 실험에서 rollback 시점의 lock 해제 자체를 직접 관찰한 것은 아니다.
+- **test-only delay 위치**: `ManualBidConcurrencyRaceIT`의 `DelayConfig`가 감싸는 대상을
+  `findById()`에서 `findByIdForUpdate()`로 변경했다 — production이 더 이상 `findById()`를
+  이 경로에서 호출하지 않으므로, 감싸는 대상을 바꾸지 않으면 delay가 빠져 #34와 조건이
+  달라진다. delay 값(1000ms)/구현(`RaceWindowDelay`)/arm-disarm 로직은 무변경이다. 결과적으로
+  첫 트랜잭션이 `SELECT ... FOR UPDATE`로 row lock을 잡은 채 1000ms 대기하고, 그동안
+  다른 트랜잭션들은 자신의 `SELECT ... FOR UPDATE` 호출 자체에서 블로킹된다(Mockito
+  proxy가 실제 `jpaAuctionRepository.findByIdForUpdate()` 호출이 반환된 "직후"에만
+  sleep하므로, block은 delay 이전에 발생한다).
+- **business rejection과 correctness/contention의 분리**: lock으로 접근이 직렬화되면
+  뒤에 lock을 얻은 bidder는 앞 트랜잭션이 commit한 최신 `currentPrice`를 보게 되어
+  `BidAmountTooLowException` 등 정상 business validation 실패로 종료될 수 있다. 이는
+  DB lock contention도 correctness violation도 아니므로 별도 컬럼
+  (`businessRejectionCount`, `businessExceptionTypes`)으로 raw에 분리해서 기록한다.
+
+## Pessimistic Main Experiment (#35)
+
+#34와 동일하게 frozen 조건(§Frozen Main Experiment Conditions)으로 정확히 20회 반복했다.
+파일럿/escalation 없이 바로 본 실험을 수행했다 — 독립변수가 이미 확정되어 있고(§Pessimistic
+Lock Strategy) 탐색할 조건이 없기 때문이다. 결과는 `raw/pessimistic-correctness.csv` +
+`raw/logs/pessimistic-run-01~20.log`에 저장했다. run-level/request-level 지표 분리, 즉시
+append+flush, overwrite guard는 #34와 동일한 원칙을 그대로 따른다(§Main Experiment
+Procedure, §Data Storage).
+
+## Interpretation Rules
+
+- **Test-only delay는 운영 환경에서의 실제 race 발생 확률을 측정하는 장치가 아니다.** 이 실험은
+  race window를 의도적으로 확대해 correctness failure가 "가능한지"를 재현하는 실험이다.
+- **"동일한 통제된 파일럿 조건 5회 중 2회에서 invariant violation 관찰"은 운영 환경의 실제
+  race 발생 확률이나 no-lock failure rate가 아니다.** 백분율(%)이나 "재현율"로 환산해
+  운영 발생 가능성처럼 표현하지 않는다. delay=1000ms는 운영 트래픽에서 절대 발생하지 않을
+  인위적인 read-modify-write 창이며, 이 수치는 오직 "이 통제된 조건에서 harness가 위반을
+  재현할 수 있는가"만을 의미한다.
+- **MySQL/InnoDB 자체의 내부 lock은 여전히 존재한다.** 관찰된 `CannotAcquireLockException`
+  (MySQL 1213 Deadlock)이 그 증거이며, no-lock 결과의 일부로 그대로 기록한다(삭제·무시하지
+  않음) — 다만 이것은 **correctness violation과는 별도의 contention/failure 지표**다.
+  실패한 트랜잭션은 Bid insert까지 포함해 전부 롤백되므로 그 자체가 데이터 정합성을 깨지는
+  않는다. "no-lock"은 InnoDB 엔진 레벨 락까지 없앤다는 뜻이 아니라 application-level
+  (`@Version`, `@Lock`, `SELECT FOR UPDATE`, 분산 락 등) concurrency-control strategy가
+  없다는 의미다.
+- **(#35) `business rejection`(예: `BidAmountTooLowException`)은 correctness violation도
+  DB lock contention도 아니다.** lock으로 직렬화된 뒤 최신 `currentPrice`를 보고 정상적으로
+  거부된 것이라 실패로 세더라도 no-lock의 `CannotAcquireLockException`과 같은 종류의 실패로
+  합산하지 않는다.
+- **(#35) `0/20 invariant violation`은 "이 환경에서 실패 확률이 0%"를 뜻하지 않는다.**
+  single application instance, single MySQL, single `Auction` row contention, frozen test
+  workload라는 이번 검증 범위 안에서의 관찰값이다. "Pessimistic Lock이 모든 환경에서
+  정합성을 완벽히 보장한다"처럼 일반화하지 않는다.
+- **(#35) elapsed time을 성능 지표로 해석하지 않는다.** `delay=1000ms`가 포함돼 있고,
+  Pessimistic Lock에서는 첫 트랜잭션이 row lock을 잡은 채 그 시간만큼 대기하므로 지연이
+  no-lock보다 커질 수 있지만, 이는 race reproduction을 위한 인위적 조건이다. median/p95/
+  throughput 비교는 delay를 제거한 별도 #36에서 수행한다.
+- 이 harness는 HTTP/Controller 계층을 거치지 않고 `ManualBidService`를 직접 호출한다 — Controller의
+  헤더 파싱/인증 로직은 동시성 실험과 무관해서 제외했다(#32 `ManualBidIdempotencyMySqlIT`는 반대로
+  HTTP 전 구간을 검증하는 것이 목적이라 방식이 다르다).
+- Mock 인증(`MockUserRegistry`)이 고정된 3개 id(1,2,3)만 허용해서, HTTP 경유 시 bidder 수가
+  2명으로 제한된다. 이 harness가 서비스 레이어를 직접 호출하는 이유 중 하나이기도 하다.
+- Spring Boot instance count는 1로 전제했다 — 다중 인스턴스(로드밸런싱) 환경에서의 경쟁은
+  이번 범위가 아니다.
+- `setting/#33-concurrency-baseline` 단계의 파일럿 결과는 `@Version`이 살아있는 상태에서 나온
+  것이라 no-lock 결과가 아니다 — harness 정상 동작 확인 용도로만 사용했다.
+- correctness violation의 정확한 원인(어느 트랜잭션이 몇 번째로 commit됐는지)은 commit 순서를
+  로그로 특정하지 않아 확정 사실로 서술하지 않는다 — §Pilot Results의 원인 서술 참고.
+
+---
+
+# Performance Experiment (#36-A)
+
+지금까지의 모든 섹션(§목적 ~ 바로 위 Interpretation Rules)은 **correctness 실험(#33/#34/#35)**
+전용이다. 이 섹션부터는 완전히 별도인 **performance 실험(#36-A)**을 다룬다 — 둘을 섞지 않는다.
+
+```text
+Correctness (#33/#34/#35)   delay = 1000ms   목적 = race correctness 검증
+Performance (#36-A)         delay = 0        목적 = latency/throughput 비용 측정
+```
+
+## Independent Variable
+
+correctness와 동일하게 독립변수는 **Auction 최초 조회에 `PESSIMISTIC_WRITE`를 적용하는지
+여부** 하나뿐이다. workload(초기 상태, bidder 수, bid amount 생성 규칙, Idempotency-Key
+정책, CountDownLatch 시작 방식, DB reset 방식)는 correctness와 동일한 원칙을 유지하되,
+**test-only 1000ms delay만 제거한다.**
+
+## Revision Isolation
+
+Pessimistic production 코드를 Mockito로 "락 없는 것처럼" 되돌려서 No-lock 성능을 측정하는
+방식은 쓰지 않았다 — 그렇게 하면 실제 no-lock revision과 다른 실행 경로를 측정하게 된다.
+대신 두 revision을 물리적으로 분리했다.
+
+- **No-lock revision**: `exp/baseline-no-lock`(`5bfe881`)을 `git worktree add --detach`로
+  별도 디렉터리에 체크아웃했다(새 branch 생성 없음, commit 없음). 이 worktree의
+  `AuctionRepository`/`BidCommandService`는 baseline 그대로 `findById()`를 사용한다(재확인:
+  `grep`으로 `@Version`/`findByIdForUpdate` 없음 확인).
+- **Pessimistic revision**: 현재 작업 브랜치(`chore/#36-concurrency-result-freeze`)에서 직접
+  측정했다. `git merge-base --is-ancestor exp/pessimistic-lock HEAD`로 태그가 조상임을,
+  `git diff exp/pessimistic-lock..HEAD -- backend/src/main`이 비어 있음(무변경)을 확인해
+  현재 production 코드가 `exp/pessimistic-lock`(`67cb4c7`) 태그 시점과 동일함을 검증했다.
+- **benchmark harness 동일성**: 두 실행 모두 `ManualBidPerformanceBenchmarkIT.java` 파일을
+  사용했고, `diff`로 두 위치의 파일이 byte-for-byte 동일함을 확인했다. 이 harness는
+  `AuctionRepository`를 감싸는 proxy를 전혀 두지 않고(따라서 method 이름 `findById` vs
+  `findByIdForUpdate`를 알 필요가 없다) production `ManualBidService`를 그대로 호출한다.
+  출력 CSV 파일명만 실행 시점의 `CONCURRENCY_PERFORMANCE_LABEL` 환경변수(`no-lock` 또는
+  `pessimistic`)로 구분했다 — 소스 코드 자체는 조건 분기 없이 완전히 동일하다.
+- worktree는 측정 후 `git worktree remove`로 정리했다(branch가 아니라 detached 상태였으므로
+  삭제 대상인 branch 자체가 없다).
+- worktree에는 gitignore 대상인 `application-secret.yml`(OpenAI API key 등 로컬 전용 설정)이
+  없어 Spring context 기동이 실패했다 — 현재 저장소의 동일 파일을 그대로 복사해 넣어
+  해결했다. 이 파일은 lock/트랜잭션 로직과 무관한 로컬 시크릿 설정이라 벤치마크 결과에
+  영향을 주지 않는다.
+
+## Measurement Boundary
+
+- **Latency**: `ManualBidService.placeBid()` 호출 시작부터 반환(성공 또는 예외)까지 —
+  **service-level(application-to-DB) latency**다. HTTP Controller, JSON 직렬화, 네트워크
+  왕복은 포함하지 않는다. "API latency"라고 부르지 않는다.
+- **Throughput**: batch별 `start` latch release 직전(`measurement start`)부터 해당 batch
+  concurrency개 request 전부 완료 직후(`measurement end`)까지의 wall-clock. Auction/Product/
+  User 생성(DB reset/setup)은 이 구간 밖에서 수행한다.
+
+## Workload (Frozen, 측정 전 확정)
+
+```text
+concurrency: 8 (1 batch = 8 concurrent request attempts)
+warm-up: 5 batches (40 attempts, raw에서 폐기)
+measurement: 50 batches (400 attempts)
+delay: 0 (RaceWindowDelay 미사용)
+initial price: 10000
+bid increment: 5000
+bid amounts: 15000, 20000, ..., 50000 (correctness와 동일 생성 규칙)
+idempotency key: 매 요청 UUID.randomUUID() 기반(correctness와 동일 정책)
+DB reset: 매 batch 새 Auction/Product/User row 생성(PK만 다름, 의미상 초기 상태 동일)
+```
+
+실제 측정 결과를 본 뒤 위 값을 변경하지 않았다.
+
+## Outcome Classification
+
+```text
+SUCCESS                 예외 없이 반환
+BUSINESS_REJECTION      6개 business-rule 예외(AuctionNotStartedException 등,
+                         §기존 6개 business-rule regression 테스트와의 관계 참고)
+CONCURRENCY_DB_FAILURE  CannotAcquireLockException
+OTHER_FAILURE           위 어디에도 속하지 않는 예외
+```
+
+request-level raw CSV(`batch,requestIndex,concurrency,latencyMs,outcome,exceptionType,
+batchElapsedMs`)에 매 요청의 실제 `exceptionType` 문자열도 함께 남긴다.
+
+## Percentile / Median 계산 규칙
+
+**nearest-rank** 방식을 사용한다: 정렬된 latency N개에 대해 `rank = ceil(percentile × N)`
+(1-indexed), 그 rank의 값을 그대로 사용한다. median은 `percentile = 0.5`로 동일 방식을
+적용한다. No-lock/Pessimistic 모두 같은 계산법(같은 awk 스크립트)으로 raw CSV에서
+재계산했다. sample 수가 적은 outcome(예: 특정 예외 종류가 몇 건뿐인 경우)에 대해서는
+percentile 값과 함께 N을 반드시 병기한다.
+
+## Throughput 정의
+
+```text
+attempt throughput    = 측정된 전체 request attempts / 측정 batch들의 wall-clock 합(초)
+successful throughput = 측정된 성공 request 수 / 측정 batch들의 wall-clock 합(초)
+```
+
+request latency의 평균으로 계산하지 않는다. batch는 순차 실행되므로(동시에 여러 batch가
+겹치지 않음) 각 batch의 `batchElapsedMs`를 batch 번호 기준으로 중복 없이 합산해 분모로
+쓴다.
+
+## Logging
+
+성능 측정 시 두 revision 모두 `SPRING_JPA_SHOW_SQL=false`로 Hibernate SQL 콘솔 로깅을
+껐다 — correctness 실험(§SQL 확인 목적)과 달리 로깅 자체가 latency를 왜곡하지 않도록
+분리했다. 다른 로깅 레벨(`logging.level.root=INFO` 등)은 변경하지 않았다.
+
+## Performance Interpretation Rules
+
+- outcome mix가 전략마다 다르므로(No-lock: DB 예외 위주, Pessimistic: business rejection
+  위주) overall median/p95 차이만으로 "그 전략의 순수 오버헤드"를 단정하지 않는다.
+- 정확한 해석 표현: "동일한 로컬 경합 workload에서 해당 concurrency-control strategy를
+  적용했을 때 관찰된 end-to-end service-level latency/throughput 차이" 정도로 한정한다.
+- 로컬 단일 인스턴스·단일 MySQL 결과를 production latency/throughput으로 일반화하지 않는다.
+- correctness(#34/#35)의 elapsed time(1000ms delay 포함)을 이 성능 결과와 비교하지 않는다
+  — 서로 다른 실험이다.
+
+---
+
+# Optimistic Lock + Retry Experiment (#74)
+
+No-lock(#34)/Pessimistic Lock(#35/#36-A) 이후 세 번째 concurrency-control strategy 비교다.
+Auction 최초 조회에 `@Version` 기반 optimistic locking + bounded retry(non-locking read)를
+적용했을 때의 correctness/performance를 §Frozen Main Experiment Conditions와 동일한 조건으로
+측정한다. 독립변수는 이전과 동일하게 **Auction 최초 조회 방식** 하나이며, 이번 값은
+"non-locking read + 실패 시 bounded retry"다.
+
+## Strategy
+
+- **repository**: `AuctionRepository.findById(Long)`(JpaRepository 기본, non-locking) — 신규
+  락 조회 메서드를 추가하지 않았다. production `findByIdForUpdate()`/`@Lock(PESSIMISTIC_WRITE)`는
+  이 실험과 무관하게 그대로 유지된다(§Pessimistic Lock Strategy 그대로).
+- **`@Version`**: `Auction.version`(experiment branch 전용 `src/main` 변경 — production
+  Pessimistic 경로는 이 필드를 읽거나 조건으로 쓰지 않는다). 실제 conflict 시 전파되는
+  exception을 실측으로 확인했다: `org.springframework.orm.ObjectOptimisticLockingFailureException`
+  (cause: `org.hibernate.StaleObjectStateException`) — 이 타입 하나만 retry 대상이다(broad
+  `DataAccessException` catch 없음).
+- **retry 구조**: `OptimisticBidRetryOrchestrator`(non-transactional) →
+  `OptimisticBidAttemptService.attempt()`(`@Transactional(REQUIRES_NEW)`, 매 attempt 새
+  물리 트랜잭션 + `findById()` 재조회 + `BidCommandService.executeManualBidOnLoadedAuction()`
+  전체 재실행). self-invocation 없음(별도 bean 경유).
+- **retry policy(고정, 결과를 본 뒤 변경하지 않음)**: `maxAttempts=5`(initial 1 + retry 4),
+  backoff 없음(즉시 재시도).
+- **exhaustion semantics**: `OptimisticRetryExhaustedException` — production 40909
+  (`CONCURRENT_CONFLICT`, `PessimisticLockingFailureException` 매핑)와 "충돌로 재시도가
+  필요하다"는 의미만 공유한다. 이 실험 경로는 production endpoint를 거치지 않으므로
+  `GlobalExceptionHandler`에 새 매핑을 추가하지 않았다.
+- **Idempotency 구성**: production `ManualBidService`와 동일한 얇은 진입점 +
+  `IdempotencyClaimService.claimAndExecute()` 위임 구조를 그대로 재사용하는
+  `OptimisticManualBidService`(ad-hoc 두 번째 idempotency 시스템 없음). claim insert + 최종
+  response snapshot 커밋은 `claimAndExecute()`의 단일 물리 트랜잭션(T0) 하나에서 이루어지고,
+  그 안에서 호출되는 orchestrator/attempt는 `REQUIRES_NEW`로 T0를 suspend한 채 독립적으로
+  커밋/롤백된다. 즉 "HTTP duplicate request"는 기존 claim UNIQUE 제약이, "요청 내부 optimistic
+  conflict"는 bounded retry가 각각 담당하고 서로 겹치지 않는다.
+- **알려진 한계(Idempotency crash window)**: 성공한 attempt의 Auction/Bid 변경은
+  `REQUIRES_NEW`라 T0(claim) 커밋보다 먼저 독립적으로 커밋된다. 따라서 "Bid는 이미 커밋됐는데
+  claim/snapshot 커밋 직전에 프로세스가 죽는" crash window가 이론상 존재하며(이 경우 같은
+  key로 재시도 시 claim이 없어 재실행되어 중복 Bid가 발생할 수 있다), production Pessimistic
+  경로는 command와 claim/snapshot이 하나의 물리 트랜잭션이라 이 window가 없다. 이 실험은
+  정상 종료 케이스만 검증했고 실제 crash를 재현하지 않았다(§summary.md Experiment C
+  Limitations 참고).
+- **test-only race window**: correctness(`delayMillis=1000`)는 #35가 delay 위치를
+  `findByIdForUpdate()`로 옮겼던 것과 동일한 원칙으로, 이번엔 실제 authoritative read인
+  `findById()`에 동일한 `RaceWindowDelay` 메커니즘/값을 그대로 부착했다. retry가 있는
+  전략이라 armed 상태인 동안은 매 attempt의 `findById()` 호출마다 delay가 적용된다(최초 1회로
+  제한하는 별도 로직을 추가하지 않았다 — 그런 특별 취급 자체가 "Optimistic에만 필요한 차이
+  (`@Version`/retry/instrumentation)" 3가지를 벗어나는 새 조건이 되기 때문). Performance
+  (#36-A와 동일하게 `delay=0`)에서는 이 delay 자체가 없다.
+
+## Correctness Main Experiment (#74-3)
+
+frozen 조건(§Frozen Main Experiment Conditions)으로 정확히 20회 반복했다(`raw/optimistic-correctness.csv`
++ `raw/logs/optimistic-run-01~20.log`). 해석은 `summary.md` §Experiment C 참고.
+
+## Performance Main Experiment (#74-4B)
+
+§Performance Experiment(#36-A)와 동일한 workload(concurrency=8, warm-up 5 batch 폐기 +
+measurement 50 batch, delay=0)로 정확히 1회 측정했다(`raw/optimistic-performance.csv`). 해석은
+`summary.md` §Experiment C 참고.

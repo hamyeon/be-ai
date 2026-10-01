@@ -1,0 +1,122 @@
+# AWS 시연 배포 - API EC2 전용 compose 파일(Worker는 docker-compose.aws-worker.yml, 별도
+# EC2 인스턴스). API EC2가 MySQL·Redis 컨테이너도 함께 띄우고, Worker는 이 EC2의 "사설 IP"로
+# 접속한다(공인 인터페이스에는 3306/6379를 노출하지 않는다 - 아래 mysql/redis의 ports 참고,
+# 보안그룹 규칙은 docs/aws-demo-deployment.md 참고).
+#
+# IMAGE_URI는 이 compose 파일 해석 시점(docker compose config/up)에 치환되는 값이라, 같은
+# 디렉터리의 .env(docker compose가 자동으로 읽는 dotenv, scripts/aws/deploy.sh가 매 배포마다
+# 새로 씀)로 넘긴다 - 아래 env_file(/opt/<app>/api.env)과는 전혀 다른 경로다. env_file은
+# 컨테이너 "내부" 프로세스에 주입되는 값이고, .env/셸 환경은 이 YAML 파일 자체의 ${...}
+# 치환에만 쓰인다.
+#
+# 비밀번호/API 키 등 실제 값은 이 파일에 쓰지 않는다 - SPRING_DATASOURCE_*, OPENAI_API_KEY,
+# JWT_SECRET, MYSQL_ROOT_PASSWORD 등은 전부 /opt/<app>/api.env(mode 600, git 추적 안 함,
+# SSM Parameter Store에서 읽어 기록)를 통해서만 주입된다. AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY는
+# 이 파일에도 api.env에도 넣지 않는다 - S3Client/S3Presigner 전부 EC2 IAM 역할
+# (DefaultCredentialsProvider)만 쓴다(S3Config.java, docs/aws-demo-deployment.md IAM 권한 표 참고).
+#
+# 메모리 상한을 명시적으로 건다(JVM MaxRAMPercentage 기본 25%가 컨테이너가 아니라 호스트 전체
+# RAM을 보고 계산되는 문제, MySQL/Redis도 기본값이 무한정은 아니지만 인스턴스 크기에 맞춰
+# 캡하지 않으면 서로 메모리를 다툰다 - docs/aws-demo-deployment.md 메모리 절 참고).
+
+name: autique-aws-api
+
+services:
+  api:
+    image: ${IMAGE_URI}
+    # Caddy가 로컬 루프백으로만 프록시한다 - 이 포트들을 공인 인터페이스에 직접 노출하지 않는다
+    # (보안그룹에도 8080/8081 인바운드를 두지 않는다).
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8081:8081"
+    environment:
+      TZ: Asia/Seoul
+      # MaxRAMPercentage는 컨테이너가 아니라 호스트 전체 메모리를 기준으로 계산되므로, mem_limit과
+      # 함께 명시적으로 올려 컨테이너 상한(아래 mem_limit) 안에서 JVM 힙이 과소/과다하지 않게 한다.
+      JAVA_TOOL_OPTIONS: "-Duser.timezone=Asia/Seoul -XX:MaxRAMPercentage=60"
+      SPRING_PROFILES_ACTIVE: dev,api
+      # 같은 Compose 네트워크의 redis 서비스 이름으로 고정 접속한다(application.yml 기본값
+      # localhost는 단일 프로세스 compose(docker-compose.yml) 전제라 이 분리 배포에는 맞지
+      # 않는다). 비밀값이 아니라 api.env(SSM)로 보내지 않고 여기 직접 둔다.
+      SPRING_DATA_REDIS_HOST: redis
+    env_file:
+      - /opt/autique/api.env
+    # t3.medium(4GiB) 기준 - api/mysql/redis/caddy 합산이 호스트 물리 메모리보다 확실히
+    # 작아야 OS·Docker 데몬 몫이 남는다(docs/aws-demo-deployment.md 메모리 절 참고). 더 작은
+    # 인스턴스로 낮추려면 이 값들을 실측(docker stats) 없이 그대로 줄이지 않는다.
+    mem_limit: 2048m
+    restart: always
+    # analysis.stream.shutdown-grace-period-ms 기본값(200s, Vision 처리 강제 상한 + 여유)보다
+    # 여유를 더 준다 - API는 소비자를 안 띄우지만(analysis.stream.consumer.enabled=false) 다른
+    # 배포 profile과 값을 맞춰 둔다.
+    stop_grace_period: 210s
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      TZ: Asia/Seoul
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-autique}
+    env_file:
+      - /opt/autique/api.env
+    # Worker EC2(사설 IP)에서만 접속 가능하도록 API EC2의 사설 인터페이스에만 바인딩한다.
+    # ${API_PRIVATE_IP}는 .env(compose 해석 시점 치환)로 넘긴다 - EC2 메타데이터에서 읽은 값.
+    ports:
+      - "${API_PRIVATE_IP}:3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    # 인스턴스 크기에 맞춘 상한(docs/aws-demo-deployment.md 메모리 절 참고) - 기본값(대략
+    # 128MB)보다는 넉넉하지만, Redis/JVM과 메모리를 나눠 써야 하므로 무한정 키우지 않는다.
+    command: --innodb-buffer-pool-size=256M
+    mem_limit: 768m
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    # Worker EC2(사설 IP)에서만 접속 가능하도록 API EC2의 사설 인터페이스에만 바인딩한다.
+    ports:
+      - "${API_PRIVATE_IP}:6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --maxmemory 256mb --maxmemory-policy noeviction
+    mem_limit: 320m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: always
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # 인증서/계정 정보를 영속 볼륨에 둔다 - 컨테이너 재생성(force-recreate)이나 EC2 재기동에도
+      # 유지돼야 매 배포·재기동마다 Let's Encrypt에서 다시 발급받지 않는다(rate limit 회피).
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      # 공인 IP가 바뀔 때 이 값만 바꿔 재기동한다(docs/aws-demo-deployment.md IP 변경 절차 참고).
+      SITE_ADDRESS: ${SITE_ADDRESS}
+    mem_limit: 96m
+    restart: always
+    depends_on:
+      - api
+
+volumes:
+  mysql-data:
+  redis-data:
+  caddy_data:
+  caddy_config:

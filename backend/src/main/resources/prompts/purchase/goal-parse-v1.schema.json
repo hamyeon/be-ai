@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["modelKey", "modelQuery", "brand", "minCondition", "hardMaxAmount", "sizeKr", "freeTextConditions", "confidence"],
+  "properties": {
+    "modelKey": {
+      "type": ["string", "null"],
+      "description": "Catalog key of the requested model (e.g. nb990). Null when no catalog model is named. Never a key outside the catalog."
+    },
+    "modelQuery": {
+      "type": ["string", "null"],
+      "description": "Human-readable model name, e.g. 'New Balance 990'. Null when no model is named."
+    },
+    "brand": {
+      "type": ["string", "null"],
+      "description": "Brand in English (Nike, Adidas, New Balance, ...). Null when unknown."
+    },
+    "minCondition": {
+      "anyOf": [
+        { "type": "string", "enum": ["DS", "S", "A", "B", "C"] },
+        { "type": "null" }
+      ],
+      "description": "Minimum acceptable condition grade. Null when not stated."
+    },
+    "hardMaxAmount": {
+      "type": ["integer", "null"],
+      "description": "Maximum price in KRW. Only an explicit upper bound. Null when not stated."
+    },
+    "sizeKr": {
+      "type": ["integer", "null"],
+      "description": "Korean shoe size in mm (220-320). Null when not stated."
+    },
+    "freeTextConditions": {
+      "type": ["string", "null"],
+      "description": "Remaining preferences in the buyer's own words (box, colorway, accessories). Null when none."
+    },
+    "confidence": {
+      "type": "number",
+      "description": "0.0 to 1.0. Overall confidence that the draft matches the buyer's intent."
+    }
+  }
+}

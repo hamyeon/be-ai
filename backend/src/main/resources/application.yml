@@ -1,39 +1,320 @@
 spring:
   profiles:
     include: secret
-  datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    # 로컬에서 개발할 때는 EC2로 SSH 포트포워딩을 열어두고 아래 주소를 쓴다.
-    url: jdbc:mysql://vintic-mvp-db.cm1iwawqi1ew.us-east-1.rds.amazonaws.com:3306/amber_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
-    username: ${DB_USER}
-    password: ${DB_PASSWORD}
-
-  jpa:
-    hibernate:
-      ddl-auto: update # 자바 코드로 테이블을 정의하면 DB에 알아서 테이블을 만들어주는 옵션
-    show-sql: true
-
   servlet:
     multipart:
       enabled: true
       max-file-size: 50MB      # 파일 한 개당 최대 용량 제한 (기본값: 1MB)
       max-request-size: 100MB   # 한 번의 요청(여러 파일 합계)당 최대 용량 제한 (기본값: 10MB)
 
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+
 cloud:
   aws:
     credentials:
-      access-key: ${AWS_ACCESS_KEY_ID}
-      secret-key: ${AWS_SECRET_ACCESS_KEY}
+      # 로컬 개발은 이 값들을 채워 정적 키로 인증한다. 비워두면(배포 환경) S3Config가
+      # EC2 인스턴스 IAM 역할로 인증한다 - 정적 액세스 키를 배포 환경에 넣지 않기 위함이다.
+      access-key: ${AWS_ACCESS_KEY_ID:}
+      secret-key: ${AWS_SECRET_ACCESS_KEY:}
     s3:
-      bucket: vintic-mvp-bucket-123
+      bucket: ${CLOUD_AWS_S3_BUCKET:vintic-mvp-bucket-123}
+     
+      # 사진을 동시에 올리는 수(#106). 한 장당 원본+분석용 사본 두 번을 올려서 순차로 하면
+      # 그 시간이 분석 대기 시간에 그대로 더해진다.
+      upload-concurrency: ${S3_UPLOAD_CONCURRENCY:4}
     region:
       static: ap-northeast-2
 
 openai:
   api:
     key: ${OPENAI_API_KEY}
+  # Vision(OpenAI) 호출 전용 HTTP 타임아웃(RestTemplateConfig.visionRestTemplate). 공유
+  # restTemplate() 빈에는 걸지 않는다 - OpenAiEmbeddingClient/KakaoUserInfoClient에 영향을 주지
+  # 않기 위함이다(RestTemplateConfig 참고).
+  vision:
+    http:
+      connect-timeout-ms: ${OPENAI_VISION_CONNECT_TIMEOUT_MS:5000}
+      read-timeout-ms: ${OPENAI_VISION_READ_TIMEOUT_MS:30000}
+
+# Claude(Anthropic) 클라이언트. 키가 없어도 기동은 되고, Claude를 실제로 부르는 첫 호출에서 실패한다.
+# output-token-allowance: Claude의 max_tokens는 thinking 토큰까지 세므로 호출부 값에 이만큼 더해 보낸다.
+# effort: 비우면 API 기본값(high). Vision은 low로 정확도가 유지되고 출력(=시간)이 줄어 low가 기본이다(ai-vision-agent.md 벤더 비교 실측).
+anthropic:
+  api:
+    key: ${ANTHROPIC_API_KEY:}
+  max-retries: 4
+  output-token-allowance: ${ANTHROPIC_OUTPUT_TOKEN_ALLOWANCE:3000}
+  effort: ${ANTHROPIC_EFFORT:low}
+
+# Vision 분석이 부를 벤더와 모델. provider: openai | claude. model을 비우면 provider별 기준 모델
+# (openai=gpt-4o, claude=claude-opus-5). 운영 기본값은 claude + claude-sonnet-5다(2026-09-29 하네스 비교,
+# ai-vision-agent.md). 현재 GPT 순차보다 빠른 유일한 후보였다. 되돌릴 때는 VISION_PROVIDER=openai.
+vision:
+  provider: ${VISION_PROVIDER:claude}
+  model: ${VISION_MODEL:claude-sonnet-5}
+  # 프롬프트/스키마 묶음 버전(#106). v2 = 기본, v3 = 출력을 줄인 판(근거는 짧은 영어, 설명 길이 제한).
+  # 응답 생성 시간이 출력 토큰 수에 비례한다. Claude는 한국어 근거 문장을 토큰으로 더 잘게 쪼개 출력이 길어지므로
+  # v3를 기본으로 둔다.
+  prompt-version: ${VISION_PROMPT_VERSION:v3}
+
+  # 분석용 이미지 축소(#102). 이미지 토큰은 해상도에 정비례하고 3단계가 같은 이미지를 3번 보내므로
+  # 원본을 그대로 넘기면 비용이 곱절로 든다. 표시용 원본은 그대로 두고 분석용 사본만 줄인다.
+  # 0 이하로 두면 리사이즈하지 않는다(원본 그대로 분석).
+  image:
+    max-edge: ${VISION_IMAGE_MAX_EDGE:768}
+
+  # 3단계 분석의 단계별 호출 옵션.
+  # detail은 정확도와 비용을 정면으로 맞바꾸는 값이다 - low는 이미지를 512px로 줄여 고정 비용만 쓰고,
+  # high는 512px 타일로 쪼개 타일당 추가 비용을 쓴다. 실루엣은 줄여도 알아볼 수 있어 low로 두고,
+  # 라벨 글자를 읽어야 하는 2·3단계만 high로 둔다. (이 설정이 값을 하는지는 하네스로 측정 중)
+  # OpenAI 전용 개념이다 - Claude에는 대응 파라미터가 없어 무시된다(ClaudeChatClient 주석 참고).
+  stage:
+    # 단계 실행 방식(#106). sequential(기존, 세 단계의 합) | parallel-label-condition(1단계 뒤 2·3단계 동시,
+    # 2단계 시간만큼 단축) | all-parallel(세 단계 동시, 가장 느린 한 단계 시간). 동시 실행은 뒤 단계가
+    # 앞 단계 결과를 맥락으로 못 받는다. Sonnet 5 + v3 조합에서 등급 오답 0건으로 확인해 all-parallel이 기본이다.
+    execution-mode: ${VISION_STAGE_EXECUTION_MODE:all-parallel}
+    parallel-pool-size: ${VISION_STAGE_PARALLEL_POOL_SIZE:6}
+    silhouette:
+      detail: ${VISION_DETAIL_SILHOUETTE:low}
+      max-output-tokens: 900
+    label:
+      detail: ${VISION_DETAIL_LABEL:high}
+      max-output-tokens: 900
+    condition:
+      detail: ${VISION_DETAIL_CONDITION:high}
+      max-output-tokens: 1400
+
+# Purchase Agent(#95) - 자연어 구매 목표 파서.
+# provider: openai(LLM + 실패 시 규칙 기반 fallback) | rule(규칙 기반만).
+# 하네스에서 LLM이 규칙 기반보다 낫다는 게 확인되기 전이거나 OpenAI 장애 시 rule로 내린다.
+purchase-agent:
+  parser:
+    provider: ${PURCHASE_GOAL_PARSER:openai}
+    model: ${PURCHASE_GOAL_PARSER_MODEL:gpt-4o-mini}
+    max-output-tokens: 400
+  # 매물 적합도 Matcher. 실패 시 fallback 없이 예외 - 그 후보는 이번 scan에서 제외(설계안 6-2).
+  matcher:
+    provider: ${PURCHASE_LISTING_MATCHER:openai}
+    model: ${PURCHASE_LISTING_MATCHER_MODEL:gpt-4o-mini}
+    max-output-tokens: 300
+  # Day 6: 만료 -> 결과 관찰 -> 탐색/참여를 5분마다 순서대로 도는 단일 scheduler(#95).
+  # 기본은 꺼둔다 - 위 auction.lifecycle/payment.expiration과 동일한 이유다: 이 프로젝트의
+  # MySqlIT 다수가 @ActiveProfiles("local")을 데이터소스 설정 모양만 빌려 쓰는데, 기본 활성화하면
+  # 그 테스트들의 @SpringBootTest 컨텍스트에도 이 scheduler가 함께 떠 실제로 AutoBid를 등록해버릴
+  # 수 있다. 실제로 켜려면 PURCHASE_AGENT_SCAN_ENABLED=true가 필요하다.
+  scan:
+    cron: ${PURCHASE_AGENT_SCAN_CRON:0 */5 * * * *}
+    enabled: ${PURCHASE_AGENT_SCAN_ENABLED:false}
+
+# Vision 분석 작업을 Worker에게 전달하는 Redis Stream 설정
+analysis:
+  stream:
+    key: ${ANALYSIS_STREAM_KEY:ai:analysis:requests}
+    group: ${ANALYSIS_STREAM_GROUP:ai-analysis-workers}
+    consumer-prefix: ${ANALYSIS_STREAM_CONSUMER_PREFIX:worker}
+    # 인스턴스 하나가 동시에 처리하는 분석 수(#106). 올리기 전에 Vision 벤더의 분당 토큰 한도를 확인한다.
+    # Claude(Sonnet 5) 분석 한 건은 약 11초에 2만 토큰(사진 3~6장)이라 1건씩이면 분당 약 11만 토큰이다.
+    # 2026-09-29 조직 한도는 입력 50만/분 - 한도 안에서 올리되, 동시 처리 수만큼 비용도 빨리 나간다.
+    # analysis.vision.executor-pool-size보다 크게 두면 남는 Consumer는 executor 포화로 재시도만 돈다.
+    concurrency: ${ANALYSIS_STREAM_CONCURRENCY:1}
+    # XADD 때 스트림을 대략 이 길이로 자른다. ACK해도 엔트리가 지워지지 않아 두면 계속 쌓인다. 0이면 안 자른다.
+    max-length: ${ANALYSIS_STREAM_MAX_LENGTH:10000}
+    failure-key: ${ANALYSIS_STREAM_FAILURE_KEY:ai:analysis:failures}
+
+    # API/Worker EC2 분리 배포에서 이 프로세스가 RedisStreamConsumerConfig를 시작할지 가르는 게이트
+    # (RedisStreamConsumerConfig 참고). 기본은 false지만 application-local.yml/application-dev.yml이
+    # true로 올려, 단일 프로세스로 쓰는 로컬/공유 dev 환경의 기존 동작은 그대로 유지한다.
+    # application-worker.yml만 명시적으로 true로 켠다.
+    consumer:
+      enabled: ${ANALYSIS_STREAM_CONSUMER_ENABLED:false}
+
+    # 종료 신호 후 진행 중인 작업을 기다려줄 최대 시간(RedisStreamConsumerConfig 참고). Docker의
+    # stop_grace_period(docker-compose.yml)가 이 값보다 짧으면 SIGKILL이 먼저 와서 무의미해진다.
+    shutdown-grace-period-ms: ${ANALYSIS_STREAM_SHUTDOWN_GRACE_PERIOD_MS:200000}
+
+    # PEL(pending entries list) 회수(XPENDING+XCLAIM). enabled 기본값을 false로 두는 이유는
+    # auction.lifecycle.*/payment.expiration과 동일 - 다수의 *MySqlIT가 application-local
+    # 프로필을 공유하는데, 기본 활성화하면 그 테스트들의 컨텍스트에서도 세션을 회수해버릴 수
+    # 있다. 실제 배포 프로필(application-dev.yml)에서 명시적으로 켠다.
+    # min-idle-time-ms(기본 240s) 근거: analysis.vision.overall-timeout-ms(180s, Vision 처리
+    # 강제 상한) + 여유시간(claim DB 왕복 30s + 스케줄러 지연/시계 오차 30s). Vision 처리는
+    # overall-timeout-ms가 먼저 강제로 끊으므로, 이 값보다 오래 걸리는 "살아있는" 처리는 설계상
+    # 없다 - docs/ai-async-analysis.md 참고.
+    recovery:
+      enabled: ${ANALYSIS_STREAM_RECOVERY_ENABLED:false}
+      min-idle-time-ms: ${ANALYSIS_STREAM_RECOVERY_MIN_IDLE_TIME_MS:240000}
+      batch-size: ${ANALYSIS_STREAM_RECOVERY_BATCH_SIZE:20}
+      scan-interval-ms: ${ANALYSIS_STREAM_RECOVERY_SCAN_INTERVAL_MS:30000}
+
+  # Vision 전체 처리(3단계 x 재시도)의 강제 상한. OpenAiVisionClient의 재시도(단계별 최대 5회)는
+  # 이 상한을 모르고 동작하므로, 넘기면 AnalysisTaskConsumer가 더 이상 기다리지 않고 실패 처리로
+  # 넘어간다. overall-timeout-ms(기본 180s) 근거: openai.vision.http.read-timeout-ms(단일 호출
+  # 상한, 기본 30s) 기준으로 재시도가 몰리는 최악의 경우에도 무한정 늘어나지 않게 잡은 값이다 -
+  # 이 값이 stream.recovery.min-idle-time-ms 계산의 기준이 된다.
+  # executor-pool-size/executor-queue-capacity: 타임아웃난 시도도 readTimeout이 지날 때까지
+  # 스레드를 붙잡고 있을 수 있어(VisionExecutorConfig 참고) 무한정 큐잉하지 않고 유한하게 둔다.
+  vision:
+    overall-timeout-ms: ${ANALYSIS_VISION_OVERALL_TIMEOUT_MS:180000}
+    executor-pool-size: ${ANALYSIS_VISION_EXECUTOR_POOL_SIZE:4}
+    executor-queue-capacity: ${ANALYSIS_VISION_EXECUTOR_QUEUE_CAPACITY:8}
+    # VisionFailureClassifier가 재시도 가치가 있다고 판정한 실패라도, 진짜로 Vision을 시도했다가
+    # 실패한 횟수(ProductAnalysisSession.visionFailureAttemptCount - Redis 배달 횟수 아님,
+    # executor 포화로 인한 재전달은 이 카운트를 소모하지 않는다)가 이 값을 넘기면 최종 실패로
+    # 기록한다.
+    max-vision-failure-attempts: ${ANALYSIS_VISION_MAX_VISION_FAILURE_ATTEMPTS:5}
+
+# 추천용 상품 벡터 백필.
+#
+# 벡터가 없는 상품(#49 이전 등록분, 임베딩 실패분)은 개인화 추천에서 순위를 못 받는다.
+# 기동 시 한 번 + 주기 배치로 채운다. 한 번에 batch-size만큼만 처리해 임베딩 비용(유료)에
+# 상한을 두고, 남은 것은 다음 실행이 이어서 채운다.
+#
+# 기본은 꺼둔다 - 다른 스케줄러들과 같은 이유다(아래 payment.expiration 주석 참고:
+# MySqlIT들이 local 프로필을 재사용하므로 백그라운드 작업은 opt-in). 배포 프로필
+# (application-dev.yml)에서 켠다.
+recommendation:
+  vector-backfill-on-startup: ${RECOMMENDATION_VECTOR_BACKFILL:false}
+  vector-backfill-scheduled: ${RECOMMENDATION_VECTOR_BACKFILL_SCHEDULED:false}
+  vector-backfill-cron: ${RECOMMENDATION_VECTOR_BACKFILL_CRON:0 30 4 * * *}
+  vector-backfill-batch-size: ${RECOMMENDATION_VECTOR_BACKFILL_BATCH_SIZE:200}
+
+# Auction lifecycle scheduler(#73-3). SCHEDULED->LIVE(startAt 도달)/LIVE->ENDED(endAt 도달)
+# 전환 + 시작 시 RESERVED AutoBid 정산(#73-1)/종료 시 #56 AuctionSettlementService 연결(#73-2)을
+# 주기적으로 trigger한다. 기본은 꺼둔다 - 이유는 아래 payment.expiration과 동일하다(이 프로젝트의
+# MySqlIT 다수가 @ActiveProfiles("local")을 데이터소스 설정 모양만 빌려 쓰는데, 기본 활성화하면
+# 그 테스트들의 @SpringBootTest 컨텍스트에도 스케줄러가 함께 떠서 실제로 다른 테스트를 건드리는
+# 것을 #57-2에서 확인했다 - 동일한 이유로 여기도 opt-in). batch-size는 두 스케줄러가 공유한다 -
+# 별도 batch framework 없이 기존 Pageable 기반 페이지네이션(findEndingSoon/findPopular와 동일
+# 관례)을 그대로 재사용한다.
+auction:
+  lifecycle:
+    batch-size: ${AUCTION_LIFECYCLE_BATCH_SIZE:100}
+    start:
+      cron: ${AUCTION_START_CRON:0 * * * * *}
+      enabled: ${AUCTION_START_ENABLED:false}
+    end:
+      cron: ${AUCTION_END_CRON:0 * * * * *}
+      enabled: ${AUCTION_END_ENABLED:false}
+
+# 결제 기한 만료 페널티 정책.
+# 회차별 escalating 없이 고정 기간만 적용한다(#57-2 사용자 확정) - FINAL contract §14가
+# "회차별 제재 기간 정책은 서버 설정으로 관리한다"고만 명시하고 구체적인 값은 계약에 고정하지
+# 않아, 코드에 하드코딩하지 않고 여기로 뺐다.
+penalty:
+  bid-restriction-days: ${PENALTY_BID_RESTRICTION_DAYS:7}
+
+# 결제 기한 만료 scheduler(#57-2). PAYMENT_PENDING Order 중 paymentDeadline이 지난 것만 대상.
+# 기본은 꺼둔다(recommendation.vector-backfill-on-startup/ai.call-log.cleanup-enabled와 동일한
+# 이유) - 이 프로젝트의 MySqlIT 다수가 @ActiveProfiles("local")을 데이터소스 설정 모양만
+# 빌리는 용도로 재사용한다(#56-3 harness부터의 기존 관례). 기본 활성화하면 그 테스트들의
+# @SpringBootTest 컨텍스트에도 이 스케줄러가 함께 뜨는데, 1분 주기 cron이 여러 테스트 클래스가
+# 순차 실행되는 동안(수 분) 우연히 겹쳐 실제로 다른 테스트의 fixture를 건드리는 것을 확인했다
+# (ALTER TABLE ... CHECK (1=0) 강제 실패 테스트가 스케줄러가 먼저 넣은 row 때문에 ALTER 자체가
+# 실패). 기존 테스트 파일 13개를 전부 고치는 대신(스코프 확대), 이 프로젝트가 이미 쓰는
+# "위험한 백그라운드 작업은 기본 꺼두고 명시적으로 켠다" 패턴을 그대로 따른다 - 실제 local 서버로
+# 시연하려면 PAYMENT_EXPIRATION_ENABLED=true BACKUP_OFFER_EXPIRATION_ENABLED=true를 켜야 한다.
+payment:
+  expiration:
+    cron: ${PAYMENT_EXPIRATION_CRON:0 * * * * *}
+    enabled: ${PAYMENT_EXPIRATION_ENABLED:false}
+
+# 차순위 제안 만료 scheduler(#56 deferred, #57-2에서 구현). WAITING BackupOffer 중 deadline이
+# 지난 것만 대상 - Penalty는 만들지 않는다(User.noshowCount는 Order 만료에서만 갱신). 기본
+# 비활성 이유는 바로 위 payment.expiration과 동일하다.
+backup-offer:
+  expiration:
+    cron: ${BACKUP_OFFER_EXPIRATION_CRON:0 * * * * *}
+    enabled: ${BACKUP_OFFER_EXPIRATION_ENABLED:false}
+
+# #57-2 결제 기한 만료 시연용 seed(local 전용, LocalExpiredOrderSeeder). 기본 비활성 이유는
+# 위 payment.expiration과 동일 - 명시적으로 켜야 한다.
+local:
+  expired-order-seed:
+    enabled: ${LOCAL_EXPIRED_ORDER_SEED_ENABLED:false}
+
+# AI 호출 기록 보관 설정.
+# 응답 본문을 통째로 담고 있어 무한정 쌓아둘 수 없다. 디버깅에 필요한 기간만 남긴다.
+ai:
+  call-log:
+    retention-days: ${AI_CALL_LOG_RETENTION_DAYS:30}
+    cleanup-enabled: ${AI_CALL_LOG_CLEANUP_ENABLED:true}
+
+# Actuator 노출 범위.
+#
+# 기본값(전체 노출)을 쓰지 않는다. env는 환경변수를, configprops는 설정값을 그대로 뱉어서
+# API 키가 인증 없이 읽힌다. 필요한 것만 골라 연다.
+#
+# 환경변수로 뺀 이유: 배포 서버에서 무엇을 열지는 배포를 맡은 쪽이 정해야 한다.
+# 코드에 박아두면 노출 범위를 바꾸려고 재배포를 해야 한다.
+# metrics는 호출 수·실패율·latency 분포를 담고 있어 운영 정보가 드러난다.
+# 외부에 열려면 인증을 앞에 두거나, 내부망에서만 접근 가능해야 한다.
+management:
+  server:
+    # 관리 엔드포인트를 서비스 포트와 분리한다.
+    #
+    # 앱 앞에 리버스 프록시가 없어서 경로 단위로 접근을 막을 지점이 없다. 포트를 나누면
+    # 보안그룹에서 서비스 포트(8080)만 열고 관리 포트는 닫는 식으로 네트워크 레벨에서
+    # 가를 수 있다. 애플리케이션 코드는 건드리지 않는다.
+    #
+    # 로컬에서는 분리할 이유가 없어 application-local.yml에서 되돌린다.
+    port: ${MANAGEMENT_PORT:8081}
+  endpoints:
+    web:
+      exposure:
+        include: ${MANAGEMENT_ENDPOINTS:health,info,metrics}
+  endpoint:
+    health:
+      # DB·Redis 연결 상태까지 보려면 상세 정보가 필요하다. 내부 구성이 드러난다.
+      # 관리 포트를 보안그룹으로 막았다면 always로 올려도 되지만, 기본값은 보수적으로 둔다.
+      show-details: ${MANAGEMENT_HEALTH_DETAILS:when-authorized}
+  health:
+    redis:
+      enabled: true
+    db:
+      enabled: true
 
 logging:
   level:
     root: INFO
     com.vintic.backend: INFO
+
+# #75-4A: 자체 Access/Refresh JWT. secret은 여기 기본값을 두지 않는다 - JWT_SECRET이 없으면
+# 기동이 실패해야 한다(AWS_ACCESS_KEY_ID/OPENAI_API_KEY와 동일 원칙, application-secret.yml에도
+# 실제 값을 넣지 않는다). TTL 기본값(access 30분/refresh 14일)은 이번 개발 단계 기본값이다.
+jwt:
+  secret: ${JWT_SECRET}
+  access-ttl-seconds: ${JWT_ACCESS_TTL_SECONDS:1800}
+  refresh-ttl-seconds: ${JWT_REFRESH_TTL_SECONDS:1209600}
+
+# 브라우저 프론트가 이 API를 다른 오리진에서 호출할 수 있게 허용할 오리진 목록(콤마 구분,
+# JwtSecurityConfig.corsConfigurationSource() 참고). 로컬 개발은 보통 신경 쓸 필요가 없어
+# 기본값을 비워둔다 - 비워두면 CORS 헤더가 나가지 않아 브라우저 cross-origin 호출은 막히지만,
+# 같은 오리진 호출이나 curl/Postman 같은 비-브라우저 클라이언트는 영향받지 않는다.
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+
+---
+# #75-4B: local/test(그리고 profile을 지정하지 않는 대부분의 @WebMvcTest 슬라이스, on-profile
+# "!dev & !prod"에 해당)에서는 spring-boot-starter-security(#75-4A에서 JWT primitive용으로 추가)의
+# 기본 auto-configuration을 아예 배제한다. 그러지 않으면 이 profile들에는 SecurityFilterChain
+# 빈이 없어(JwtSecurityConfig는 dev/prod 전용) Boot가 모든 요청에 HTTP Basic 인증을 강제하는
+# 기본 필터체인을 자동 생성하고, 기존 MockAuthInterceptor 기반 요청과 기존 컨트롤러 테스트가
+# 전부 막힌다. dev/prod에서는 이 문서가 비활성화되어(on-profile 불일치) Security auto-configuration이
+# 그대로 살아있고, JwtSecurityConfig가 제공하는 SecurityFilterChain이 Boot의 기본값을 대체한다.
+spring:
+  config:
+    activate:
+      on-profile: "!dev & !prod"
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+      # #75-5B: SecurityAutoConfiguration을 빼면 HttpSecurity 빈이 없어지는데, actuator의
+      # ManagementWebSecurityAutoConfiguration은 여전히 활성화되어 그 빈을 요구한다 -
+      # spring-boot-starter-security를 추가하기 전(#75-4A 이전)에는 Security 클래스가
+      # classpath에 없어 이 auto-configuration 자체가 조건에 걸려 매치되지 않았으므로
+      # 드러나지 않았던 문제다. 이것도 함께 빼야 local/test @SpringBootTest context가 뜬다.
+      - org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration

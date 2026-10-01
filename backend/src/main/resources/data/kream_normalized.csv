@@ -1,9 +1,9 @@
 ﻿target_id,브랜드,모델명,컬러웨이,한국 사이즈,KREAM 가격,가격 유형,상품 URL,상품명,수집일,상태,메모
-SH-001,Jordan,1 Retro High,Lost and Found,280,321000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 8시간 전
-SH-001,Jordan,1 Retro High,Lost and Found,280,340000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 20시간 전
-SH-001,Jordan,1 Retro High,Lost and Found,285,366000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 26/05/19
-SH-001,Jordan,1 Retro High,Lost and Found,275,307000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 26/05/19
-SH-001,Jordan,1 Retro High,Lost and Found,265,305000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 26/05/19
+SH-001,Nike,Air Jordan 1 Retro High,Lost and Found,280,321000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 8시간 전
+SH-001,Nike,Air Jordan 1 Retro High,Lost and Found,280,340000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 20시간 전
+SH-001,Nike,Air Jordan 1 Retro High,Lost and Found,285,366000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 26/05/19
+SH-001,Nike,Air Jordan 1 Retro High,Lost and Found,275,307000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 26/05/19
+SH-001,Nike,Air Jordan 1 Retro High,Lost and Found,265,305000,체결 거래,https://kream.co.kr/products/83900,Jordan 1 Lost and Found,2026-05-21,DS,거래시점: 26/05/19
 SH-004,Nike,Dunk Low,Panda,290,126000,체결 거래,https://kream.co.kr/products/548447,Nike Dunk Low Panda,2026-05-21,DS,거래시점: 13시간 전
 SH-004,Nike,Dunk Low,Panda,275,104000,체결 거래,https://kream.co.kr/products/548447,Nike Dunk Low Panda,2026-05-21,DS,거래시점: 26/05/19
 SH-004,Nike,Dunk Low,Panda,255,105000,체결 거래,https://kream.co.kr/products/548447,Nike Dunk Low Panda,2026-05-21,DS,거래시점: 26/05/17
@@ -34,16 +34,16 @@ SH-009,Adidas,Gazelle Indoor,Blue Bird,270,100000,체결 거래,https://kream.co
 SH-009,Adidas,Gazelle Indoor,Blue Bird,245,90000,체결 거래,https://kream.co.kr/products/74717,Adidas Gazelle Indoor Blue Bird,2026-05-21,DS,거래시점: 26/05/13
 SH-009,Adidas,Gazelle Indoor,Blue Bird,235,90000,체결 거래,https://kream.co.kr/products/74717,Adidas Gazelle Indoor Blue Bird,2026-05-21,DS,거래시점: 26/05/12
 SH-009,Adidas,Gazelle Indoor,Blue Bird,240,81000,체결 거래,https://kream.co.kr/products/74717,Adidas Gazelle Indoor Blue Bird,2026-05-21,DS,거래시점: 26/05/09
-SH-010,Jordan,4 Retro,Military Black,260,379000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 3시간 전
-SH-010,Jordan,4 Retro,Military Black,265,350000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 12시간 전
-SH-010,Jordan,4 Retro,Military Black,280,377000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 13시간 전
-SH-010,Jordan,4 Retro,Military Black,280,398000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 16시간 전
-SH-010,Jordan,4 Retro,Military Black,265,364000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 26/05/19
-SH-011,Jordan,4 Retro,White Thunder,270,380000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/19
-SH-011,Jordan,4 Retro,White Thunder,270,455000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/17
-SH-011,Jordan,4 Retro,White Thunder,280,390000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/13
-SH-011,Jordan,4 Retro,White Thunder,275,382000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/13
-SH-011,Jordan,4 Retro,White Thunder,300,350000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/08
+SH-010,Nike,Air Jordan 4 Retro,Military Black,260,379000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 3시간 전
+SH-010,Nike,Air Jordan 4 Retro,Military Black,265,350000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 12시간 전
+SH-010,Nike,Air Jordan 4 Retro,Military Black,280,377000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 13시간 전
+SH-010,Nike,Air Jordan 4 Retro,Military Black,280,398000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 16시간 전
+SH-010,Nike,Air Jordan 4 Retro,Military Black,265,364000,체결 거래,https://kream.co.kr/products/686901,Jordan 4 Military Black,2026-05-21,DS,거래시점: 26/05/19
+SH-011,Nike,Air Jordan 4 Retro,White Thunder,270,380000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/19
+SH-011,Nike,Air Jordan 4 Retro,White Thunder,270,455000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/17
+SH-011,Nike,Air Jordan 4 Retro,White Thunder,280,390000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/13
+SH-011,Nike,Air Jordan 4 Retro,White Thunder,275,382000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/13
+SH-011,Nike,Air Jordan 4 Retro,White Thunder,300,350000,체결 거래,https://kream.co.kr/products/331837,Jordan 4 White Thunder,2026-05-21,DS,거래시점: 26/05/08
 SH-012,New Balance,990v4,Gray,270,252000,체결 거래,https://kream.co.kr/products/129272,New Balance 990v4 Gray,2026-05-21,DS,거래시점: 38분 전
 SH-012,New Balance,990v4,Gray,245,219000,체결 거래,https://kream.co.kr/products/129272,New Balance 990v4 Gray,2026-05-21,DS,거래시점: 40분 전
 SH-012,New Balance,990v4,Gray,270,300000,체결 거래,https://kream.co.kr/products/129272,New Balance 990v4 Gray,2026-05-21,DS,거래시점: 4시간 전
@@ -74,3 +74,88 @@ SH-003,New Balance,993,Gray,250,249000,체결 거래,https://kream.co.kr/product
 SH-003,New Balance,993,Gray,255,245000,체결 거래,https://kream.co.kr/products/23852,New Balance 993 Gray,2026-05-21,DS,거래시점: 2시간 전
 SH-003,New Balance,993,Gray,250,248000,체결 거래,https://kream.co.kr/products/23852,New Balance 993 Gray,2026-05-21,DS,거래시점: 4시간 전
 SH-003,New Balance,993,Gray,270,294000,체결 거래,https://kream.co.kr/products/23852,New Balance 993 Gray,2026-05-21,DS,거래시점: 4시간 전
+AUTO-385971,Nike,Cortez,White Varsity Red,240,46000,체결 거래,https://kream.co.kr/products/385971,(W) 나이키 코르테즈 레더 화이트 바시티 레드,2026-08-21,DS,거래시점: 2026-08-20
+AUTO-385971,Nike,Cortez,White Varsity Red,240,52000,체결 거래,https://kream.co.kr/products/385971,(W) 나이키 코르테즈 레더 화이트 바시티 레드,2026-08-21,DS,거래시점: 2026-08-20
+AUTO-385971,Nike,Cortez,White Varsity Red,260,62000,체결 거래,https://kream.co.kr/products/385971,(W) 나이키 코르테즈 레더 화이트 바시티 레드,2026-08-21,DS,거래시점: 2026-08-20
+AUTO-385971,Nike,Cortez,White Varsity Red,235,44000,체결 거래,https://kream.co.kr/products/385971,(W) 나이키 코르테즈 레더 화이트 바시티 레드,2026-08-21,DS,거래시점: 2026-08-20
+AUTO-385971,Nike,Cortez,White Varsity Red,245,45000,체결 거래,https://kream.co.kr/products/385971,(W) 나이키 코르테즈 레더 화이트 바시티 레드,2026-08-21,DS,거래시점: 2026-08-20
+AUTO-30987,Adidas,Superstar,White Black,245,156000,체결 거래,https://kream.co.kr/products/30987,아디다스 슈퍼스타 화이트 블랙,2026-09-03,DS,거래시점: 2026-09-03
+AUTO-30987,Adidas,Superstar,White Black,220,78000,체결 거래,https://kream.co.kr/products/30987,아디다스 슈퍼스타 화이트 블랙,2026-09-03,DS,거래시점: 2026-09-03
+AUTO-30987,Adidas,Superstar,White Black,220,77000,체결 거래,https://kream.co.kr/products/30987,아디다스 슈퍼스타 화이트 블랙,2026-09-03,DS,거래시점: 2026-09-03
+AUTO-30987,Adidas,Superstar,White Black,260,139000,체결 거래,https://kream.co.kr/products/30987,아디다스 슈퍼스타 화이트 블랙,2026-09-03,DS,거래시점: 2026-09-02
+AUTO-30987,Adidas,Superstar,White Black,275,124000,체결 거래,https://kream.co.kr/products/30987,아디다스 슈퍼스타 화이트 블랙,2026-09-03,DS,거래시점: 2026-09-01
+AUTO-28260,New Balance,530,Steel Grey,270,103000,체결 거래,https://kream.co.kr/products/28260,뉴발란스 530 스틸 그레이,2026-09-03,DS,거래시점: 2026-09-03
+AUTO-28260,New Balance,530,Steel Grey,275,95000,체결 거래,https://kream.co.kr/products/28260,뉴발란스 530 스틸 그레이,2026-09-03,DS,거래시점: 2026-09-03
+AUTO-28260,New Balance,530,Steel Grey,250,95000,체결 거래,https://kream.co.kr/products/28260,뉴발란스 530 스틸 그레이,2026-09-03,DS,거래시점: 2026-09-03
+AUTO-28260,New Balance,530,Steel Grey,240,92000,체결 거래,https://kream.co.kr/products/28260,뉴발란스 530 스틸 그레이,2026-09-03,DS,거래시점: 2026-09-03
+AUTO-28260,New Balance,530,Steel Grey,255,96000,체결 거래,https://kream.co.kr/products/28260,뉴발란스 530 스틸 그레이,2026-09-03,DS,거래시점: 2026-09-03
+AUTO-270425,Nike,Cortez,White Black,270,85000,체결 거래,https://kream.co.kr/products/270425,나이키 코르테즈 화이트 블랙,2026-09-04,DS,거래시점: 2026-09-04
+AUTO-270425,Nike,Cortez,White Black,255,104000,체결 거래,https://kream.co.kr/products/270425,나이키 코르테즈 화이트 블랙,2026-09-04,DS,거래시점: 2026-09-03
+AUTO-270425,Nike,Cortez,White Black,265,80000,체결 거래,https://kream.co.kr/products/270425,나이키 코르테즈 화이트 블랙,2026-09-04,DS,거래시점: 2026-09-03
+AUTO-270425,Nike,Cortez,White Black,260,98000,체결 거래,https://kream.co.kr/products/270425,나이키 코르테즈 화이트 블랙,2026-09-04,DS,거래시점: 2026-09-03
+AUTO-270425,Nike,Cortez,White Black,270,97000,체결 거래,https://kream.co.kr/products/270425,나이키 코르테즈 화이트 블랙,2026-09-04,DS,거래시점: 2026-09-02
+AUTO-385971,Nike,Cortez,White Varsity Red (W),245,49000,체결 거래,https://kream.co.kr/products/385971,(W) 나이키 코르테즈 레더 화이트 바시티 레드,2026-09-04,DS,거래시점: 2026-09-04
+AUTO-385971,Nike,Cortez,White Varsity Red (W),240,44000,체결 거래,https://kream.co.kr/products/385971,(W) 나이키 코르테즈 레더 화이트 바시티 레드,2026-09-04,DS,거래시점: 2026-09-04
+AUTO-385971,Nike,Cortez,White Varsity Red (W),240,38000,체결 거래,https://kream.co.kr/products/385971,(W) 나이키 코르테즈 레더 화이트 바시티 레드,2026-09-04,DS,거래시점: 2026-09-04
+AUTO-385971,Nike,Cortez,White Varsity Red (W),245,39000,체결 거래,https://kream.co.kr/products/385971,(W) 나이키 코르테즈 레더 화이트 바시티 레드,2026-09-04,DS,거래시점: 2026-09-04
+AUTO-273000,Nike,Cortez,White Black (W),245,75000,체결 거래,https://kream.co.kr/products/273000,(W) 나이키 코르테즈 레더 화이트 블랙,2026-09-04,DS,거래시점: 2026-09-04
+AUTO-273000,Nike,Cortez,White Black (W),245,75000,체결 거래,https://kream.co.kr/products/273000,(W) 나이키 코르테즈 레더 화이트 블랙,2026-09-04,DS,거래시점: 2026-09-03
+AUTO-273000,Nike,Cortez,White Black (W),235,71000,체결 거래,https://kream.co.kr/products/273000,(W) 나이키 코르테즈 레더 화이트 블랙,2026-09-04,DS,거래시점: 2026-09-03
+AUTO-273000,Nike,Cortez,White Black (W),235,70000,체결 거래,https://kream.co.kr/products/273000,(W) 나이키 코르테즈 레더 화이트 블랙,2026-09-04,DS,거래시점: 2026-09-03
+AUTO-273000,Nike,Cortez,White Black (W),230,60000,체결 거래,https://kream.co.kr/products/273000,(W) 나이키 코르테즈 레더 화이트 블랙,2026-09-04,DS,거래시점: 2026-09-02
+AUTO-65216,New Balance,574,Legacy Navy,220,75000,체결 거래,https://kream.co.kr/products/65216,뉴발란스 574 레거시 네이비,2026-09-04,DS,거래시점: 2026-09-04
+AUTO-65216,New Balance,574,Legacy Navy,300,164000,체결 거래,https://kream.co.kr/products/65216,뉴발란스 574 레거시 네이비,2026-09-04,DS,거래시점: 2026-09-04
+AUTO-65216,New Balance,574,Legacy Navy,280,149000,체결 거래,https://kream.co.kr/products/65216,뉴발란스 574 레거시 네이비,2026-09-04,DS,거래시점: 2026-09-04
+AUTO-65216,New Balance,574,Legacy Navy,250,162000,체결 거래,https://kream.co.kr/products/65216,뉴발란스 574 레거시 네이비,2026-09-04,DS,거래시점: 2026-09-03
+AUTO-65216,New Balance,574,Legacy Navy,265,141000,체결 거래,https://kream.co.kr/products/65216,뉴발란스 574 레거시 네이비,2026-09-04,DS,거래시점: 2026-09-03
+AUTO-118745,Dr. Martens,1461,Smooth Black,270,181000,체결 거래,https://kream.co.kr/products/118745,닥터마틴 1461 스무스 블랙,2026-09-04,DS,거래시점: 2026-09-04
+AUTO-118745,Dr. Martens,1461,Smooth Black,270,182000,체결 거래,https://kream.co.kr/products/118745,닥터마틴 1461 스무스 블랙,2026-09-04,DS,거래시점: 2026-09-04
+AUTO-118745,Dr. Martens,1461,Smooth Black,270,179000,체결 거래,https://kream.co.kr/products/118745,닥터마틴 1461 스무스 블랙,2026-09-04,DS,거래시점: 2026-09-04
+AUTO-118745,Dr. Martens,1461,Smooth Black,280,179000,체결 거래,https://kream.co.kr/products/118745,닥터마틴 1461 스무스 블랙,2026-09-04,DS,거래시점: 2026-09-04
+AUTO-19795,Nike,Blazer Mid 77,White Black,270,89000,체결 거래,https://kream.co.kr/products/19795,나이키 블레이저 미드 '77 빈티지 화이트 블랙,2026-09-04,DS,거래시점: 2026-09-03
+AUTO-19795,Nike,Blazer Mid 77,White Black,270,99000,체결 거래,https://kream.co.kr/products/19795,나이키 블레이저 미드 '77 빈티지 화이트 블랙,2026-09-04,DS,거래시점: 2026-08-28
+AUTO-19795,Nike,Blazer Mid 77,White Black,270,99000,체결 거래,https://kream.co.kr/products/19795,나이키 블레이저 미드 '77 빈티지 화이트 블랙,2026-09-04,DS,거래시점: 2026-08-25
+AUTO-19795,Nike,Blazer Mid 77,White Black,250,141000,체결 거래,https://kream.co.kr/products/19795,나이키 블레이저 미드 '77 빈티지 화이트 블랙,2026-09-04,DS,거래시점: 2026-08-16
+AUTO-19795,Nike,Blazer Mid 77,White Black,270,88000,체결 거래,https://kream.co.kr/products/19795,나이키 블레이저 미드 '77 빈티지 화이트 블랙,2026-09-04,DS,거래시점: 2026-08-15
+AUTO-138416,Nike,Vomero,Black (Vomero 5 SP),270,126000,체결 거래,https://kream.co.kr/products/138416,나이키 줌 보메로 5 SP 블랙,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-138416,Nike,Vomero,Black (Vomero 5 SP),280,122000,체결 거래,https://kream.co.kr/products/138416,나이키 줌 보메로 5 SP 블랙,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-138416,Nike,Vomero,Black (Vomero 5 SP),255,134000,체결 거래,https://kream.co.kr/products/138416,나이키 줌 보메로 5 SP 블랙,2026-09-06,DS,거래시점: 2026-09-05
+AUTO-138416,Nike,Vomero,Black (Vomero 5 SP),240,135000,체결 거래,https://kream.co.kr/products/138416,나이키 줌 보메로 5 SP 블랙,2026-09-06,DS,거래시점: 2026-09-05
+AUTO-138416,Nike,Vomero,Black (Vomero 5 SP),260,122000,체결 거래,https://kream.co.kr/products/138416,나이키 줌 보메로 5 SP 블랙,2026-09-06,DS,거래시점: 2026-09-05
+AUTO-456380,Nike,Vomero,Summit White (Vomero 18),265,109000,체결 거래,https://kream.co.kr/products/456380,나이키 보메로 18 서밋 화이트 코코넛 밀크,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-456380,Nike,Vomero,Summit White (Vomero 18),255,110000,체결 거래,https://kream.co.kr/products/456380,나이키 보메로 18 서밋 화이트 코코넛 밀크,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-456380,Nike,Vomero,Summit White (Vomero 18),280,114000,체결 거래,https://kream.co.kr/products/456380,나이키 보메로 18 서밋 화이트 코코넛 밀크,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-456380,Nike,Vomero,Summit White (Vomero 18),270,110000,체결 거래,https://kream.co.kr/products/456380,나이키 보메로 18 서밋 화이트 코코넛 밀크,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-317696,New Balance,1906,Silver Metallic (1906A),290,183000,체결 거래,https://kream.co.kr/products/317696,뉴발란스 1906A 실버 메탈릭 캐슬락,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-317696,New Balance,1906,Silver Metallic (1906A),265,178000,체결 거래,https://kream.co.kr/products/317696,뉴발란스 1906A 실버 메탈릭 캐슬락,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-317696,New Balance,1906,Silver Metallic (1906A),225,112000,체결 거래,https://kream.co.kr/products/317696,뉴발란스 1906A 실버 메탈릭 캐슬락,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-317696,New Balance,1906,Silver Metallic (1906A),250,150000,체결 거래,https://kream.co.kr/products/317696,뉴발란스 1906A 실버 메탈릭 캐슬락,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-317696,New Balance,1906,Silver Metallic (1906A),275,156000,체결 거래,https://kream.co.kr/products/317696,뉴발란스 1906A 실버 메탈릭 캐슬락,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-37186,Nike,Dunk High,Championship White,275,115000,체결 거래,https://kream.co.kr/products/37186,나이키 덩크 하이 레트로 챔피언쉽 화이트,2026-09-06,DS,거래시점: 2026-09-03
+AUTO-37186,Nike,Dunk High,Championship White,275,119000,체결 거래,https://kream.co.kr/products/37186,나이키 덩크 하이 레트로 챔피언쉽 화이트,2026-09-06,DS,거래시점: 2026-08-19
+AUTO-37186,Nike,Dunk High,Championship White,270,95000,체결 거래,https://kream.co.kr/products/37186,나이키 덩크 하이 레트로 챔피언쉽 화이트,2026-09-06,DS,거래시점: 2026-08-07
+AUTO-37186,Nike,Dunk High,Championship White,275,109000,체결 거래,https://kream.co.kr/products/37186,나이키 덩크 하이 레트로 챔피언쉽 화이트,2026-09-06,DS,거래시점: 2026-07-31
+AUTO-37186,Nike,Dunk High,Championship White,260,80000,체결 거래,https://kream.co.kr/products/37186,나이키 덩크 하이 레트로 챔피언쉽 화이트,2026-09-06,DS,거래시점: 2026-07-28
+AUTO-57601,Nike,Air Max 90,Triple White,255,126000,체결 거래,https://kream.co.kr/products/57601,나이키 에어맥스 90 LTR 트리플 화이트,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-57601,Nike,Air Max 90,Triple White,270,140000,체결 거래,https://kream.co.kr/products/57601,나이키 에어맥스 90 LTR 트리플 화이트,2026-09-06,DS,거래시점: 2026-08-31
+AUTO-57601,Nike,Air Max 90,Triple White,265,120000,체결 거래,https://kream.co.kr/products/57601,나이키 에어맥스 90 LTR 트리플 화이트,2026-09-06,DS,거래시점: 2026-08-30
+AUTO-57601,Nike,Air Max 90,Triple White,270,120000,체결 거래,https://kream.co.kr/products/57601,나이키 에어맥스 90 LTR 트리플 화이트,2026-09-06,DS,거래시점: 2026-08-27
+AUTO-57601,Nike,Air Max 90,Triple White,255,107000,체결 거래,https://kream.co.kr/products/57601,나이키 에어맥스 90 LTR 트리플 화이트,2026-09-06,DS,거래시점: 2026-08-21
+AUTO-266659,Nike,V2K Run,Black Anthracite,270,97000,체결 거래,https://kream.co.kr/products/266659,나이키 V2K 런 블랙 앤트러사이트,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-266659,Nike,V2K Run,Black Anthracite,250,91000,체결 거래,https://kream.co.kr/products/266659,나이키 V2K 런 블랙 앤트러사이트,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-266659,Nike,V2K Run,Black Anthracite,260,90000,체결 거래,https://kream.co.kr/products/266659,나이키 V2K 런 블랙 앤트러사이트,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-137241,Nike,V2K Run,Summit White Silver,255,95000,체결 거래,https://kream.co.kr/products/137241,나이키 V2K 런 서밋 화이트 메탈릭 실버,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-137241,Nike,V2K Run,Summit White Silver,240,88000,체결 거래,https://kream.co.kr/products/137241,나이키 V2K 런 서밋 화이트 메탈릭 실버,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-137241,Nike,V2K Run,Summit White Silver,280,89000,체결 거래,https://kream.co.kr/products/137241,나이키 V2K 런 서밋 화이트 메탈릭 실버,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-137241,Nike,V2K Run,Summit White Silver,270,114000,체결 거래,https://kream.co.kr/products/137241,나이키 V2K 런 서밋 화이트 메탈릭 실버,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-137241,Nike,V2K Run,Summit White Silver,230,96000,체결 거래,https://kream.co.kr/products/137241,나이키 V2K 런 서밋 화이트 메탈릭 실버,2026-09-06,DS,거래시점: 2026-09-06
+AUTO-229964,Nike,V2K Run,Light Orewood Brown,270,67000,체결 거래,https://kream.co.kr/products/229964,나이키 V2K 런 라이트 오어우드 브라운 카키,2026-09-06,DS,거래시점: 2026-09-05
+AUTO-229964,Nike,V2K Run,Light Orewood Brown,270,60000,체결 거래,https://kream.co.kr/products/229964,나이키 V2K 런 라이트 오어우드 브라운 카키,2026-09-06,DS,거래시점: 2026-09-05
+AUTO-229964,Nike,V2K Run,Light Orewood Brown,270,73000,체결 거래,https://kream.co.kr/products/229964,나이키 V2K 런 라이트 오어우드 브라운 카키,2026-09-06,DS,거래시점: 2026-09-04
+AUTO-229964,Nike,V2K Run,Light Orewood Brown,250,100000,체결 거래,https://kream.co.kr/products/229964,나이키 V2K 런 라이트 오어우드 브라운 카키,2026-09-06,DS,거래시점: 2026-09-04
+AUTO-229964,Nike,V2K Run,Light Orewood Brown,250,102000,체결 거래,https://kream.co.kr/products/229964,나이키 V2K 런 라이트 오어우드 브라운 카키,2026-09-06,DS,거래시점: 2026-09-04
+AUTO-13242,Converse,Chuck 70,Black,275,147000,체결 거래,https://kream.co.kr/products/13242,컨버스 척 70 하이 블랙,2026-09-07,DS,거래시점: 2026-09-07
+AUTO-13242,Converse,Chuck 70,Black,255,86000,체결 거래,https://kream.co.kr/products/13242,컨버스 척 70 하이 블랙,2026-09-07,DS,거래시점: 2026-09-06
+AUTO-13242,Converse,Chuck 70,Black,265,153000,체결 거래,https://kream.co.kr/products/13242,컨버스 척 70 하이 블랙,2026-09-07,DS,거래시점: 2026-09-06
+AUTO-13242,Converse,Chuck 70,Black,255,116000,체결 거래,https://kream.co.kr/products/13242,컨버스 척 70 하이 블랙,2026-09-07,DS,거래시점: 2026-09-06
+AUTO-13242,Converse,Chuck 70,Black,250,98000,체결 거래,https://kream.co.kr/products/13242,컨버스 척 70 하이 블랙,2026-09-07,DS,거래시점: 2026-09-06

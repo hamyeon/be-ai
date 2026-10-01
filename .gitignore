@@ -1,3 +1,4 @@
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -57,6 +58,7 @@ cover/
 
 # Django stuff:
 *.log
+!docs/experiments/concurrency/raw/logs/*.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
@@ -150,6 +152,13 @@ activemq-data/
 # Environments
 .env
 .envrc
+
+# Terraform local state/plan artifacts - 실수로라도 자원 ID·자격증명 흔적이 남은 상태 파일이
+# 커밋되지 않도록 로컬에 뭐가 있든 항상 막는다.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan*
 .venv
 env/
 venv/
@@ -216,3 +225,25 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+CLAUDE.local.md
+application-secret.yml
+
+.idea
+
+# FruitsFamily 크롤러 이미지 (용량이 커서 git에는 jsonl/csv 메타데이터만 커밋)
+crawler/data/images/
+
+# hot-auction load test: seeder/round 실행마다 새로 생성되는 로컬 DB row id echo -
+# 재현 시 HotAuctionUserSeeder/HotAuctionRoundSeeder가 다시 만든다. 결과 요약은
+# docs/experiments/hot-auction-load/results.json으로 별도 커밋한다.
+loadtest/k6/data/
+loadtest/k6/results/seed-*.json
+loadtest/k6/results/baseline-seed-*.json
+loadtest/k6/results/*-smoke*.json
+
+# 크롤러 재수집 중 생기는 백업본 (원본 jsonl/csv만 커밋한다)
+*.jsonl.bak
+*.csv.bak
+# 로컬 Gradle 캐시 디렉터리(공백 없는 경로 회피용)
+.gradle-local/

@@ -5,6 +5,9 @@ import jakarta.validation.constraints.NotNull;
 
 public record CalculatePriceRequest(
 
+        @NotNull(message = "분석 세션 ID는 필수입니다.")
+        Long analysisId,
+
         @NotBlank(message = "브랜드는 필수입니다.")
         String brand,
 

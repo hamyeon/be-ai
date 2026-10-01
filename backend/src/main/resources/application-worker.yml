@@ -1,0 +1,52 @@
+# Worker EC2 배포 profile(SPRING_PROFILES_ACTIVE=dev,worker). "dev" profile을 함께 활성화해
+# JWT 보안 설정과 대부분의 배포 기본값을 물려받되, 아래 값만 이 파일이 뒤에 오는 profile로서
+# 덮어쓴다(application-api.yml과 동일한 profile 문서 우선순위 규칙).
+#
+# 이 프로세스가 실제로 맡는 일: Redis Streams 소비(XREADGROUP)·PEL 회수(XAUTOCLAIM)·Vision
+# 분석·DB 저장·XACK. 웹 API 트래픽은 받지 않는다(공인 인터넷에 미노출). 도메인 스케줄러(경매
+# 시작/종료 등)는 API EC2가 전담하므로 전부 false로 고정한다 - dev의 true를 그대로 두면 API와
+# 중복 실행된다.
+spring:
+  datasource:
+    # API EC2와 같은 MySQL(신규 demo 컨테이너)을 API의 사설 IP로 접속한다 - dev의 ${DEV_DB_URL}
+    # (공유 dev RDS)을 쓰지 않는다.
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    # 이 프로세스는 스키마를 만들지 않고 검증만 한다 - dev가 물려주는 ddl-auto:update를 그대로
+    # 쓰면 Worker도 스키마 변경을 시도해 API와 경합할 수 있다. API가 먼저 떠 스키마를 만든
+    # 뒤에만 Worker를 기동하는 순서를 전제로 한다(런북 참고). 불일치가 있으면 기동 실패로
+    # 드러나는 편이 조용히 다른 스키마로 도는 것보다 안전하다.
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+analysis:
+  stream:
+    consumer:
+      enabled: true
+    recovery:
+      enabled: true
+
+auction:
+  lifecycle:
+    start:
+      enabled: false
+    end:
+      enabled: false
+
+payment:
+  expiration:
+    enabled: false
+
+backup-offer:
+  expiration:
+    enabled: false
+
+purchase-agent:
+  scan:
+    enabled: false
+
+recommendation:
+  vector-backfill-on-startup: false
+  vector-backfill-scheduled: false

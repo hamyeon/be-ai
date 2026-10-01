@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["matched", "semanticScore", "reason"],
+  "properties": {
+    "matched": {
+      "type": "boolean",
+      "description": "True only if the listing is a pair of the buyer's exact model. False when different model, different brand, not shoes, box only, kids, bundle, or undeterminable."
+    },
+    "semanticScore": {
+      "type": "number",
+      "description": "0.0 to 1.0. Certainty of model identification plus free-text condition satisfaction. 0.0 when matched is false."
+    },
+    "reason": {
+      "type": "string",
+      "description": "One short Korean sentence citing the text relied on."
+    }
+  }
+}

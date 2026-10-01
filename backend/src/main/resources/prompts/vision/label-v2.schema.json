@@ -1,0 +1,79 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["size", "sizeLabelText", "modelCode", "brand", "modelName", "boxIncluded", "evidence", "unreadable"],
+  "properties": {
+    "size": {
+      "type": ["integer", "null"],
+      "description": "Korean shoe size in millimeters, converted from what is printed on a visible label. Null when no size marking is readable. Never estimate from the apparent length of the shoe."
+    },
+    "sizeLabelText": {
+      "type": ["string", "null"],
+      "description": "The size marking exactly as printed, before conversion. e.g. 'US 9 / UK 8 / EUR 42 / 27cm'. Null when nothing is readable."
+    },
+    "modelCode": {
+      "type": ["string", "null"],
+      "description": "Style or article code printed on a label. e.g. '1183A353-101'. Null when not readable."
+    },
+    "brand": {
+      "type": ["string", "null"],
+      "description": "Brand as confirmed or corrected by a label or logo in these images. Null when no label or logo settles it."
+    },
+    "modelName": {
+      "type": ["string", "null"],
+      "description": "Model name as confirmed or corrected by a label. Null when no label settles it."
+    },
+    "boxIncluded": {
+      "type": ["boolean", "null"],
+      "description": "True only when a shoe box is visible in the images. False only when the seller's photos clearly show the shoes without any box in a context where a box would be shown. Null otherwise."
+    },
+    "evidence": {
+      "type": "array",
+      "description": "One entry for every non-null field above. A field without evidence must be null.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "imageIndex", "region", "observedText", "observation", "sourceChunkId"],
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": ["size", "sizeLabelText", "modelCode", "brand", "modelName", "boxIncluded"]
+          },
+          "imageIndex": {
+            "type": "integer",
+            "description": "0-based index of the image this was seen in."
+          },
+          "region": {
+            "type": "string",
+            "enum": ["tongue_label", "insole", "heel_tab", "side_logo", "outsole", "box_label", "packaging", "other"]
+          },
+          "observedText": {
+            "type": ["string", "null"],
+            "description": "Characters literally readable in the image. Null when the evidence is not text. For size, this must be non-null."
+          },
+          "observation": {
+            "type": "string",
+            "description": "In Korean, one sentence stating where in the image this was read."
+          },
+          "sourceChunkId": {
+            "type": ["string", "null"],
+            "description": "Always null. Reserved for citing reference data supplied in the prompt."
+          }
+        }
+      }
+    },
+    "unreadable": {
+      "type": "array",
+      "description": "Fields left null, with the reason. In Korean.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "reason"],
+        "properties": {
+          "field": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}

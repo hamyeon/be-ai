@@ -1,0 +1,13 @@
+# #75-4B: prod profile 최초 도입. 이번 목적은 인증(JWT) profile 경계를 확정하는 것뿐이라,
+# 실제 배포 인프라(DB 접속 정보 등)는 아직 이 파일의 범위가 아니다 - 필요해지면 그때 추가한다.
+# jwt.*(JWT_SECRET/JWT_ACCESS_TTL_SECONDS/JWT_REFRESH_TTL_SECONDS)는 application.yml에 이미
+# profile-무관하게 환경변수 기반으로 정의되어 있어 여기서 중복하지 않는다 - dev와 마찬가지로
+# 이 profile이 활성화되면 JwtProperties/JwtTokenProvider/JwtSecurityConfig(모두 @Profile
+# ({"dev","prod"}))가 자동으로 활성화된다.
+#
+# 관리 엔드포인트는 dev와 동일하게 보수적으로 닫아둔다(보안그룹으로 관리 포트 차단이
+# 확인되기 전까지 상세 정보를 노출하지 않는다).
+management:
+  endpoint:
+    health:
+      show-details: ${MANAGEMENT_HEALTH_DETAILS:never}

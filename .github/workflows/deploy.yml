@@ -1,0 +1,125 @@
+name: Deploy demo environment
+
+# 첫 배포는 workflow_dispatch로 수동 실행한다. 정상 동작을 확인한 뒤 repo variable
+# AUTO_DEPLOY를 "true"로 바꾸면 main 병합 시 자동 배포로 전환된다(docs/aws-demo-deployment.md
+# 첫 배포 실행 순서 참고). AUTO_DEPLOY가 설정되지 않았거나 "true"가 아니면 push 이벤트에서는
+# 아무 것도 하지 않는다.
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: demo-deploy
+  cancel-in-progress: false
+
+jobs:
+  test-build-deploy:
+    if: github.event_name == 'workflow_dispatch' || vars.AUTO_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    timeout-minutes: 60
+    env:
+      TZ: Asia/Seoul
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+      PROJECT_TAG: ${{ vars.PROJECT_TAG }}
+      ENVIRONMENT_TAG: ${{ vars.ENVIRONMENT_TAG }}
+      LAST_GOOD_PARAMETER: ${{ vars.LAST_GOOD_PARAMETER }}
+      OPENAI_API_KEY: ci-placeholder-not-a-real-key
+      JWT_SECRET: ci-placeholder-jwt-secret-at-least-32-characters-long
+
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Test
+        working-directory: backend
+        run: ./gradlew --no-daemon test
+
+      - name: Build
+        working-directory: backend
+        run: ./gradlew --no-daemon build -x test
+
+      # 장기 AWS 액세스 키를 GitHub Secrets에 두지 않는다 - OIDC로 매 실행마다 단기 자격증명을
+      # 발급받는다(secrets.AWS_ROLE_ARN은 역할 ARN일 뿐 자격증명이 아니다).
+      - name: Configure AWS credentials through OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: github-${{ github.run_id }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Verify short-lived AWS identity
+        run: |
+          aws sts get-caller-identity
+          if env | grep -Eq '^AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY)='; then
+            echo 'OIDC provided temporary credentials for this job.'
+          else
+            echo 'AWS credential environment is missing.' >&2
+            exit 1
+          fi
+          test -n "${AWS_SESSION_TOKEN:-}"
+
+      # API/Worker가 같은 이미지를 공유한다 - 어떤 프로세스로 뜨는지는 SPRING_PROFILES_ACTIVE
+      # (docker-compose.aws-api.yml/aws-worker.yml)로만 갈린다. 한 번만 빌드/푸시해 같은 커밋
+      # SHA가 두 역할에 동일하게 배포되도록 한다.
+      - name: Build and push immutable SHA image
+        run: |
+          set -Eeuo pipefail
+
+          IMAGE_TAG="app-${GITHUB_SHA}"
+          IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin \
+                "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+          if aws ecr describe-images \
+              --region "$AWS_REGION" \
+              --repository-name "$ECR_REPOSITORY" \
+              --image-ids "imageTag=${IMAGE_TAG}" \
+              --no-cli-pager >/dev/null 2>&1; then
+            echo "ECR_IMAGE_ALREADY_EXISTS=${IMAGE_URI}"
+            exit 0
+          fi
+
+          docker build \
+            --platform linux/amd64 \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            -t "$IMAGE_URI" \
+            backend
+
+          docker push "$IMAGE_URI"
+          echo "PUSHED_IMAGE=${IMAGE_URI}"
+
+      - name: Deploy to API/Worker, verify readiness, rollback on failure
+        env:
+          IMAGE_SHA: ${{ github.sha }}
+        run: bash scripts/aws/deploy.sh
