@@ -3,6 +3,7 @@ package com.vintic.backend.loadtest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.user.domain.User;
 import com.vintic.backend.user.repository.UserRepository;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -31,6 +32,7 @@ import java.util.UUID;
 // "인증 경계" 절 참고.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @ActiveProfiles("local")
+@Tag("performance")
 class HotAuctionUserSeeder {
 
     private static final Path OUTPUT_PATH = Path.of("..", "loadtest", "k6", "data", "hot-auction-users.json");

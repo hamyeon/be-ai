@@ -15,8 +15,6 @@ import com.vintic.backend.order.domain.OrderStatus;
 import com.vintic.backend.order.repository.OrderRepository;
 import com.vintic.backend.order.service.AuctionSettlementService;
 import com.vintic.backend.order.service.OrderExpirationService;
-import com.vintic.backend.product.domain.Product;
-import com.vintic.backend.product.repository.ProductRepository;
 import com.vintic.backend.recommendation.repository.ProductVectorRepository;
 import com.vintic.backend.recommendation.repository.UserActivityLogRepository;
 import com.vintic.backend.user.domain.User;
@@ -39,6 +37,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -65,9 +65,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 //   cron 주기를 기다리면 테스트가 분 단위로 느려지고 타이밍에 좌우된다. 여기서 볼 것은
 //   "cron 표현식이 맞는가"가 아니라 "돌고 나면 상태가 올바른가"다.
 //
-// 경매 생성을 리포지토리로 하는 이유:
-//   POST /api/auctions가 없다. 상품 등록 시 자동 생성으로 가는 방향이지만 아직
-//   구현되지 않았다. 그 경로가 생기면 openAuction() 하나만 바꾸면 되도록 격리했다.
+// 경매를 LIVE로 흉내내는 이유:
+//   POST /api/products가 상품+첫 경매를 한 트랜잭션으로 함께 만든다(ProductRegistrationService,
+//   6bda509) - 별도로 Auction을 또 insert하면 상품당 활성 경매 1개 제약
+//   (uk_auction_product_active_slot)에 걸린다. markAuctionLive()가 등록이 만든 그 행을
+//   SCHEDULED에서 LIVE로 바꾸고 시각을 테스트가 원하는 값으로 덮어쓴다.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("local")
@@ -92,9 +94,6 @@ class FullFlowE2EMySqlIT {
 
     @Autowired
     private UserRepository userRepository;
-
-    @Autowired
-    private ProductRepository productRepository;
 
     @Autowired
     private AuctionRepository auctionRepository;
@@ -172,7 +171,18 @@ class FullFlowE2EMySqlIT {
         jdbcTemplate.execute("SET FOREIGN_KEY_CHECKS = 1");
     }
 
-    private Long registerProduct() throws Exception {
+    // #상품+첫 경매 등록(6bda509)부터는 POST /api/products 자체가 첫 경매까지 한 트랜잭션으로
+    // 만든다(ProductRegistrationService) - 이 응답의 auctionId를 그대로 쓴다. 예전처럼 별도로
+    // Auction을 새로 insert하면 상품당 활성 경매 1개 제약(uk_auction_product_active_slot)에 걸린다.
+    private record RegisteredProduct(Long productId, Long auctionId) {
+    }
+
+    private RegisteredProduct registerProduct() throws Exception {
+        // 여기서 넣는 시작/종료 시각은 AuctionSchedulePolicy.validate()를 만족시키기 위한
+        // 값일 뿐이다 - markAuctionLive()가 곧바로 LIVE 상태와 실제 테스트용 시각으로
+        // 덮어쓴다(정책 완화 없이 그대로 만족시킨 뒤 갈아치운다).
+        OffsetDateTime start = OffsetDateTime.now().plusMinutes(10);
+        OffsetDateTime end = start.plusHours(2);
         String body = mockMvc.perform(post("/api/products")
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("X-User-Id", sellerId)
@@ -183,25 +193,31 @@ class FullFlowE2EMySqlIT {
                                   "conditionGrade": "A", "componentStatus": "FULL",
                                   "recommendedPrice": 180000, "baseMarketPrice": 185000,
                                   "priceRange": "170,000원 ~ 190,000원", "sellingPrice": 180000,
-                                  "reason": "E2E", "sellerDescription": "E2E"
+                                  "reason": "E2E", "sellerDescription": "E2E",
+                                  "auctionStartPrice": 100000,
+                                  "auctionStartAt": "%s",
+                                  "auctionEndAt": "%s"
                                 }
-                                """))
+                                """.formatted(
+                                start.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                                end.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                        )))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        return objectMapper.readTree(body).path("data").path("id").asLong();
+        var data = objectMapper.readTree(body).path("data");
+        return new RegisteredProduct(data.path("id").asLong(), data.path("auctionId").asLong());
     }
 
     /**
-     * 진행 중인 경매를 만든다.
-     *
-     * <p>POST /api/auctions가 없어 리포지토리로 만든다. 상품 등록 시 자동 생성이
-     * 구현되면 이 메서드만 바꾸면 나머지 검증은 그대로 쓸 수 있다.
+     * 등록 시 함께 생성된 경매(SCHEDULED)를 스케줄러 전이를 기다리지 않고 즉시 LIVE로
+     * 흉내낸다 - 이 테스트가 보려는 건 "이미 진행 중인 경매"의 그 뒤 흐름이다. 새 Auction을
+     * 만들지 않고 등록이 이미 만든 행만 갱신한다.
      */
-    private Long openAuction(Long productId, LocalDateTime endAt) {
-        Product product = productRepository.findById(productId).orElseThrow();
-        Auction auction = Auction.schedule(product, 100_000L, 5_000L,
-                LocalDateTime.now().minusHours(1), endAt);
+    private Long markAuctionLive(Long auctionId, LocalDateTime endAt) {
+        Auction auction = auctionRepository.findById(auctionId).orElseThrow();
         ReflectionTestUtils.setField(auction, "status", AuctionStatus.LIVE);
+        ReflectionTestUtils.setField(auction, "startAt", LocalDateTime.now().minusHours(1));
+        ReflectionTestUtils.setField(auction, "endAt", endAt);
         return auctionRepository.save(auction).getId();
     }
 
@@ -233,11 +249,12 @@ class FullFlowE2EMySqlIT {
     @DisplayName("상품 등록 → 경매 → 입찰 → 낙찰 → 결제까지 끊기지 않고 이어진다")
     void 전체_플로우가_끝까지_이어진다() throws Exception {
         // 1) 상품 등록 - 추천용 벡터가 함께 만들어진다
-        Long productId = registerProduct();
+        RegisteredProduct registered = registerProduct();
+        Long productId = registered.productId();
         assertThat(productVectorRepository.findById(productId)).isPresent();
 
         // 2) 경매 시작
-        Long auctionId = openAuction(productId, LocalDateTime.now().plusHours(2));
+        Long auctionId = markAuctionLive(registered.auctionId(), LocalDateTime.now().plusHours(2));
 
         // 3) 조회 - 행동 로그가 쌓인다
         mockMvc.perform(get("/api/auctions/{id}", auctionId).header("X-User-Id", buyerId))
@@ -276,7 +293,7 @@ class FullFlowE2EMySqlIT {
     @Test
     @DisplayName("입찰이 없으면 낙찰자도 주문도 생기지 않는다")
     void 입찰이_없는_경매는_주문을_만들지_않는다() throws Exception {
-        Long auctionId = openAuction(registerProduct(), LocalDateTime.now().plusHours(2));
+        Long auctionId = markAuctionLive(registerProduct().auctionId(), LocalDateTime.now().plusHours(2));
 
         Order order = endAuctionAndSettle(auctionId);
 
@@ -291,7 +308,7 @@ class FullFlowE2EMySqlIT {
     @Test
     @DisplayName("미결제 타임아웃이 차순위 제안으로 이어진다")
     void 미결제가_차순위_이양으로_이어진다() throws Exception {
-        Long auctionId = openAuction(registerProduct(), LocalDateTime.now().plusHours(2));
+        Long auctionId = markAuctionLive(registerProduct().auctionId(), LocalDateTime.now().plusHours(2));
         placeBid(auctionId, buyerId, 105_000L, "e2e-backup-1");
         placeBid(auctionId, secondBuyerId, 110_000L, "e2e-backup-2");
 
@@ -315,7 +332,7 @@ class FullFlowE2EMySqlIT {
     @Test
     @DisplayName("차순위 수락이 새 주문으로 이어진다")
     void 차순위_수락이_주문을_만든다() throws Exception {
-        Long auctionId = openAuction(registerProduct(), LocalDateTime.now().plusHours(2));
+        Long auctionId = markAuctionLive(registerProduct().auctionId(), LocalDateTime.now().plusHours(2));
         placeBid(auctionId, buyerId, 105_000L, "e2e-accept-1");
         placeBid(auctionId, secondBuyerId, 110_000L, "e2e-accept-2");
 
@@ -340,7 +357,7 @@ class FullFlowE2EMySqlIT {
     @Test
     @DisplayName("미결제 페널티가 쌓이면 입찰이 차단된다")
     void 미결제_페널티가_입찰을_막는다() throws Exception {
-        Long auctionId = openAuction(registerProduct(), LocalDateTime.now().plusHours(2));
+        Long auctionId = markAuctionLive(registerProduct().auctionId(), LocalDateTime.now().plusHours(2));
         placeBid(auctionId, buyerId, 105_000L, "e2e-penalty-1");
 
         Order order = endAuctionAndSettle(auctionId);
@@ -354,7 +371,7 @@ class FullFlowE2EMySqlIT {
                 .andExpect(jsonPath("$.data.noShowCount").value(1));
 
         // 제한 기간 중이면 새 경매에도 입찰할 수 없다
-        Long otherAuctionId = openAuction(registerProduct(), LocalDateTime.now().plusHours(2));
+        Long otherAuctionId = markAuctionLive(registerProduct().auctionId(), LocalDateTime.now().plusHours(2));
         mockMvc.perform(post("/api/auctions/{id}/bids", otherAuctionId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("X-User-Id", buyerId)
@@ -371,7 +388,7 @@ class FullFlowE2EMySqlIT {
     @Test
     @DisplayName("입찰·조회가 추천 취향 데이터로 이어진다")
     void 거래_행동이_추천으로_이어진다() throws Exception {
-        Long auctionId = openAuction(registerProduct(), LocalDateTime.now().plusHours(2));
+        Long auctionId = markAuctionLive(registerProduct().auctionId(), LocalDateTime.now().plusHours(2));
 
         mockMvc.perform(get("/api/auctions/{id}", auctionId).header("X-User-Id", buyerId));
         mockMvc.perform(post("/api/auctions/{id}/likes", auctionId).header("X-User-Id", buyerId))
@@ -389,7 +406,7 @@ class FullFlowE2EMySqlIT {
     @Test
     @DisplayName("경매가 끝나면 추천 후보에서 빠진다")
     void 끝난_경매는_추천되지_않는다() throws Exception {
-        Long auctionId = openAuction(registerProduct(), LocalDateTime.now().plusHours(2));
+        Long auctionId = markAuctionLive(registerProduct().auctionId(), LocalDateTime.now().plusHours(2));
 
         mockMvc.perform(get("/api/recommendations/auctions?limit=10"))
                 .andExpect(status().isOk())

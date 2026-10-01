@@ -5,6 +5,7 @@ import com.vintic.backend.auction.repository.AuctionRepository;
 import com.vintic.backend.common.exception.InvalidAuctionTimeException;
 import com.vintic.backend.common.exception.UserNotFoundException;
 import com.vintic.backend.common.util.BidIncrementPolicy;
+import com.vintic.backend.common.util.S3UrlPresigner;
 import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.product.dto.CreateProductRequest;
 import com.vintic.backend.product.dto.ProductResponse;
@@ -28,6 +29,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -53,6 +56,9 @@ class ProductRegistrationServiceTest {
     @Mock
     private AuctionRepository auctionRepository;
 
+    @Mock
+    private S3UrlPresigner s3UrlPresigner;
+
     private ProductRegistrationService sut;
 
     private final CreateProductRequest request = new CreateProductRequest(
@@ -63,7 +69,12 @@ class ProductRegistrationServiceTest {
     );
 
     private void initSut() {
-        sut = new ProductRegistrationService(productRepository, userRepository, productVectorService, auctionRepository, FIXED_CLOCK);
+        // presign 자체는 이 테스트의 관심사가 아니다 - 입력 URL을 그대로 돌려줘 등록 흐름
+        // 검증에 영향을 주지 않는다(S3UrlPresignerTest가 presign 동작을 검증한다).
+        lenient().when(s3UrlPresigner.presign(anyString(), any())).thenAnswer(invocation -> invocation.getArgument(0));
+        sut = new ProductRegistrationService(
+                productRepository, userRepository, productVectorService, auctionRepository, FIXED_CLOCK, s3UrlPresigner
+        );
     }
 
     private void stubHappyPath() {

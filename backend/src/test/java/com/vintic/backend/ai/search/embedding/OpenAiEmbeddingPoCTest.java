@@ -3,6 +3,7 @@ package com.vintic.backend.ai.search.embedding;
 import com.vintic.backend.ai.observability.service.AiCallLogger;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.ai.search.document.SearchDocument;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -22,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 문자열 검색보다 실익이 있는지 판단하기 위한 근거 자료를 만드는 것.
  */
 @EnabledIfEnvironmentVariable(named = "OPENAI_API_KEY", matches = ".+")
+@Tag("experiment")
 class OpenAiEmbeddingPoCTest {
 
     // 테스트 질의와 "문자열 검색으로는 못 찾지만 벡터 검색이면 찾아야 하는" 기대 결과.

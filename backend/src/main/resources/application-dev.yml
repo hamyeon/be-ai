@@ -36,9 +36,16 @@ auction:
 # #107: 실제 API 실행 profile에서는 PEL(pending entries list) 회수 스케줄러도 위와 동일한
 # 이유로 명시적으로 켠다. base(application.yml)의 기본값 false는 local이 borrow하는 MySqlIT
 # 컨텍스트와의 간섭을 막기 위한 것이라 여기서는 적용되지 않는다.
+#
+# consumer.enabled: dev는 API/Worker로 나뉘지 않는 단일 프로세스 배포(공유 EC2)이므로, 이 프로세스가
+# 직접 Redis Stream Consumer도 실행한다(RedisStreamConsumerConfig 참고) - base의 기본값 false를
+# 여기서만 true로 올린다. application-api.yml/application-worker.yml이 각자 이 값을 다시 덮어써
+# API/Worker로 실제 분리되는 배포에서는 dev의 이 값이 적용되지 않는다.
 analysis:
   stream:
     recovery:
+      enabled: true
+    consumer:
       enabled: true
 
 # 배포 환경 관리 엔드포인트.

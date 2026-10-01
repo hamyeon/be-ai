@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -34,9 +35,9 @@ class AnalyzeControllerTest {
         MockMultipartFile image = new MockMultipartFile("images", "shoe.jpg", "image/jpeg", new byte[]{1, 2, 3});
 
         AnalyzeAcceptedResponse response = new AnalyzeAcceptedResponse(1L, "QUEUED");
-        when(productAnalyzeService.submitForAnalysis(anyList())).thenReturn(response);
+        when(productAnalyzeService.submitForAnalysis(anyList(), eq(2L))).thenReturn(response);
 
-        mockMvc.perform(multipart("/api/products/analyze").file(image))
+        mockMvc.perform(multipart("/api/products/analyze").file(image).requestAttr("currentUserId", 2L))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.analysisId").value(1))
@@ -65,9 +66,9 @@ class AnalyzeControllerTest {
                 null,
                 null
         );
-        when(productAnalyzeService.getStatus(1L)).thenReturn(response);
+        when(productAnalyzeService.getStatus(1L, 2L)).thenReturn(response);
 
-        mockMvc.perform(get("/api/products/analyze/{taskId}", 1L))
+        mockMvc.perform(get("/api/products/analyze/{taskId}", 1L).requestAttr("currentUserId", 2L))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.analysisId").value(1))

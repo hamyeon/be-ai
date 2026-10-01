@@ -14,6 +14,7 @@ import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.product.repository.ProductRepository;
 import com.vintic.backend.user.domain.User;
 import com.vintic.backend.user.repository.UserRepository;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -64,6 +65,7 @@ import java.util.concurrent.TimeUnit;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @ActiveProfiles("local")
 @Testcontainers
+@Tag("performance")
 class OptimisticConcurrencyPerformanceBenchmarkIT {
 
     @Container

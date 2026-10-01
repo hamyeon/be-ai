@@ -6,6 +6,7 @@ import com.vintic.backend.auction.domain.Auction;
 import com.vintic.backend.auction.repository.AuctionRepository;
 import com.vintic.backend.bid.domain.Bid;
 import com.vintic.backend.bid.repository.BidRepository;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -46,6 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 // 같은 local DB를 그대로 읽어야 한다.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @ActiveProfiles("local")
+@Tag("performance")
 class HotAuctionInvariantCheck {
 
     private static final Path SEED_PATH = Path.of("..", "loadtest", "k6", "data", "hot-auction-seed.json");

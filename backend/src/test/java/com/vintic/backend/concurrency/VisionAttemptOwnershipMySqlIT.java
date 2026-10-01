@@ -49,7 +49,7 @@ class VisionAttemptOwnershipMySqlIT {
     private AnalysisFailureRecorder failureRecorder;
 
     private Long queuedSessionId() {
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
         session.markImageUploaded(java.util.List.of("https://example.com/a.jpg"));
         session.markQueued();
         return sessionRepository.save(session).getId();

@@ -1,0 +1,30 @@
+# API EC2 배포 profile(SPRING_PROFILES_ACTIVE=dev,api). "dev" profile을 함께 활성화해 JWT
+# 보안 설정(JwtSecurityConfig)과 대부분의 배포 기본값(application-dev.yml)을 그대로 물려받되,
+# 아래 값만 이 파일이 뒤에 오는 profile로서 덮어쓴다(Spring Boot의 profile 문서 우선순위 -
+# spring.profiles.active에 나중에 나열된 profile이 앞선 profile을 덮어쓴다).
+#
+# 이 프로세스가 실제로 맡는 일: 웹 API 전체 + 도메인 스케줄러(경매 시작/종료, 결제/차순위 만료,
+# 구매에이전트 탐색). Redis Streams 소비(Vision 분석)는 Worker EC2가 전담한다.
+spring:
+  datasource:
+    # dev의 ${DEV_DB_URL}(팀 공유 dev RDS, us-east-1)을 의도적으로 쓰지 않는다 - 시연 환경은
+    # EC2 위의 신규 MySQL 컨테이너만 바라본다. 표준 Spring Boot 키로 재선언해 덮어쓴다.
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+
+analysis:
+  stream:
+    # 이 프로세스는 소비자를 실행하지 않는다(Worker 전담) - base(application.yml) 기본값과
+    # 같지만, dev가 이미 true로 올려둔 값을 api가 명시적으로 다시 내린다.
+    consumer:
+      enabled: false
+    recovery:
+      enabled: false
+
+# 벡터 백필은 dev에서 기본 true(RECOMMENDATION_VECTOR_BACKFILL 기본값)이지만, 시연 중에는
+# OpenAI 임베딩 호출이 API 응답 지연/비용에 영향을 줄 수 있어 기본을 false로 내린다. 필요하면
+# 배포 시 RECOMMENDATION_VECTOR_BACKFILL=true(1회성 startup 백필)로 켠다 - 런북 참고.
+recommendation:
+  vector-backfill-on-startup: ${RECOMMENDATION_VECTOR_BACKFILL:false}
+  vector-backfill-scheduled: ${RECOMMENDATION_VECTOR_BACKFILL_SCHEDULED:false}

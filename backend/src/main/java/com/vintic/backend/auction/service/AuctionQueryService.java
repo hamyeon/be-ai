@@ -16,6 +16,7 @@ import com.vintic.backend.common.exception.AuctionNotFoundException;
 import com.vintic.backend.common.exception.UserNotFoundException;
 import com.vintic.backend.common.util.NicknameMasker;
 import com.vintic.backend.common.util.ProductDisplayName;
+import com.vintic.backend.common.util.S3UrlPresigner;
 import com.vintic.backend.common.util.TimePolicy;
 import com.vintic.backend.ai.purchase.price.PriceEstimate;
 import com.vintic.backend.ai.purchase.price.PriceEstimateProvider;
@@ -33,6 +34,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
@@ -49,6 +51,11 @@ public class AuctionQueryService {
     // 별도 추천경매/추천상품 API는 없다)에 노출할 최대 개수. 4개로 확정(사용자 지시).
     private static final int SIMILAR_LIMIT = 4;
 
+    // 버킷을 public-read로 열지 않으므로(S3Config 참고) 조회마다 새로 presign한다. 이 endpoint들이
+    // 비로그인으로도 열람 가능하다는 사실은(§0-A anonymous 목록) presign 필요성과 무관하다 -
+    // "누가 볼 수 있는가"와 "S3 버킷 자체가 공개인가"는 별개 문제다.
+    private static final Duration IMAGE_URL_TTL = Duration.ofHours(24);
+
     private final AuctionRepository auctionRepository;
     private final BidRepository bidRepository;
     private final UserRepository userRepository;
@@ -58,6 +65,7 @@ public class AuctionQueryService {
     private final AgentManagedAuctionGuard agentManagedAuctionGuard;
     private final Clock clock;
     private final PriceEstimateProvider priceEstimateProvider;
+    private final S3UrlPresigner s3UrlPresigner;
 
     public AuctionQueryService(
             AuctionRepository auctionRepository,
@@ -68,7 +76,8 @@ public class AuctionQueryService {
             OrderRepository orderRepository,
             AgentManagedAuctionGuard agentManagedAuctionGuard,
             Clock clock,
-            PriceEstimateProvider priceEstimateProvider
+            PriceEstimateProvider priceEstimateProvider,
+            S3UrlPresigner s3UrlPresigner
     ) {
         this.auctionRepository = auctionRepository;
         this.bidRepository = bidRepository;
@@ -79,6 +88,7 @@ public class AuctionQueryService {
         this.agentManagedAuctionGuard = agentManagedAuctionGuard;
         this.clock = clock;
         this.priceEstimateProvider = priceEstimateProvider;
+        this.s3UrlPresigner = s3UrlPresigner;
     }
 
     // viewerUserId는 null일 수 있다(#55: 상세조회는 기존부터 비로그인 접근을 허용해왔다 - 계약상
@@ -118,7 +128,9 @@ public class AuctionQueryService {
                         product.getBrand(),
                         ProductDisplayName.subName(product),
                         product.getConditionGrade(),
-                        product.getImageUrls()
+                        product.getImageUrls().stream()
+                                .map(url -> s3UrlPresigner.presign(url, IMAGE_URL_TTL))
+                                .toList()
                 ),
                 new AuctionDetailResponse.Seller(
                         seller.getId(),
@@ -314,7 +326,9 @@ public class AuctionQueryService {
                             candidate.getId(),
                             product.getBrand(),
                             ProductDisplayName.name(product),
-                            product.getImageUrls().isEmpty() ? null : product.getImageUrls().get(0),
+                            product.getImageUrls().isEmpty()
+                                    ? null
+                                    : s3UrlPresigner.presign(product.getImageUrls().get(0), IMAGE_URL_TTL),
                             candidate.getCurrentPrice(),
                             likeCounts.getOrDefault(candidate.getId(), 0L).intValue(),
                             likedAuctionIds.contains(candidate.getId())

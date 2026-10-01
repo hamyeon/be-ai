@@ -1,0 +1,33 @@
+# AWS 시연 배포 - Worker EC2 전용 compose 파일(API는 docker-compose.aws-api.yml, 별도 EC2
+# 인스턴스). Redis Streams 소비(XREADGROUP)·PEL 회수(XAUTOCLAIM)·Vision 분석·DB 저장·XACK만
+# 담당한다 - 웹 트래픽은 받지 않고(공인 인터넷에 미노출), 도메인 스케줄러(경매 시작/종료 등)는
+# API가 전담하므로 이 프로세스에서는 전부 꺼져 있다(application-worker.yml 참고).
+#
+# IMAGE_URI/env_file 관례는 docker-compose.aws-api.yml과 동일 - 그쪽 파일 상단 주석 참고.
+# SPRING_DATASOURCE_URL/SPRING_DATA_REDIS_HOST는 API EC2의 "사설 IP"를 가리킨다(worker.env에서
+# 주입 - 예: jdbc:mysql://<api-private-ip>:3306/autique). 사설 IP는 EC2 stop/start에도 유지되므로
+# 보통 재설정이 필요 없다(docs/aws-demo-deployment.md IP 변경 절차 참고 - 그 절차는 API의
+# "공인" IP에만 영향을 준다).
+
+name: autique-aws-worker
+
+services:
+  worker:
+    image: ${IMAGE_URI}
+    # deploy.sh가 이 EC2 "자신의" localhost에서 SSM RunCommand로 헬스를 확인하므로 게시가
+    # 필요하다 - 8080(서비스 포트)은 이 프로세스에 의미가 없어 게시하지 않는다.
+    ports:
+      - "127.0.0.1:8081:8081"
+    environment:
+      TZ: Asia/Seoul
+      JAVA_TOOL_OPTIONS: "-Duser.timezone=Asia/Seoul -XX:MaxRAMPercentage=60"
+      SPRING_PROFILES_ACTIVE: dev,worker
+    env_file:
+      - /opt/autique/worker.env
+    # t3.small(2GiB) 기준 - Worker는 이 프로세스 하나만 돈다(docs/aws-demo-deployment.md 메모리
+    # 절 참고).
+    mem_limit: 1536m
+    restart: always
+    # RedisStreamConsumerConfig의 종료 대기(analysis.stream.shutdown-grace-period-ms, 기본 200s)
+    # 보다 여유를 더 줘서 SIGKILL이 먼저 오지 않게 한다.
+    stop_grace_period: 210s

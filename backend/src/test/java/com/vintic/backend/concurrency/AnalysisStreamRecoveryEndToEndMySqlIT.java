@@ -19,6 +19,7 @@ import com.vintic.backend.analyze.queue.VisionFailureStreamProducer;
 import com.vintic.backend.analyze.service.AnalysisFailureRecorder;
 import com.vintic.backend.analyze.service.VisionAttemptCoordinator;
 import com.vintic.backend.analyze.service.VisionFailureStreamRecorder;
+import com.vintic.backend.common.util.S3UrlPresigner;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -98,6 +99,9 @@ class AnalysisStreamRecoveryEndToEndMySqlIT {
     @Autowired
     private StringRedisTemplate redisTemplate;
 
+    @Autowired
+    private S3UrlPresigner s3UrlPresigner;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
     private String testStreamKey;
     private AnalysisStreamProperties streamProperties;
@@ -134,7 +138,7 @@ class AnalysisStreamRecoveryEndToEndMySqlIT {
     }
 
     private Long queuedSessionId() {
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
         session.markImageUploaded(List.of("https://example.com/a.jpg"));
         session.markQueued();
         return sessionRepository.save(session).getId();
@@ -181,7 +185,7 @@ class AnalysisStreamRecoveryEndToEndMySqlIT {
         AnalysisTaskConsumer consumer = new AnalysisTaskConsumer(
                 visionAnalysisService, coordinator, failureRecorder, failureStreamRecorder, failureStreamProducer,
                 new VisionFailureClassifier(), metrics, objectMapper, redisTemplate,
-                streamProperties, visionProperties, visionExecutor
+                streamProperties, visionProperties, visionExecutor, s3UrlPresigner
         );
         AnalysisStreamRecoveryScheduler scheduler = new AnalysisStreamRecoveryScheduler(
                 redisTemplate, streamProperties, recoveryProperties, consumer, metrics

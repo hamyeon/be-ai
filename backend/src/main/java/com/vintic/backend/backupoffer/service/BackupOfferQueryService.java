@@ -6,6 +6,7 @@ import com.vintic.backend.backupoffer.repository.BackupOfferRepository;
 import com.vintic.backend.common.exception.BackupOfferAccessDeniedException;
 import com.vintic.backend.common.exception.BackupOfferNotFoundException;
 import com.vintic.backend.common.util.ProductDisplayName;
+import com.vintic.backend.common.util.S3UrlPresigner;
 import com.vintic.backend.common.util.ShippingPolicy;
 import com.vintic.backend.common.util.TimePolicy;
 import com.vintic.backend.product.domain.Product;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 
 // FINAL contract §15. #75부터 candidate 본인 여부를 검증한다(40305 BACKUP_OFFER_ACCESS_DENIED) -
@@ -20,12 +22,19 @@ import java.time.LocalDateTime;
 @Service
 public class BackupOfferQueryService {
 
+    // 버킷을 public-read로 열지 않으므로(S3Config 참고) 조회마다 새로 presign한다.
+    private static final Duration IMAGE_URL_TTL = Duration.ofHours(24);
+
     private final BackupOfferRepository backupOfferRepository;
     private final Clock clock;
+    private final S3UrlPresigner s3UrlPresigner;
 
-    public BackupOfferQueryService(BackupOfferRepository backupOfferRepository, Clock clock) {
+    public BackupOfferQueryService(
+            BackupOfferRepository backupOfferRepository, Clock clock, S3UrlPresigner s3UrlPresigner
+    ) {
         this.backupOfferRepository = backupOfferRepository;
         this.clock = clock;
+        this.s3UrlPresigner = s3UrlPresigner;
     }
 
     @Transactional(readOnly = true)
@@ -51,7 +60,9 @@ public class BackupOfferQueryService {
                         product.getId(),
                         ProductDisplayName.name(product),
                         ProductDisplayName.subName(product),
-                        product.getImageUrls().isEmpty() ? null : product.getImageUrls().get(0)
+                        product.getImageUrls().isEmpty()
+                                ? null
+                                : s3UrlPresigner.presign(product.getImageUrls().get(0), IMAGE_URL_TTL)
                 ),
                 offer.getPurchasePrice(),
                 ShippingPolicy.FLAT_FEE,

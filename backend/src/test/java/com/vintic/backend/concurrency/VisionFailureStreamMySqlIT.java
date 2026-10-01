@@ -16,6 +16,7 @@ import com.vintic.backend.analyze.queue.VisionFailureStreamProducer;
 import com.vintic.backend.analyze.service.AnalysisFailureRecorder;
 import com.vintic.backend.analyze.service.VisionAttemptCoordinator;
 import com.vintic.backend.analyze.service.VisionFailureStreamRecorder;
+import com.vintic.backend.common.util.S3UrlPresigner;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -83,6 +84,9 @@ class VisionFailureStreamMySqlIT {
     @Autowired
     private StringRedisTemplate redisTemplate;
 
+    @Autowired
+    private S3UrlPresigner s3UrlPresigner;
+
     // VisionFailureStreamProducer는 일부러 autowire하지 않는다 - 스프링이 관리하는 빈은 운영
     // 기본 failure-key(ai:analysis:failures)에 바인딩돼 있어, 이 테스트가 쓰는 격리된 테스트
     // 키(streamProperties.getFailureKey())로 실제 XADD가 나가지 않는다. 같은 AnalysisTaskConsumer
@@ -129,7 +133,7 @@ class VisionFailureStreamMySqlIT {
         return new AnalysisTaskConsumer(
                 mock(VisionAnalysisService.class), coordinator, failureRecorder, failureStreamRecorder, failureStreamProducer,
                 new VisionFailureClassifier(), new AnalysisStreamMetrics(new SimpleMeterRegistry()), objectMapper, redisTemplate,
-                streamProperties, visionProperties, visionExecutor
+                streamProperties, visionProperties, visionExecutor, s3UrlPresigner
         );
     }
 
@@ -137,7 +141,7 @@ class VisionFailureStreamMySqlIT {
     void VISION_FAILED_커밋_후_발행_전에_재전달되면_미발행_상태를_확인해_다시_발행한_뒤_ACK한다() throws Exception {
         // 1) 이전 시도가 VISION_FAILED까지는 커밋했지만(claim -> failVision), 발행/ACK 전에
         //    죽었다고 가정한다 - visionFailureStreamPublished는 기본값 false로 남아있다.
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
         session.markImageUploaded(List.of("https://example.com/a.jpg"));
         session.markQueued();
         Long sessionId = sessionRepository.save(session).getId();
@@ -189,7 +193,7 @@ class VisionFailureStreamMySqlIT {
 
     @Test
     void 이미_발행된_실패는_재전달돼도_실패_Stream에_다시_쌓이지_않고_ACK된다() throws Exception {
-        ProductAnalysisSession session = ProductAnalysisSession.create();
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
         session.markImageUploaded(List.of("https://example.com/a.jpg"));
         session.markQueued();
         Long sessionId = sessionRepository.save(session).getId();

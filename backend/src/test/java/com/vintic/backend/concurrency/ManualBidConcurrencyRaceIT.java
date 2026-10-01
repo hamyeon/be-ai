@@ -11,6 +11,7 @@ import com.vintic.backend.product.domain.Product;
 import com.vintic.backend.product.repository.ProductRepository;
 import com.vintic.backend.user.domain.User;
 import com.vintic.backend.user.repository.UserRepository;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.AdditionalAnswers;
 import org.mockito.Mockito;
@@ -66,6 +67,7 @@ import java.util.concurrent.TimeUnit;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @ActiveProfiles("local")
 @Testcontainers
+@Tag("performance")
 class ManualBidConcurrencyRaceIT {
 
     @Container
