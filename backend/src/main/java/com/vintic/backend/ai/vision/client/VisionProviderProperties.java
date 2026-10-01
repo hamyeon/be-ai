@@ -34,6 +34,13 @@ public class VisionProviderProperties {
     private Provider provider = Provider.OPENAI;
     private String model;
 
+    // 어느 프롬프트/스키마 묶음을 쓸지(#106). prompts/vision/{단계}-{버전}.md 파일명의 버전이다.
+    //
+    // v2 = 3단계 기본. v3 = 출력을 줄인 판(근거는 짧은 영어 키워드, 설명 문장 길이 제한).
+    // 응답 생성 시간은 출력 토큰 수에 비례하므로 v3가 분석 시간을 줄일 후보다. 정확도가 유지되는지는
+    // 하네스로 두 버전을 같은 셋에 돌려 비교한다(-Dvision.harness.prompt-version=v3).
+    private String promptVersion = "v2";
+
     public String resolvedModel() {
         return model == null || model.isBlank() ? provider.defaultModel() : model.trim();
     }

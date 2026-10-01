@@ -17,6 +17,7 @@ import com.vintic.backend.analyze.queue.AnalysisVisionProcessingProperties;
 import com.vintic.backend.analyze.queue.VisionFailureClassifier;
 import com.vintic.backend.analyze.queue.VisionFailureStreamProducer;
 import com.vintic.backend.analyze.service.AnalysisFailureRecorder;
+import com.vintic.backend.analyze.service.AnalysisProgressRecorder;
 import com.vintic.backend.analyze.service.VisionAttemptCoordinator;
 import com.vintic.backend.analyze.service.VisionFailureStreamRecorder;
 import com.vintic.backend.common.util.S3UrlPresigner;
@@ -176,14 +177,14 @@ class AnalysisStreamRecoveryEndToEndMySqlIT {
                 "Nike", "Dunk Low", "Panda", 270, "설명", ConditionGrade.B,
                 true, 0.9, false, List.of(), List.of(), List.of(), List.of()
         );
-        when(visionAnalysisService.analyze(any())).thenReturn(result);
+        when(visionAnalysisService.analyze(any(), any())).thenReturn(result);
 
         AnalysisVisionProcessingProperties visionProperties = new AnalysisVisionProcessingProperties();
         visionProperties.setOverallTimeoutMs(10_000L);
 
         AnalysisStreamMetrics metrics = new AnalysisStreamMetrics(new SimpleMeterRegistry());
         AnalysisTaskConsumer consumer = new AnalysisTaskConsumer(
-                visionAnalysisService, coordinator, failureRecorder, failureStreamRecorder, failureStreamProducer,
+                visionAnalysisService, coordinator, failureRecorder, mock(AnalysisProgressRecorder.class), failureStreamRecorder, failureStreamProducer,
                 new VisionFailureClassifier(), metrics, objectMapper, redisTemplate,
                 streamProperties, visionProperties, visionExecutor, s3UrlPresigner
         );

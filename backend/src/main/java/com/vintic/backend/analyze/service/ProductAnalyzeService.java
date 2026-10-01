@@ -3,6 +3,8 @@ package com.vintic.backend.analyze.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
+import com.vintic.backend.ai.vision.dto.VisionProgress;
+import com.vintic.backend.analyze.domain.AnalysisStatus;
 import com.vintic.backend.analyze.domain.ProductAnalysisSession;
 import com.vintic.backend.analyze.domain.ProductAnalysisSessionRepository;
 import com.vintic.backend.analyze.dto.AnalysisStatusResponse;
@@ -109,11 +111,18 @@ public class ProductAnalyzeService {
         List<String> presignedImageUrls = session.getImageUrls().stream()
                 .map(url -> s3UrlPresigner.presign(url, IMAGE_URL_TTL))
                 .toList();
+        VisionProgress progress = parseVisionProgress(session);
 
         return new AnalysisStatusResponse(
                 session.getId(),
                 session.getStatus().name(),
                 presignedImageUrls,
+                
+                progress == null ? null
+                        : new AnalysisStatusResponse.VisionProgress(progress.completedStages(), progress.totalStages()),
+                progress == null ? null
+                        : new AnalysisStatusResponse.PreliminaryVision(
+                                progress.brand(), progress.modelName(), progress.color(), progress.size()),
                 vision.brand(),
                 vision.modelName(),
                 vision.color(),
@@ -133,6 +142,20 @@ public class ProductAnalyzeService {
 
     private <T> List<T> nullToEmpty(List<T> values) {
         return values == null ? List.of() : values;
+    }
+
+    // 잠정 결과는 분석 중일 때만 내려준다. 엔티티가 끝날 때 비우지만, 상태로 한 번 더 막아
+    // 최종 결과와 잠정 결과가 한 응답에 같이 나가는 일이 없게 한다.
+    private VisionProgress parseVisionProgress(ProductAnalysisSession session) {
+        if (session.getStatus() != AnalysisStatus.VISION_PROCESSING || session.getVisionProgressJson() == null) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(session.getVisionProgressJson(), VisionProgress.class);
+        } catch (JsonProcessingException e) {
+            log.warn("저장된 Vision 진행 상황을 읽지 못했습니다. analysisId={}", session.getId(), e);
+            return null;
+        }
     }
 
     private VisionAnalysisResult parseVisionResult(String visionResultJson) {

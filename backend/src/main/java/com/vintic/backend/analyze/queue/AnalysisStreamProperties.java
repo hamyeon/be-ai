@@ -17,6 +17,17 @@ public class AnalysisStreamProperties {
     private String group = "ai-analysis-workers";
     private String consumerPrefix = "worker";
 
+    // 인스턴스 하나가 동시에 처리하는 분석 수(#106). Consumer를 이 수만큼 띄우고 각자 한 건씩 읽는다.
+    //
+    // 늘리면 대기열은 빨리 빠지지만 Vision 호출이 그만큼 동시에 나간다. 병목은 스레드가 아니라 벤더의
+    // 분당 토큰 한도다 - 한 건 약 15초·9천 토큰이면 1건씩만 처리해도 분당 약 3.6만 토큰이라, 한도가
+    // 30,000이면 늘려도 429 재시도 대기만 는다. 한도를 확인하고 그만큼만 올린다.
+    private int concurrency = 1;
+
+    // XADD 때 스트림을 이 길이 근처로 자른다(MAXLEN ~). ACK해도 엔트리는 지워지지 않아서 두면 계속 쌓인다.
+    // 0 이하면 자르지 않는다. 아직 처리 전인 메시지까지 잘리지 않도록 대기열보다 넉넉히 둔다.
+    private long maxLength = 10_000;
+
     // 최종 실패(VISION_FAILED)를 남기는 전용 Stream. 별도 Consumer Group 없이 순수 append-only
     // 로그로 둔다 - 누가 언제 소비할지는 이번 스코프 밖(관측/알림 파이프라인 연결은 AI팀/운영
     // 쪽과 협의 필요, VisionFailureStreamRecorder 참고).

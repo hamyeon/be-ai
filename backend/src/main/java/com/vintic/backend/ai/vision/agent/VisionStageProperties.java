@@ -24,6 +24,28 @@ public class VisionStageProperties {
     private Stage label = new Stage(VisionImageDetail.HIGH, 900);
     private Stage condition = new Stage(VisionImageDetail.HIGH, 1400);
 
+    // 단계를 어떻게 부를지(#106). 분석 시간은 순차 실행이면 세 단계의 합, 동시 실행이면 가장 느린 단계에 가까워진다.
+    //
+    //   SEQUENTIAL               1 -> 2 -> 3. 뒤 단계가 앞 단계 결과를 전부 맥락으로 받는다(기존 방식)
+    //   PARALLEL_LABEL_CONDITION 1 -> (2, 3 동시). 3단계가 2단계 라벨 결과를 못 받는다. 2단계 시간만큼 단축
+    //   ALL_PARALLEL             1, 2, 3 동시. 어느 단계도 앞 단계 결과를 못 받는다. 가장 느린 한 단계 시간이 된다
+    //
+    // 동시에 돌려도 되는 근거: 3단계 프롬프트는 앞 단계 결과를 참고 텍스트로만 받고 "앞 단계가 추론했지만 사진에
+    // 없는 것은 쓰지 말라"고 못박는다. 2단계는 라벨 글자를 읽는 일이라 1단계 추정 없이도 할 수 있고, 합칠 때
+    // 이미 "라벨 값 우선, 없으면 1단계 값" 규칙이 있다. 그래도 정확도가 유지되는지는 하네스로 재야 하므로
+    // 기본값은 기존 방식이다.
+    private ExecutionMode executionMode = ExecutionMode.SEQUENTIAL;
+
+    public enum ExecutionMode {
+        SEQUENTIAL,
+        PARALLEL_LABEL_CONDITION,
+        ALL_PARALLEL
+    }
+
+    // 동시 실행에 쓰는 스레드 수. 분석 한 건이 PARALLEL_LABEL_CONDITION이면 2개, ALL_PARALLEL이면 3개를 쓴다.
+    // 분석 동시 처리 수(analysis.stream.concurrency) x 3 이상이면 스레드를 기다리는 일이 없다.
+    private int parallelPoolSize = 6;
+
     @Getter
     @Setter
     public static class Stage {

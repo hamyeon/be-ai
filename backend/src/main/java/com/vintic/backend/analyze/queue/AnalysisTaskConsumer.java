@@ -7,6 +7,7 @@ import com.vintic.backend.ai.vision.service.VisionAnalysisService;
 import com.vintic.backend.analyze.domain.VisionAttemptOutcome;
 import com.vintic.backend.analyze.domain.VisionFailureAttemptResult;
 import com.vintic.backend.analyze.service.AnalysisFailureRecorder;
+import com.vintic.backend.analyze.service.AnalysisProgressRecorder;
 import com.vintic.backend.analyze.service.VisionAttemptCoordinator;
 import com.vintic.backend.analyze.service.VisionFailureStreamRecorder;
 import com.vintic.backend.common.exception.AiApiException;
@@ -69,6 +70,7 @@ public class AnalysisTaskConsumer implements StreamListener<String, MapRecord<St
     private final VisionAnalysisService visionAnalysisService;
     private final VisionAttemptCoordinator coordinator;
     private final AnalysisFailureRecorder failureRecorder;
+    private final AnalysisProgressRecorder progressRecorder;
     private final VisionFailureStreamRecorder failureStreamRecorder;
     private final VisionFailureStreamProducer failureStreamProducer;
     private final VisionFailureClassifier failureClassifier;
@@ -252,7 +254,10 @@ public class AnalysisTaskConsumer implements StreamListener<String, MapRecord<St
         Future<VisionAnalysisResult> future;
         try {
             future = visionAnalysisExecutor.submit(
-                    () -> visionAnalysisService.analyze(new VisionAnalysisRequest(imageUrls, analysisId))
+                    // 단계가 끝날 때마다 잠정 결과를 남겨 폴링 중인 사용자가 먼저 볼 수 있게 한다(#106).
+                    () -> visionAnalysisService.analyze(
+                            new VisionAnalysisRequest(imageUrls, analysisId),
+                            progress -> progressRecorder.recordVisionProgress(analysisId, progress))
             );
         } catch (RejectedExecutionException e) {
             throw new AiApiException(

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.ai.vision.dto.ConditionGrade;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
 import com.vintic.backend.ai.vision.dto.VisionDefect;
+import com.vintic.backend.ai.vision.dto.VisionProgress;
 import com.vintic.backend.analyze.domain.AnalysisFailureStage;
 import com.vintic.backend.analyze.domain.AnalysisStatus;
 import com.vintic.backend.analyze.domain.ProductAnalysisSession;
@@ -260,6 +261,61 @@ class ProductAnalyzeServiceTest {
         assertThat(response.needsUserConfirmation()).isTrue();
         assertThat(response.warnings()).anyMatch(warning -> warning.contains("라벨이나 밑창 사진"));
         assertThat(response.defects()).hasSize(1);
+    }
+
+    @Test
+    void 분석_중이면_끝난_단계_수와_잠정_결과를_내려준다() throws Exception {
+        // #106: 3단계가 다 끝나기 전에 1단계 결과(브랜드·모델·색상)를 먼저 보여준다.
+        ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
+        session.markQueued();
+        session.claimVisionProcessing("token");
+        session.recordVisionProgress(objectMapper.writeValueAsString(
+                new VisionProgress(1, 3, "Nike", "Air Force 1", "White", null)));
+        when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
+
+        AnalysisStatusResponse response = newService().getStatus(1L);
+
+        assertThat(response.status()).isEqualTo("VISION_PROCESSING");
+        assertThat(response.visionProgress()).isEqualTo(new AnalysisStatusResponse.VisionProgress(1, 3));
+        assertThat(response.preliminary())
+                .isEqualTo(new AnalysisStatusResponse.PreliminaryVision("Nike", "Air Force 1", "White", null));
+        // 최종 결과 필드는 아직 비어 있다 - 잠정값과 섞이지 않는다
+        assertThat(response.brand()).isNull();
+    }
+
+    @Test
+    void 분석_중이어도_아직_1단계가_안_끝났으면_진행_필드는_null이다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
+        session.markQueued();
+        session.claimVisionProcessing("token");
+        when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
+
+        AnalysisStatusResponse response = newService().getStatus(1L);
+
+        assertThat(response.visionProgress()).isNull();
+        assertThat(response.preliminary()).isNull();
+    }
+
+    @Test
+    void 분석이_끝나면_잠정_결과는_내려가지_않는다() throws Exception {
+        ProductAnalysisSession session = ProductAnalysisSession.create();
+        session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
+        session.markQueued();
+        session.claimVisionProcessing("token");
+        session.recordVisionProgress(objectMapper.writeValueAsString(
+                new VisionProgress(2, 3, "Nike", "Air Force 1", "White", 270)));
+        session.completeVision("token", objectMapper.writeValueAsString(new VisionAnalysisResult(
+                "Nike", "Air Force 1 '07", "White", 270, null, ConditionGrade.B, null, 0.8, false,
+                List.of(), List.of(), List.of(), List.of())));
+        when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
+
+        AnalysisStatusResponse response = newService().getStatus(1L);
+
+        assertThat(response.visionProgress()).isNull();
+        assertThat(response.preliminary()).isNull();
+        assertThat(response.modelName()).isEqualTo("Air Force 1 '07");
     }
 
     @Test

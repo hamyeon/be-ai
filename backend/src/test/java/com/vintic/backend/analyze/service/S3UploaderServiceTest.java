@@ -22,6 +22,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -46,7 +47,8 @@ class S3UploaderServiceTest {
         when(s3Client.putObject(any(PutObjectRequest.class), any(RequestBody.class)))
                 .thenReturn(PutObjectResponse.builder().build());
         imageProperties = new VisionImageProperties();
-        service = new S3UploaderService(s3Client, new ImageResizer(), imageProperties);
+        // 테스트는 호출한 스레드에서 그대로 올린다 - 순서와 예외를 그대로 보려고.
+        service = new S3UploaderService(s3Client, new ImageResizer(), imageProperties, Runnable::run);
         ReflectionTestUtils.setField(service, "bucket", BUCKET);
     }
 
@@ -121,6 +123,39 @@ class S3UploaderServiceTest {
                 service.uploadImages(List.of(empty, jpegFile("shoe.jpg", 400, 300)));
 
         assertThat(uploaded).hasSize(1);
+    }
+
+    @Test
+    void 여러_장을_동시에_올려도_요청한_순서를_지킨다() throws IOException {
+        // #106: 사진 순서가 상품 이미지 순서가 된다. 동시에 올린다고 섞이면 안 된다.
+        S3UploaderService parallelService = new S3UploaderService(
+                s3Client, new ImageResizer(), imageProperties, Executors.newFixedThreadPool(3));
+        ReflectionTestUtils.setField(parallelService, "bucket", BUCKET);
+
+        List<S3UploaderService.UploadedImage> uploaded = parallelService.uploadImages(List.of(
+                jpegFile("first.jpg", 400, 300), jpegFile("second.jpg", 400, 300), jpegFile("third.jpg", 400, 300)));
+
+        assertThat(uploaded).hasSize(3);
+        assertThat(uploaded).extracting(S3UploaderService.UploadedImage::originalUrl)
+                .satisfiesExactly(
+                        url -> assertThat(url).endsWith("first.jpg"),
+                        url -> assertThat(url).endsWith("second.jpg"),
+                        url -> assertThat(url).endsWith("third.jpg"));
+    }
+
+    @Test
+    void 한_장이_실패하면_나머지를_끝까지_기다린_뒤_예외를_던진다() throws IOException {
+        // 먼저 던지고 나가면 남은 업로드가 요청 밖에서 끝나 어디까지 올라갔는지 알 수 없다.
+        S3UploaderService parallelService = new S3UploaderService(
+                s3Client, new ImageResizer(), imageProperties, Executors.newFixedThreadPool(3));
+        ReflectionTestUtils.setField(parallelService, "bucket", BUCKET);
+        when(s3Client.putObject(any(PutObjectRequest.class), any(RequestBody.class)))
+                .thenThrow(S3Exception.builder().message("업로드 실패").build())
+                .thenReturn(PutObjectResponse.builder().build());
+
+        assertThatThrownBy(() -> parallelService.uploadImages(
+                List.of(jpegFile("first.jpg", 400, 300), jpegFile("second.jpg", 400, 300))))
+                .isInstanceOf(S3UploadException.class);
     }
 
     private List<PutObjectRequest> capturePutRequests(int expectedCount) {

@@ -120,6 +120,54 @@ Consumer 이름은 기동할 때마다 `{consumer-prefix}-{UUID}`로 생성돼�
 - 세션이 아예 없거나(`analysisId`가 잘못됨), 이미 `QUEUED`가 아닌 상태(중복 전달)면 재처리할 이유가
   없으므로 바로 ack하고 버린다.
 - 메시지 자체가 파싱이 안 되면(손상된 JSON) ack하지 않고 남긴다.
+- ack하지 않고 남긴 메시지는 `AnalysisStreamRecovery`가 일정 시간 뒤 회수해 정리한다(아래 #106 절).
+
+## 구독 안정화 · 동시 처리 (#106)
+
+### 문제: 예외 한 번에 구독이 영구히 끊겼다
+
+Spring Data Redis 3.5.11의 `StreamPollTask`는 Redis 읽기와 리스너 호출을 같은 `try`로 감싸고,
+`RuntimeException`이 나면 `cancelSubscriptionOnError`를 검사한다. 그 기본값이 `t -> true`다(바이트코드로
+확인). 즉 **Redis가 잠깐 재시작되거나, 리스너에서 예외가 한 번만 새도 구독이 취소되고 다시 살아나지 않는다.**
+서버는 정상으로 떠 있는데 분석 요청만 전부 `QUEUED`에서 멈추고, 남는 신호는 로그 한 줄뿐이었다.
+
+### 바꾼 것
+
+| 위치 | 내용 |
+| --- | --- |
+| `RedisStreamConsumerConfig` | `cancelOnError(e -> false)`로 구독을 유지한다. `concurrency`만큼 Consumer(`{prefix}-{인스턴스UUID}-{번호}`)를 등록하고 `batchSize(1)`로 한 건씩 읽는다 |
+| `StreamPollErrorHandler` | 폴링 실패 시 스레드를 1초부터 두 배씩 최대 30초까지 재운다. Redis가 내려가 있을 때 루프가 쉬지 않고 도는 걸 막는다. `NOGROUP`이면 그룹을 다시 만든다 |
+| `AnalysisTaskProducer` | `XADD MAXLEN ~ max-length`. ACK해도 엔트리는 지워지지 않아 두면 계속 쌓였다 |
+
+처리 도중 멈춘 메시지 회수는 #110의 `AnalysisStreamRecoveryScheduler`가 맡는다(아래 "회수·재시도·실패 Stream" 절).
+#106에서 같은 목적으로 만든 `AnalysisStreamRecovery`는 main과 합칠 때(2026-09-29) 중복이라 제거했다 -
+두 회수 작업이 같이 돌면 같은 메시지를 서로 다른 규칙으로 처리한다.
+
+### 동시 처리 수는 벤더 한도가 정한다
+
+`concurrency` 기본값은 1이다. Vision 기본 벤더가 Claude Sonnet 5가 된 뒤(2026-09-29) 분석 한 건은
+사진 3~6장 기준 약 11초에 2만 토큰이라, 1건씩이면 분당 약 11만 토큰이다. 조직 한도(입력 50만/분)
+안에서 올릴 수 있지만 **동시 처리 수만큼 비용도 빨리 나가고**, `analysis.vision.executor-pool-size`(기본 4)보다
+크게 두면 남는 Consumer는 executor 포화로 재시도만 돈다.
+
+```yaml
+analysis:
+  stream:
+    concurrency: ${ANALYSIS_STREAM_CONCURRENCY:1}
+    max-length: ${ANALYSIS_STREAM_MAX_LENGTH:10000}
+```
+
+### 남은 구멍
+
+- **Redis 데이터 자체가 사라지면 회수할 메시지도 없다.** 배포용 `docker-compose.yml`의 Redis에는 볼륨·AOF가
+  없어 컨테이너가 재시작되면 대기 중인 메시지가 사라지고, 해당 세션은 `QUEUED`에 남는다. Redis 영속화는
+  인프라 설정이라 백엔드와 따로 정한다.
+- **죽은 Consumer 이름이 그룹에 쌓인다.** Consumer 이름에 인스턴스 UUID가 들어가 재시작할 때마다 새 이름이
+  생긴다. 제거한 `AnalysisStreamRecovery`는 하루 넘게 조용한 Consumer를 지웠는데, `AnalysisStreamRecoveryScheduler`에는
+  그 기능이 없다. 동작에는 영향이 없고 `XINFO CONSUMERS` 출력만 길어진다.
+- **실제 Redis로 재현하지 못했다.** 작업 환경에서 Docker가 꺼져 있어, 구독이 끊기는 동작은 라이브러리
+  바이트코드로, 고친 동작은 단위 테스트(설정 값·분기)로만 확인했다. Docker를 켠 환경에서 "앱 실행 중
+  `docker restart` redis → 분석 요청이 처리되는가"를 한 번 확인해야 한다.
 
 ## 로컬 개발 환경
 

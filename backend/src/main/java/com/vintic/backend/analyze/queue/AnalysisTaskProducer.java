@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.common.exception.AnalysisQueueException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.connection.RedisStreamCommands;
 import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.connection.stream.StreamRecords;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -35,9 +36,18 @@ public class AnalysisTaskProducer {
             MapRecord<String, String, String> record = StreamRecords
                     .mapBacked(Map.of(PAYLOAD_FIELD, payload))
                     .withStreamKey(properties.getKey());
-            redisTemplate.opsForStream().add(record);
+            redisTemplate.opsForStream().add(record, addOptions());
         } catch (RuntimeException e) {
             throw new AnalysisQueueException("분석 작업을 큐에 적재하는 중 오류가 발생했습니다: " + e.getMessage(), e);
         }
+    }
+
+    // ACK해도 스트림 엔트리는 지워지지 않는다. 적재할 때 길이를 대략(~) 맞춰 잘라 무한히 쌓이지 않게 한다(#106).
+    // 정확한 길이(=)로 자르면 XADD마다 트리밍 비용이 들어서 근사치로 둔다.
+    private RedisStreamCommands.XAddOptions addOptions() {
+        if (properties.getMaxLength() <= 0) {
+            return RedisStreamCommands.XAddOptions.none();
+        }
+        return RedisStreamCommands.XAddOptions.maxlen(properties.getMaxLength()).approximateTrimming(true);
     }
 }

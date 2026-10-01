@@ -33,18 +33,21 @@ class VisionResponseSchemaTest {
     private final PromptTemplateLoader loader = new PromptTemplateLoader();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    private JsonNode schemaOf(String name) throws Exception {
-        return objectMapper.readTree(loader.loadSchema("vision", name, "v2"));
+    // "단계" 또는 "단계:버전". 버전을 생략하면 v2다. #106에서 출력을 줄인 v3가 추가돼 둘 다 검사한다.
+    private JsonNode schemaOf(String nameAndVersion) throws Exception {
+        String[] parts = nameAndVersion.split(":");
+        String version = parts.length > 1 ? parts[1] : "v2";
+        return objectMapper.readTree(loader.loadSchema("vision", parts[0], version));
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"silhouette", "label", "condition"})
+    @ValueSource(strings = {"silhouette:v2", "label:v2", "condition:v2", "silhouette:v3", "label:v3", "condition:v3"})
     void 스키마_최상위는_객체다(String name) throws Exception {
         assertThat(schemaOf(name).path("type").asText()).isEqualTo("object");
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"silhouette", "label", "condition"})
+    @ValueSource(strings = {"silhouette:v2", "label:v2", "condition:v2", "silhouette:v3", "label:v3", "condition:v3"})
     void 모든_객체가_additionalProperties_false를_갖는다(String name) throws Exception {
         List<String> violations = new ArrayList<>();
         forEachObjectSchema(schemaOf(name), "$", (path, node) -> {
@@ -57,7 +60,7 @@ class VisionResponseSchemaTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"silhouette", "label", "condition"})
+    @ValueSource(strings = {"silhouette:v2", "label:v2", "condition:v2", "silhouette:v3", "label:v3", "condition:v3"})
     void 모든_객체가_속성_전부를_required에_적는다(String name) throws Exception {
         // strict 모드에서는 선택 필드를 required에서 빼는 게 아니라 타입에 null을 더해 표현해야 한다.
         List<String> violations = new ArrayList<>();
@@ -74,7 +77,7 @@ class VisionResponseSchemaTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"silhouette", "label", "condition"})
+    @ValueSource(strings = {"silhouette:v2", "label:v2", "condition:v2", "silhouette:v3", "label:v3", "condition:v3"})
     void 지원되지_않는_검증_키워드를_쓰지_않는다(String name) throws Exception {
         List<String> violations = new ArrayList<>();
         collectUnsupportedKeywords(schemaOf(name), "$", violations);
@@ -86,14 +89,18 @@ class VisionResponseSchemaTest {
     void 근거_검증이_다루는_필드는_모두_어딘가의_evidence_열거값에_들어있다() throws Exception {
         // VisionEvidenceValidator가 근거를 요구하는 필드인데 어느 스키마에서도 evidence로 낼 수 없다면,
         // 그 필드는 항상 근거 없음으로 판정돼 조용히 비워진다.
-        Set<String> evidenceFields = new HashSet<>();
-        for (String name : List.of("silhouette", "label", "condition")) {
-            schemaOf(name).path("properties").path("evidence").path("items")
-                    .path("properties").path("field").path("enum")
-                    .forEach(value -> evidenceFields.add(value.asText()));
-        }
+        // 버전마다 따로 본다. 합쳐서 보면 v3에서 빠진 필드를 v2가 가려준다.
+        for (String version : List.of("v2", "v3")) {
+            Set<String> evidenceFields = new HashSet<>();
+            for (String stage : List.of("silhouette", "label", "condition")) {
+                schemaOf(stage + ":" + version).path("properties").path("evidence").path("items")
+                        .path("properties").path("field").path("enum")
+                        .forEach(value -> evidenceFields.add(value.asText()));
+            }
 
-        assertThat(evidenceFields).contains("brand", "modelName", "color", "size", "boxIncluded", "conditionGrade");
+            assertThat(evidenceFields).as(version)
+                    .contains("brand", "modelName", "color", "size", "boxIncluded", "conditionGrade");
+        }
     }
 
     @Test
