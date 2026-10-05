@@ -85,6 +85,21 @@ class KakaoUserFindOrCreateServiceTest {
         assertThat(userRepository.count()).isEqualTo(1);
     }
 
+    // 실제 장애 재현: Kakao 응답에 id/connected_at만 있고(프로필 동의 항목 미제공) nickname이
+    // null인 경우. nickname은 DB에서 NOT NULL이라 그대로 insert하면 "Column 'nickname' cannot
+    // be null"(MySQL 1048)로 실패했었다 - User.registerFromKakao가 기본 닉네임으로 대체해야
+    // 가입이 성공한다.
+    @Test
+    void nickname이_없는_Kakao_사용자도_기본_닉네임으로_가입할_수_있다() {
+        KakaoUserInfo info = new KakaoUserInfo(600L, null, null, null);
+
+        User created = kakaoUserFindOrCreateService.findOrCreate(info);
+        flushAndClear();
+
+        assertThat(created.getNickname()).isNotNull().startsWith("회원-");
+        assertThat(userRepository.count()).isEqualTo(1);
+    }
+
     @Test
     void 서로_다른_kakaoUserId는_서로_다른_User로_생성된다() {
         kakaoUserFindOrCreateService.findOrCreate(new KakaoUserInfo(501L, "a@example.com", "A", null));

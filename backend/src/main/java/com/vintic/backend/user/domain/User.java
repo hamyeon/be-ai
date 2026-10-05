@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Entity
 @Table(name = "users")
@@ -60,13 +61,28 @@ public class User {
     // #75-4C: Kakao 최초 로그인 시 신규 User를 만드는 유일한 진입점. register()를 그대로
     // 재사용하고 kakaoUserId만 추가로 채운다 - register()의 시그니처는 바꾸지 않는다(기존
     // 호출부/테스트 fixture 전부 영향 없음).
+    //
+    // nickname은 DB에서 NOT NULL이다(email과 달리 유지). 하지만 Kakao는 프로필 동의 항목이
+    // 없으면 kakao_account 자체를 응답에 포함하지 않아 nickname이 null로 들어올 수 있다
+    // (KakaoUserInfoClient 참고) - 이때 NOT NULL 제약을 그대로 두면 INSERT가 실패한다. 그래서
+    // null/blank면 "회원-" + 임의 8자 식별자로 대체한다. 이 식별자는 단순 placeholder일 뿐
+    // identity로 쓰이지 않는다(식별자는 여전히 kakaoUserId뿐).
     public static User registerFromKakao(Long kakaoUserId, String email, String nickname, String profileImageUrl) {
         if (kakaoUserId == null) {
             throw new IllegalArgumentException("kakaoUserId는 필수입니다.");
         }
-        User user = register(email, nickname, profileImageUrl);
+        User user = register(email, defaultNicknameIfMissing(nickname), profileImageUrl);
         user.kakaoUserId = kakaoUserId;
         return user;
+    }
+
+    private static final int DEFAULT_NICKNAME_SUFFIX_LENGTH = 8;
+
+    private static String defaultNicknameIfMissing(String nickname) {
+        if (nickname != null && !nickname.isBlank()) {
+            return nickname;
+        }
+        return "회원-" + UUID.randomUUID().toString().substring(0, DEFAULT_NICKNAME_SUFFIX_LENGTH);
     }
 
     public Long getId() {
