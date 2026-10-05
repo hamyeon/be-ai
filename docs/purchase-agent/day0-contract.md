@@ -3,6 +3,12 @@
 조사 기준 커밋: `17c9346` (branch: `feat/be-purchase-agent`)
 범위: 코드 읽기 전용 조사. 구현 없음.
 
+> 2026-10-01 기준: 2026-09-25 #109 머지로 아래 "Day 1을 막는 문제" 1~3은 해소됐다 - `PurchaseGoal` 엔티티,
+> Matcher 결과 저장 `PurchaseGoalMatch`, 탐색 오케스트레이션 `PurchaseGoalScanScheduler`(→ CandidateFinder/Ranker/EngagementService).
+> 4(LOST 상태 없음)는 `AutoBidSettingStatus`를 바꾸지 않고 풀었다 - 여전히 `RESERVED, ACTIVE, CAP_REACHED, CANCELED` 4종이고,
+> `PurchaseGoalResultObservationService`가 경매 `ENDED` + `Order` 존재 여부(§1)로 승패를 판정해 Goal 상태
+> (`FULFILLED` / `ACTIVE` 복귀 / `EXPIRED`)로 남긴다. 본문은 조사 당시(`17c9346`) 기록이다.
+
 ---
 
 ## 1. 경매 종료 상태 변경과 Order 생성이 같은 트랜잭션인지 / 승패 판정 근거
@@ -98,6 +104,7 @@ null이 아니면 `Order.createForWinner(...)`를 생성하고, `NotificationRec
 - `AuctionListing`(Matcher 입력 DTO)과 `new AuctionListing(...)` 생성 호출부를 `backend/src/main`
   전체에서 찾았으나 **호출 지점이 아직 없다** — 아직 어떤 서비스도 Auction/Product로부터
   `AuctionListing`을 만들어 Matcher를 실제로 호출하고 있지 않다(인터페이스만 존재).
+  (조사 당시. #109 이후 `PurchaseGoalCandidateRanker.toListing()`이 만들어 호출하고, 결과는 `PurchaseGoalMatch`에 저장한다.)
 - `ListingMatcher` 인터페이스 주석에 "결과는 (goal, auction) 단위로 저장해 재호출하지 않는다
   (백엔드 담당)"이라고 명시돼 있음 — 이는 AI 팀이 백엔드에 위임한 요구사항이지, 이미 구현된
   캐시/저장 로직이 아니다.

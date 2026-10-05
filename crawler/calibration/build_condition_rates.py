@@ -40,7 +40,7 @@ SIZE_PATTERN = re.compile(r'(?<!\d)(1[5-9]\d|2[0-9]\d|3[0-4]\d)(?!\d)')
 
 
 def parse_size(text):
-    """제목/설명에서 한국 사이즈를 추출한다. 여러 개면 가장 흔한 신발 사이즈대를 고른다."""
+    """제목/설명에서 한국 사이즈를 추출한다. 여러 개면 유효한(150~350, 5 단위) 첫 번째 값을 고른다."""
     if not text:
         return None
     found = [int(m) for m in SIZE_PATTERN.findall(text)]

@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 // enabled 기본값을 false로 두는 이유는 이 프로젝트의 다른 opt-in 스케줄러(AuctionEndScheduler 등)
 // 와 동일하다 - 다수의 *MySqlIT가 application-local 프로필을 공유하는데, 기본 활성화하면 그
 // 테스트들의 @SpringBootTest 컨텍스트에서도 세션을 회수/변경해버릴 수 있다. 실제 배포 프로필
-// (application-dev.yml)에서 명시적으로 켠다.
+// (application-dev.yml, 분리 배포에서는 application-worker.yml)에서 명시적으로 켠다.
 @Component
 @ConfigurationProperties(prefix = "analysis.stream.recovery")
 @Getter

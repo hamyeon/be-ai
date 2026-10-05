@@ -8,6 +8,11 @@
 (`config.py`, `main.py` 등 파일명이 겹쳐서), 당근마켓 크롤러 코드는 전혀
 건드리지 않았다.
 
+> 참고: 당근마켓 수집은 2026-09-17부터 중단됐다. 검색 경로가 `/kr/search/buy-sell/?q=`로
+> 바뀌어 크롤러가 읽던 `ld+json`이 없고, robots.txt가 AI 에이전트·크롤러를 막는다.
+> 마지막 데이터는 9/4 수집분 46,146건이다(`docs/ai-system.md` §1-1). 아래에서 당근 크롤러를
+> 언급하는 부분은 코드/필드 구조 기준이다.
+
 ## 조사 결과 요약
 
 - **robots.txt**: `https://fruitsfamily.com/robots.txt`는 모든 User-agent에

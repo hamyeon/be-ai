@@ -7,6 +7,7 @@ Purchase Agent(사용자가 "뉴발 990, A급 이상, 15만원 이하로 하나"
 
 AI 담당은 셋이다. (1) 자연어 → Goal 초안 파싱, (2) 매물 적합도 판정, (3) AI 시세 제공.
 1장이 (1), 1-6장이 (2), 1-7장이 (3)이다. 세 파트 모두 백엔드 orchestration 없이 동작하고, 어댑터 한 겹만 남았다.
+(2026-10-01 기준: 2026-09-25 백엔드 워크플로 #109 머지로 세 파트가 모두 연결됐다 - `ai-system.md` §6.)
 
 **관통하는 원칙**: LLM은 해석만 하고 서버가 검증한다. LLM이 낸 값이 사람 확인 없이 cap이나
 입찰 금액에 닿는 경로는 없다. 못 알아본 필드는 null이고 이유가 warnings에 실린다.
@@ -34,11 +35,18 @@ GoalParser (인터페이스, 설계안 6-4)
   └ FallbackGoalParser  OpenAI 실패 시 규칙 기반으로 대체 (경고 + confidence ≤ 0.5)
         │
         ▼
-GoalDraft (초안) → 프론트 확인·수정 화면 → POST /api/purchase-goals (백엔드 담당, 미구현)
+GoalDraft (초안) → 프론트 확인·수정 화면 → POST /api/purchase-goals (백엔드 담당, #109로 구현)
 ```
+
+`POST /api/purchase-goals`는 #109에서 `PurchaseGoalController`로 구현됐다. 같이 `GET /api/purchase-goals`(목록),
+`GET /{id}`, `GET /{id}/matches`(Matcher 판정 이력), `DELETE /{id}`(취소)가 있다.
 
 `purchase-agent.parser.provider`(application.yml)로 `openai`(기본) / `rule`을 고른다.
 하네스에서 LLM이 규칙 기반보다 낫다는 게 확인되기 전이거나 OpenAI 장애 때 `rule`로 내린다.
+
+Matcher도 같은 방식으로 `PURCHASE_LISTING_MATCHER`(`openai` 기본 / `rule`)로 고른다. Matcher는 fallback이 없어
+OpenAI 크레딧이 없으면 모든 후보가 제외된다 - 그때는 `rule`(실측 97%·거짓 양성 0)을 권장한다.
+탐색 스케줄러는 `PURCHASE_AGENT_SCAN_ENABLED=true`일 때만 돈다(기본 꺼짐).
 
 ### 1-1. GoalDraft 필드
 
@@ -49,7 +57,7 @@ GoalDraft (초안) → 프론트 확인·수정 화면 → POST /api/purchase-go
 | `modelQuery`, `minCondition`, `hardMaxAmount`, `freeTextConditions`, `confidence` | 계약 6-1 | - |
 | `brand` | 추가 | 모델을 못 특정해도 브랜드로 pre-filter가 가능하게 |
 | `modelKey` | 추가 | 시세 CSV의 `model_key`. pre-filter·시세 조회·Matcher가 문자열 비교 대신 이 키로 만난다. null이면 시세 카탈로그 밖 모델이라 v1 Agent는 후보를 못 찾는다 |
-| `sizeKr` | 추가 | **계약에 사이즈 칸이 없었다.** 신발은 사이즈 없이 살 수 없는데 자유 조건(soft)에 섞이면 다른 사이즈를 사게 된다. 백엔드 pre-filter가 hard 조건으로 써야 한다 - 팀 합의 필요 |
+| `sizeKr` | 추가 | **계약에 사이즈 칸이 없었다.** 신발은 사이즈 없이 살 수 없는데 자유 조건(soft)에 섞이면 다른 사이즈를 사게 된다. 백엔드 pre-filter가 hard 조건으로 써야 한다 - #109에서 hard 조건으로 반영 |
 | `warnings` | 추가 | 확인 화면 안내. "사이즈 없음", "'박스 필수'는 v1에서 참고 사항", "AI 실패 → 규칙 기반 초안" |
 
 `minCondition`은 DS/S/A/B/C 5단계(`GoalCondition`)다. Vision의 `ConditionGrade`에는 S가 없지만
@@ -180,6 +188,10 @@ goal은 그 매물에 사용자가 걸었을 법한 목표다. 일치 31 / 불�
 ./gradlew test --tests '*ListingMatchPromptHarnessTest' -Dgoal.harness=true -Dgoal.harness.model=gpt-4o-mini
 ```
 
+> 2026-10-01 기준: 이 명령은 지금 실제로 돌지 않는다. `build.gradle`이 테스트 JVM에 `vision.harness*`
+> 시스템 프로퍼티만 넘겨서 `-Dgoal.harness=true`가 전달되지 않고, 두 테스트가 조용히 skip된다.
+> 돌리려면 `build.gradle`에 `goal.harness*` 전달을 추가해야 한다.
+
 ### 2-2. 결과
 
 **규칙 기반 파서 (2026-09-10, 픽스처 50건, `RuleBasedGoalParserHarnessTest`)**
@@ -232,14 +244,16 @@ WR993GL 안의 993. 이 두 종류가 LLM Matcher가 값을 해야 할 자리다
 
 ## 3. 백엔드에 넘길 것 / 팀 결정 필요
 
-1. **`sizeKr`를 hard 조건으로.** pre-filter에 `product.sizeKr == goal.sizeKr` (goal.sizeKr가 null이면 무시).
-2. **모델 pre-filter는 `modelKey`로.** `Product.model` 문자열 대신 `ModelAliases.find(product.brand + " " + product.model)`의 키와 `goal.modelKey`를 비교. 키가 null인 Goal은 브랜드만 비교.
-3. **등급 비교는 `GoalCondition.satisfiedBy()`로.** 매물 `conditionGrade`가 UNKNOWN이면 제외.
-4. **6-2 Matcher 요청에서 `imageKeys` 제거 제안.** v1은 텍스트만(Vision 케이스당 12.6초).
-5. **Matcher 호출 시 변환.** `PurchaseGoal → MatchGoal(modelKey, modelQuery, brand, freeTextConditions)`, `Auction+Product → AuctionListing(auctionId, brand, model, colorway, title, description)`. 등급·예산·사이즈는 넘기지 않는다(pre-filter가 끝냄).
-6. **Matcher 예외 = 후보 제외.** `AiApiException`/`AiResponseFormatException`이 올라오면 그 (goal, auction)은 이번 scan에서 건너뛰고 결과를 저장하지 않는다. 다음 scan에서 다시 부른다.
-7. **시세는 `PriceEstimateProvider.estimate(PriceEstimateQuery.of(product))`로 ENGAGE 직전에 재계산.** `Product.recommendedPrice`·경매 상세의 `aiEstimatedPrice`를 cap 입력으로 쓰지 말 것 - 클라이언트가 보낸 값이다(1-7). `Optional.empty()`면 후보 제외. ranking의 `discountRate`도 같은 값을 쓴다.
-8. **(별도 이슈 제안) 경매 상세의 `aiEstimatedPrice`도 서버 계산값으로.** Agent와 무관하게, 구매자에게 보이는 "AI 시세"가 판매자 입력값인 건 문제다. 이 provider를 `AuctionQueryService`에서 그대로 쓰면 된다.
+> 2026-10-01 기준: 1~7은 백엔드 워크플로(#109)에 반영됐고, 8은 #96으로 반영됐다. 각 항목 끝에 반영 위치를 적었다.
+
+1. **`sizeKr`를 hard 조건으로.** pre-filter에 `product.sizeKr == goal.sizeKr` (goal.sizeKr가 null이면 무시). → 반영(#109, `PurchaseGoalCandidateFinder`)
+2. **모델 pre-filter는 `modelKey`로.** `Product.model` 문자열 대신 `ModelAliases.find(product.brand + " " + product.model)`의 키와 `goal.modelKey`를 비교. 키가 null인 Goal은 브랜드만 비교. → 반영(#109, `PurchaseGoalCandidateFinder`)
+3. **등급 비교는 `GoalCondition.satisfiedBy()`로.** 매물 `conditionGrade`가 UNKNOWN이면 제외. → 반영(#109, `PurchaseGoalCandidateFinder`)
+4. **6-2 Matcher 요청에서 `imageKeys` 제거 제안.** v1은 텍스트만(Vision 케이스당 12.6초). → 반영(#109, `AuctionListing`에 이미지 없음)
+5. **Matcher 호출 시 변환.** `PurchaseGoal → MatchGoal(modelKey, modelQuery, brand, freeTextConditions)`, `Auction+Product → AuctionListing(auctionId, brand, model, colorway, title, description)`. 등급·예산·사이즈는 넘기지 않는다(pre-filter가 끝냄). → 반영(#109, `PurchaseGoalCandidateRanker`)
+6. **Matcher 예외 = 후보 제외.** `AiApiException`/`AiResponseFormatException`이 올라오면 그 (goal, auction)은 이번 scan에서 건너뛰고 결과를 저장하지 않는다. 다음 scan에서 다시 부른다. → 반영(#109, `PurchaseGoalCandidateRanker`)
+7. **시세는 `PriceEstimateProvider.estimate(PriceEstimateQuery.of(product))`로 ENGAGE 직전에 재계산.** `Product.recommendedPrice`·경매 상세의 `aiEstimatedPrice`를 cap 입력으로 쓰지 말 것 - 클라이언트가 보낸 값이다(1-7). `Optional.empty()`면 후보 제외. ranking의 `discountRate`도 같은 값을 쓴다. → 반영(#109, `PurchaseGoalCandidateFinder`·`PurchaseGoalEngagementService`)
+8. **(별도 이슈 제안) 경매 상세의 `aiEstimatedPrice`도 서버 계산값으로.** Agent와 무관하게, 구매자에게 보이는 "AI 시세"가 판매자 입력값인 건 문제다. 이 provider를 `AuctionQueryService`에서 그대로 쓰면 된다. → 반영(#96, `AuctionQueryService`)
 
 ## 4. 코드 지도
 

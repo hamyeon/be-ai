@@ -7,7 +7,7 @@ import java.util.Optional;
 //
 // Vision의 ConditionGrade(DS/A/B/C/UNKNOWN)에는 S가 없지만, 시세 계수와 사용자 표현
 // ("거의 새것")에는 S가 있어 여기서는 5단계를 쓴다. "A급 이상"은 rank가 A 이상인 매물을
-// 뜻하므로 서열 비교가 필요하다 - 백엔드 pre-filter는 atLeast()를 쓰면 되고, 매물 등급이
+// 뜻하므로 서열 비교가 필요하다 - 백엔드 pre-filter는 satisfiedBy()를 쓰고, 매물 등급이
 // UNKNOWN이면 비교 자체를 하지 말고 제외해야 한다.
 public enum GoalCondition {
     DS(5),

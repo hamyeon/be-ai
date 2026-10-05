@@ -38,11 +38,15 @@ import java.util.concurrent.Executor;
 // 한 번에 다 묻지 않고 3단계로 나눠 묻는 Vision 분석.
 //
 //   1단계 전체 형태  detail=low   실루엣/브랜드/모델 추정
-//   2단계 라벨/로고  detail=high  사이즈/모델코드 판독  (1단계 결과를 맥락으로 받음)
-//   3단계 오염/마모  detail=high  컨디션 등급 판정      (1,2단계 결과를 맥락으로 받음)
+//   2단계 라벨/로고  detail=high  사이즈/모델코드 판독  (SEQUENTIAL이면 1단계 결과를 맥락으로 받음)
+//   3단계 오염/마모  detail=high  컨디션 등급 판정      (SEQUENTIAL이면 1,2단계 결과를 맥락으로 받음)
+//
+// 앞 단계 맥락은 SEQUENTIAL에서만 전부 넘어간다(PARALLEL_LABEL_CONDITION은 1단계 결과만). 운영 기본값인
+// ALL_PARALLEL은 앞 단계 맥락 없이 세 단계를 동시에 부른다(vision.stage.execution-mode).
 //
 // 나눈 이유는 단계마다 필요한 게 다르기 때문이다. 실루엣은 512px로 줄여도 알아볼 수 있지만
-// 텅 라벨의 작은 글자는 원본 해상도가 필요하다. 한 호출로 묶으면 전체를 비싼 쪽에 맞춰야 한다.
+// 텅 라벨의 작은 글자는 더 높은 해상도가 필요하다(분석용 사본은 긴 변 768px로 줄여 보낸다, vision.image.max-edge).
+// 한 호출로 묶으면 전체를 비싼 쪽에 맞춰야 한다.
 // 이미지를 세 번 보내는 만큼 비용이 늘어나는데, 그만한 값을 하는지는 하네스로 확인한다.
 //
 // 어느 벤더·모델을 부를지는 여기서 모른다. ChatCompletionClient는 VisionClientConfig가 vision.provider로

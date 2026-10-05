@@ -2,7 +2,8 @@
 #
 # build_used_market_prices.py에 있던 것을 공용 모듈로 뺐다(#104). 구성품 계수도
 # 같은 모델끼리 묶어야 해서 같은 표가 필요한데, 산출 스크립트가 다른 산출 스크립트를
-# import하는 구조가 되면 어느 쪽이 표의 주인인지 알 수 없다.
+# import하는 구조가 되면 어느 쪽이 표의 주인인지 알 수 없다. 표의 주인은 이 모듈이다
+# (단, build_color_premiums.py는 아직 build_used_market_prices에서 find_model을 import한다).
 #
 # model_aliases.py와는 다른 표다. 그쪽은 KREAM 참조의 정확한 모델명(airforce1low)에
 # 묶여 있어 참조가 없는 모델을 담을 수 없다. 이쪽은 참조와 무관한 자체 키를 쓴다.
@@ -101,7 +102,7 @@ FLAT = sorted(
 
 
 def find_model(title, description=""):
-    """제목(우선)에서 모델을 찾는다. 숫자 별칭은 브랜드 힌트가 함께 있어야 한다."""
+    """제목에서만 별칭으로 모델을 찾는다. 숫자 별칭은 브랜드 힌트가 함께 있어야 한다(설명은 브랜드 힌트 확인에만 쓴다)."""
     t = (title or "").lower()
     blob = t + " " + (description or "").lower()
     for alias, brand, key, hints in FLAT:

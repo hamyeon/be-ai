@@ -15,7 +15,8 @@ import org.springframework.stereotype.Component;
 //          maxOutputTokens(900/1400)는 JSON 본문 기준이라, 그 값 그대로 보내면 생각하다 잘린다.
 //          그래서 이 여유분을 더해 보낸다. OpenAI 쪽 의미(응답 길이 상한)는 그대로다.
 // effort: output_config.effort(low/medium/high/xhigh/max). 비우면 API 기본값(high).
-//          Vision 3단계는 분류에 가까운 작업이라 low/medium이 충분할 수 있는데, 그건 하네스로 잰다.
+//          Vision 3단계는 분류에 가까운 작업이라 low로 정확도가 유지되고 출력(=시간)이 줄어
+//          application.yml 기본값을 low로 둔다(ai-vision-agent.md 벤더 비교 실측).
 @Component
 @ConfigurationProperties(prefix = "anthropic")
 @Getter

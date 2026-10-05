@@ -10,7 +10,8 @@ import java.util.Optional;
 
 // 규칙 기반 Matcher. 별칭 표와 정규식만으로 판정한다. API 없음, 결정적.
 //
-// 역할: 백엔드 루프의 Fake 구현(설계안 6-4)이자 LLM Matcher가 이겨야 할 기준선.
+// 역할: OpenAI 장애 시 대체 운영값(PURCHASE_LISTING_MATCHER=rule, 설계안 6-4)이자 LLM Matcher가 이겨야 할
+// 하네스 기준선.
 // 못 하는 것: "에어포스 슬리퍼"가 에어포스1 운동화가 아니라는 것, 별칭 표에 없는 오타,
 // "흰색"과 "화이트"가 같다는 것. 그런 케이스가 하네스에서 LLM의 가치를 잰다.
 @Component

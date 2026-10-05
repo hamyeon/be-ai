@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 //
 // 기본값은 "라벨 글자를 읽는 2·3단계만 고해상도"라는 현재 가설이다.
 // 실루엣은 512px로 줄여도 알아볼 수 있어 1단계는 low로 둔다.
+// detail은 OpenAI 경로에만 적용된다 - Claude에는 대응 파라미터가 없어 무시된다(ClaudeChatClient 참고).
 @Component
 @ConfigurationProperties(prefix = "vision.stage")
 @Getter
@@ -32,8 +33,8 @@ public class VisionStageProperties {
     //
     // 동시에 돌려도 되는 근거: 3단계 프롬프트는 앞 단계 결과를 참고 텍스트로만 받고 "앞 단계가 추론했지만 사진에
     // 없는 것은 쓰지 말라"고 못박는다. 2단계는 라벨 글자를 읽는 일이라 1단계 추정 없이도 할 수 있고, 합칠 때
-    // 이미 "라벨 값 우선, 없으면 1단계 값" 규칙이 있다. 그래도 정확도가 유지되는지는 하네스로 재야 하므로
-    // 기본값은 기존 방식이다.
+    // 이미 "라벨 값 우선, 없으면 1단계 값" 규칙이 있다. 운영 기본값은 application.yml의 all-parallel이다
+    // (Sonnet 5 + v3 조합에서 하네스로 확인). 이 필드 기본값(SEQUENTIAL)은 yml이 없을 때의 fallback이다.
     private ExecutionMode executionMode = ExecutionMode.SEQUENTIAL;
 
     public enum ExecutionMode {

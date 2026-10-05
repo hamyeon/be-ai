@@ -22,8 +22,8 @@ import java.time.LocalDateTime;
 // 저장된 값은 사람이 확인·확정한 값이라 confidence/warnings를 갖지 않는다.
 //
 // currentAuctionId는 FK 연관관계를 맺지 않는다 - Notification.auctionId와 같은 "참조값만,
-// 연관관계 없음" 패턴이다. 이 필드에 실제로 값을 채우는 매칭/참여 로직은 이후 Day 작업이다 -
-// Day 1은 생성 시 항상 null로 둔다.
+// 연관관계 없음" 패턴이다. 생성 시에는 항상 null이고, ENGAGED로 전이할 때
+// (PurchaseGoalEngagementTransactionService -> PurchaseGoalRepository.transitionToEngaged) 채워진다.
 @Entity
 @Table(
         name = "purchase_goals",
@@ -133,7 +133,8 @@ public class PurchaseGoal {
     }
 
     // ACTIVE -> CANCELLED, ENGAGED -> CANCEL_REQUESTED. 참여 중(ENGAGED) AutoBid는 여기서
-    // 건드리지 않는다 - 실제로 정리(cancel)하는 것은 Agent 참여 로직(Day 5)의 책임이다. 이
+    // 건드리지 않는다 - CANCEL_REQUESTED Goal은 경매가 끝난 뒤 결과 관찰 단계
+    // (PurchaseGoalResultObservationService)가 낙찰이면 FULFILLED, 아니면 CANCELLED로 정리한다. 이
     // 메서드는 사용자의 취소 "의사"만 기록한다. 그 외 상태(CANCEL_REQUESTED/FULFILLED/
     // CANCELLED/EXPIRED)에서의 재요청은 전부 거절한다 - 종료된 목표를 다시 취소하거나 이미 취소
     // 요청한 목표를 또 취소 요청하는 것은 의미가 없다.

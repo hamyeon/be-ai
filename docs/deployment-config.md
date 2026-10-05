@@ -14,6 +14,11 @@
 앱 앞에 리버스 프록시가 없어 경로 단위로 접근을 막을 지점이 없다. 그래서 포트를 나누고
 **보안그룹에서 8081 인바운드를 막는 방식**으로 격리한다.
 
+> **AWS 시연 환경은 다르다.** API EC2 앞에 Caddy가 80/443을 받아 `api:8080`으로 프록시하고
+> (`backend/Caddyfile`), 8080·8081은 `127.0.0.1`에만 바인딩된다(`backend/docker-compose.aws-api.yml`).
+> 외부 접근은 `https://<공인IP-하이픈>.sslip.io`로만 하고 8080도 공개하지 않는다. 상세는
+> `docs/aws-demo-deployment.md` §7 참고. 로컬/그 외 환경은 위 표 그대로다.
+
 > **보안그룹에서 8081을 막지 않으면 이 분리는 아무 의미가 없다.**
 > 포트만 나뉘고 둘 다 외부에 열린 상태가 된다.
 
@@ -25,9 +30,9 @@
 | --- | --- | --- |
 | `MANAGEMENT_PORT` | `8081` | 관리 엔드포인트 포트. 빈 값이면 서비스 포트를 그대로 쓴다 |
 | `MANAGEMENT_ENDPOINTS` | `health,info,metrics` | 노출할 엔드포인트 목록 |
-| `MANAGEMENT_HEALTH_DETAILS` | 배포 `never` / 로컬 `always` | health 상세 정보 노출 조건 |
+| `MANAGEMENT_HEALTH_DETAILS` | base `when-authorized` / `dev`·`prod` `never` / `local` `always`(고정) | health 상세 정보 노출 조건 |
 
-`MANAGEMENT_HEALTH_DETAILS`는 배포 프로필에서 `never`로 둔다. health 상세에는 DB·Redis
+`MANAGEMENT_HEALTH_DETAILS`는 배포 프로필(`dev`·`prod`)에서 `never`로 둔다. health 상세에는 DB·Redis
 연결 상태가 담겨 내부 구성이 드러난다. **8081 차단이 확인된 뒤에** `always`로 올린다.
 
 ### AI 호출 기록
@@ -45,7 +50,8 @@
 
 | 환경변수 | 기본값 | 설명 |
 | --- | --- | --- |
-| `RECOMMENDATION_VECTOR_BACKFILL` | `false` | 기동 시 벡터 백필 여부 |
+| `RECOMMENDATION_VECTOR_BACKFILL` | base `false` / `dev` `true` / `dev,api` `false` / `worker` `false`(고정) | 기동 시 벡터 백필 여부 |
+| `RECOMMENDATION_VECTOR_BACKFILL_SCHEDULED` | 위와 동일 | 정기 벡터 백필 배치 on/off(`RECOMMENDATION_VECTOR_BACKFILL_CRON`, 기본 `0 30 4 * * *`) |
 
 **켜면 벡터가 없는 상품 수만큼 임베딩을 호출한다(유료).** 이미 만들어진 벡터는 건너뛰므로
 한 번 채운 뒤에는 켜둬도 추가 비용이 없다.
@@ -84,6 +90,15 @@ curl -s localhost:8081/actuator/metrics/ai.call.latency | jq
 ```bash
 ssh -L 8081:localhost:8081 <user>@<EC2>
 # 이후 로컬 브라우저에서 http://localhost:8081/actuator/metrics
+```
+
+AWS 시연 환경은 22번 포트를 열지 않으므로(SSM Session Manager로 관리) SSH 대신 SSM 포트
+포워딩을 쓴다.
+
+```bash
+aws ssm start-session --target <instance-id> \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters '{"portNumber":["8081"],"localPortNumber":["8081"]}'
 ```
 
 **노출되는 AI 지표**
@@ -140,6 +155,6 @@ ORDER BY created_at;
 - [ ] 보안그룹에서 8081 외부 인바운드 차단
 - [ ] `MANAGEMENT_ENDPOINTS`가 `*`가 아닌지 확인
 - [ ] 외부에서 `http://<EC2>:8081/actuator/metrics`가 안 닿는지 확인
-- [ ] 외부에서 `http://<EC2>:8080/api/...`는 정상인지 확인
+- [ ] 외부에서 `http://<EC2>:8080/api/...`는 정상인지 확인 (AWS 시연 환경은 `https://<공인IP-하이픈>.sslip.io/api/...`, 8080은 외부에서 안 닿아야 정상)
 - [ ] 로드밸런서가 있다면 헬스체크 대상 포트를 8081로 지정 (또는 `MANAGEMENT_PORT`를 비워 8080 통합)
 - [ ] 8081 차단 확인 후 `MANAGEMENT_HEALTH_DETAILS=always`로 올릴지 결정

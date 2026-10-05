@@ -23,11 +23,11 @@ Vision 분석을 "한 번에 다 물어보고 나온 JSON을 믿는" 구조에�
 작업 초반에 "size를 못 채운다"를 핵심 문제로 잡았는데, 실제 흐름을 보면 그렇지 않다.
 
 ```
-POST /analyze   이미지만 업로드 (사이즈 입력 없음)
+POST /api/products/analyze           이미지만 업로드 (사이즈 입력 없음)
       ↓
 Vision 분석 → AWAITING_USER_CONFIRMATION
       ↓
-POST /price     사용자가 brand·modelName·color·size·conditionGrade를 확정해서 보냄
+POST /api/products/calculate-price   사용자가 brand·modelName·color·size·conditionGrade를 확정해서 보냄
 ```
 
 `CalculatePriceRequest.size`는 `@NotNull` 필수이고, 가격 계산은 사용자가 보낸 값만 쓴다.
@@ -55,10 +55,10 @@ POST /price     사용자가 brand·modelName·color·size·conditionGrade를 �
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
-| 1 | 평가 하네스 + 정답 라벨 픽스처, 현재 v1 프롬프트 기준선 측정 | 구현 완료 (기준선 측정 대기) |
+| 1 | 평가 하네스 + 정답 라벨 픽스처, 현재 v1 프롬프트 기준선 측정 | 완료 (아래 "측정 결과 (2026-08-06)") |
 | 2 | 응답 JSON Schema 고정 (Structured Outputs) + 근거 필드 필수화 | 구현 완료 |
 | 3 | 3단계 프롬프트(전체 형태 → 라벨/로고 → 오염/마모)로 분리, 환각 차단 규칙 | 구현 완료 |
-| 4 | `detail: high` / 이미지 해상도 A/B를 하네스로 돌려 단계별 옵션 확정 | 측정 대기 |
+| 4 | `detail: high` / 이미지 해상도 A/B를 하네스로 돌려 단계별 옵션 확정 | 완료 (아래 "4단계 - 결론: 현행 유지") |
 
 ---
 
@@ -66,7 +66,8 @@ POST /price     사용자가 brand·modelName·color·size·conditionGrade를 �
 
 ### 평가 셋
 
-`backend/src/test/resources/vision/harness-fixtures.json` — 당근마켓 크롤링 매물 18건.
+`backend/src/test/resources/vision/harness-fixtures-daangn.json` — 당근마켓 크롤링 매물 18건.
+(이후 `harness-fixtures-fruitsfamily.json`, `harness-fixtures-daangn-multi.json`이 추가됐다 - 아래 "평가 셋이 세 개인 이유".)
 
 정답(ground truth)은 **판매자가 본문에 적어둔 값**을 라벨로 썼다.
 사이즈는 `사이즈 260`, 박스는 `박스 없어요` / `박스도 같이 드려요`, 상태는 `실착 1회` / `사용감많습니다`
@@ -136,11 +137,14 @@ src/test/java/com/vintic/backend/ai/vision/harness/
 
 ```bash
 export OPENAI_API_KEY=...
-./gradlew test --tests '*VisionPromptHarnessTest' \
+./gradlew test --tests '*VisionPromptHarnessTest' -Dvision.harness=true \
   -Dvision.harness.variants=ORIGIN,THUMBNAIL_300
 ```
 
-결과는 콘솔과 `backend/build/vision-harness/v1-{variant}.txt`에 남는다.
+`-Dvision.harness=true`가 없으면 키가 있어도 조용히 skip된다(`@EnabledIfSystemProperty`).
+결과는 콘솔과 `backend/build/vision-harness/{fixtures}-{agent}-{variant}-detail_{detail}.txt`
+(예: `daangn-v1-origin-detail_default.txt`)에 남고, 옆에 호출별 원자료 `-calls.csv`가 생긴다.
+gpt-4o가 아닌 모델은 앞에 모델명이, v3·동시 실행은 뒤에 `-prompt_v3`·`-all_parallel`이 붙는다.
 프롬프트를 바꿀 때마다 돌려서 이 표를 비교한다.
 
 ### 측정 결과 (2026-08-06, gpt-4o, 18건)
@@ -292,7 +296,7 @@ observedText`다.
 
 ---
 
-## 4단계: detail / 해상도 결정 (측정 대기)
+## 4단계: detail / 해상도 결정
 
 `detail`은 `vision.stage.*.detail` 설정으로 뺐다. 코드에 박아두면 조정할 때마다 재배포해야 하고,
 비교 측정 자체가 불가능하다.
@@ -552,6 +556,10 @@ EXIF APP1 세그먼트를 직접 파싱해야 하고, 한 번에 줄이면 계�
 
 운영 기본값은 `openai`다. 하네스 비교 결과가 나오기 전에는 바꾸지 않는다.
 
+> 2026-10-01 기준: 아래 벤더 비교 실측 뒤 2026-09-29(#112) 운영 기본값을 `claude` + `claude-sonnet-5`로
+> 바꿨다(`application.yml`). 되돌릴 때는 `VISION_PROVIDER=openai`. 하네스(`-Dvision.harness.provider`)
+> 기본값은 지금도 `openai`다.
+
 ### 같은 조건이 아닌 것 (비교할 때 반드시 감안)
 
 - **이미지 해상도.** OpenAI의 `detail: low`는 512px로 줄이고 `high`는 타일로 쪼갠다. Claude에는
@@ -566,6 +574,7 @@ EXIF APP1 세그먼트를 직접 파싱해야 하고, 한 번에 줄이면 계�
   곱해 따로 봐야 한다.
 - **effort.** `anthropic.effort`를 비우면 API 기본값(high)이다. Vision 3단계는 분류에 가까워
   low/medium으로 충분할 수 있다. 하네스에서 `-Dvision.harness.effort=low`로 같이 잰다.
+  (2026-10-01 기준: 실측 뒤 운영 기본값은 `ANTHROPIC_EFFORT=low`다.)
 - **v1(한 번에 다 묻기)의 `json_object` 모드.** Claude에는 없다. 스키마가 null이면 형식 강제 없이
   부르고, v1 프롬프트가 JSON을 요구하는 것에 기댄다.
 - **거절.** Claude는 안전 분류기가 요청을 거절하면 HTTP 200에 `stop_reason: refusal`을 준다.
@@ -603,6 +612,10 @@ EXIF APP1 세그먼트를 직접 파싱해야 하고, 한 번에 줄이면 계�
 ### 한 것
 
 모든 스위치의 기본값은 기존 동작이다. 크레딧을 충전하면 `ai-experiment-runbook.md` 순서대로 재고, 통과한 것만 켠다.
+
+> 2026-10-01 기준: 2026-09-29 Sonnet 5 전환(#112) 때 `application.yml` 기본값을 `all-parallel` / `v3`로 바꿨다
+> (아래 "결정: Sonnet 5 + 768px + v3 + 세 단계 동시"). 표의 `sequential` / `v2`는 작성 당시 기본값이다.
+> 하네스와 Java 프로퍼티 fallback(`VisionStageProperties`, `VisionProviderProperties`)은 지금도 `sequential` / `v2`다.
 
 | 변경 | 설정 | 기본값 | 기대 효과 |
 | --- | --- | --- | --- |

@@ -12,9 +12,11 @@ import org.springframework.stereotype.Service;
 // 막지 않는다는 요구(#Day2-B)를 그대로 만족한다.
 //
 // 이 조회는 non-locking read다 - Auction/AutoBidSetting FOR UPDATE 락 순서(#45)에 PurchaseGoal을
-// 새로 끼워 넣지 않기 위한 의도적 단순화다. 오늘 시점엔 PurchaseGoal.status를 동시에 바꾸는
-// 유일한 경로가 PurchaseGoalCommandService.cancelGoal() 하나뿐이라(Day 5 engage 로직 미구현)
-// 실제 경합 창구가 없다 - Day 5가 동시성 있는 전이를 추가하면 이 가정을 다시 검토해야 한다.
+// 새로 끼워 넣지 않기 위한 의도적 단순화다. 작성 당시에는 PurchaseGoal.status를 바꾸는 경로가
+// PurchaseGoalCommandService.cancelGoal() 하나뿐이라 실제 경합 창구가 없다는 전제였다. 지금은
+// Day 5 engage 전이(PurchaseGoalEngagementTransactionService -> PurchaseGoalRepository.transitionToEngaged)와
+// Day 6 만료/결과 관찰 전이(PurchaseGoalExpirationService/PurchaseGoalResultObservationService)도
+// status/currentAuctionId를 바꾸므로, 이 non-locking read 가정이 여전히 충분한지는 재검토 필요하다.
 @Service
 public class AgentManagedAuctionGuard {
 

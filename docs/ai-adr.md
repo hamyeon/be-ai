@@ -548,7 +548,7 @@ FULL 149 / PARTIAL 176 / NONE 173건으로 기준(200)에 미치지 못한다. �
 | `ai-infra-design.md` | Buyer Agent 재정의, Vector DB 후보 비교, 프롬프트 관리 방식 |
 | `ai-async-analysis.md` | Redis Streams 기반 비동기 파이프라인, ACK 정책 |
 | `ai-search-poc.md` | 청킹 전략, EmbeddingStore 추상화, 문자열 검색과의 결합 |
-| `ai-vision-agent.md` | 3단계 프롬프트, 평가 하네스, detail 해상도 측정 |
+| `ai-vision-agent.md` | 3단계 프롬프트, 평가 하네스, detail 해상도 측정, 벤더 비교(2026-09-29, Claude Sonnet 5 전환 #112) |
 | `ai-pricing-agent.md` | 가격 계산 캐싱, 희소성 지표 산출 결과 |
 | `deployment-config.md` | 배포 환경변수, 지표 확인 방법 |
 | `ai-troubleshooting.md` | 막혔던 문제 7건의 증상·진단·원인·해결 |

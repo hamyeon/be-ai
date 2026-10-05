@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 // application.yml의 purchase-agent.matcher.* 값을 바인딩한다.
 //
 // provider: openai | rule. 파서와 달리 fallback 조합이 없다 - 실패는 후보 제외로 처리하기
-// 때문이다. rule은 백엔드 루프 개발용 Fake이자 OpenAI 장애 시 대체 운영값이다.
+// 때문이다. rule은 하네스 기준선이자 OpenAI 장애 시 대체 운영값이다(PURCHASE_LISTING_MATCHER=rule).
 @Component
 @ConfigurationProperties(prefix = "purchase-agent.matcher")
 @Getter

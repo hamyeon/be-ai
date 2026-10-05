@@ -117,7 +117,7 @@ public class AnalysisStreamRecoveryScheduler {
             reclaimed++;
             metrics.recordReclaimed();
             // 이번 회수 자체가 새로운 배달 시도이므로 +1 - candidate.getTotalDeliveryCount()는
-            // 이번 XCLAIM 이전까지 배달된 횟수다(AnalysisVisionProcessingProperties.maxDeliveryAttempts 참고).
+            // 이번 XCLAIM 이전까지 배달된 횟수다(로그용 - AnalysisTaskConsumer.handleVisionFailure 참고).
             analysisTaskConsumer.processReclaimed(claimed.get(0), candidate.getTotalDeliveryCount() + 1);
         }
 

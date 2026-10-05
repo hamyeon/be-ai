@@ -120,7 +120,8 @@ CI 테스트용 `OPENAI_API_KEY`/`JWT_SECRET`은 워크플로 안에 플레이�
 | `/vintic/demo/db/username` | `SPRING_DATASOURCE_USERNAME`, `MYSQL_USER` | API/Worker 공용(동일 값) |
 | `/vintic/demo/db/password` | `SPRING_DATASOURCE_PASSWORD`, `MYSQL_PASSWORD` | API/Worker 공용(동일 값) |
 | `/vintic/demo/db/root-password` | `MYSQL_ROOT_PASSWORD` | mysql 컨테이너 전용(앱은 쓰지 않음) |
-| `/vintic/demo/openai-api-key` | `OPENAI_API_KEY` | |
+| `/vintic/demo/openai-api-key` | `OPENAI_API_KEY` | Goal 파서·Matcher·임베딩 |
+| `/vintic/demo/anthropic-api-key` | `ANTHROPIC_API_KEY` | Vision 기본 벤더(`vision.provider: claude`). 없으면 Worker의 첫 Vision 호출이 실패한다 |
 | `/vintic/demo/jwt-secret` | `JWT_SECRET` | 32자 이상, 신규 생성(과거 값 재사용 금지) |
 | `/vintic/demo/s3-bucket` | `CLOUD_AWS_S3_BUCKET` | |
 | `/vintic/demo/cors-allowed-origins` | `CORS_ALLOWED_ORIGINS` | 프론트 오리진(§6) |
@@ -148,12 +149,12 @@ Compose 네트워크 안의 고정된 서비스 이름(`redis`)이라 `docker-co
   **동일한 값**), `SPRING_DATASOURCE_PASSWORD`·`MYSQL_PASSWORD`(위 `/vintic/demo/db/password`와
   **동일한 값** - `mysql` 서비스도 같은 `api.env`를 `env_file`로 읽으므로, API가 접속하는 계정과
   MySQL 컨테이너가 실제로 만드는 계정이 다르면 API가 기동 직후부터 인증 실패로 죽는다), 그 외
-  `MYSQL_ROOT_PASSWORD`, `OPENAI_API_KEY`, `JWT_SECRET`, `CLOUD_AWS_S3_BUCKET`,
+  `MYSQL_ROOT_PASSWORD`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `JWT_SECRET`, `CLOUD_AWS_S3_BUCKET`,
   `CORS_ALLOWED_ORIGINS`(위 SSM 파라미터를 그대로 옮겨 적음) + 리터럴
   `SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/autique`(SSM이 아님, 위 설명 참고).
 - `/opt/autique/worker.env`: `SPRING_DATASOURCE_USERNAME`·`SPRING_DATASOURCE_PASSWORD`(API와
   동일한 SSM 파라미터에서 옮겨 적은 **같은 계정** - Worker도 API EC2 위 같은 MySQL을 쓴다),
-  `OPENAI_API_KEY`, `JWT_SECRET`(API와 동일 - `application.yml`의 `jwt.secret: ${JWT_SECRET}`은
+  `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`(Vision 분석은 Worker가 수행하므로 필수), `JWT_SECRET`(API와 동일 - `application.yml`의 `jwt.secret: ${JWT_SECRET}`은
   기본값이 없어 `dev` profile을 함께 쓰는 Worker도 이 값 없이는 기동 자체가 실패한다),
   `CLOUD_AWS_S3_BUCKET`(위 SSM 파라미터를 그대로 옮겨 적음) + 리터럴
   `SPRING_DATASOURCE_URL=jdbc:mysql://<API_PRIVATE_IP>:3306/autique`,
@@ -181,21 +182,11 @@ public-read로 바로 열지 말라는 요구에 따라, 버킷은 퍼블릭 액
   6시간) - `POST /api/products/analyze`가 인증 필수로 바뀌고(§5) 세션에 소유자 검증이 생기면서
   (`ProductAnalysisSession.userId`), 그 밑의 이미지 접근도 로그인한 소유자로만 좁혔다.
 
-**남겨둔 정책 질문(구현하지 않음)**: 상품 등록 후 `ProductResponse`/`AuctionDetailResponse` 등
-공개 마켓플레이스 조회 응답(전부 `permitAll`, 누구나 익명으로 호출 가능)이 반환하는 이미지
-URL은 이번 범위에서 presign하지 않았다 - "업로드와 AI 분석의 이미지 접근 경로"로 범위를
-좁혔고, 이미 익명 공개인 엔드포인트에 presign을 씌워도 접근 범위가 실제로 좁아지지 않는다(URL을
-받은 사람은 누구나 쓸 수 있다는 점은 presign 여부와 무관).
-문제는 **같은 S3 키가 두 국면(비공개 분석 세션 ↔ 공개 상품 등록 후)에서 재사용된다는 것**이다 -
-버킷을 전면 비공개로 유지하려면 마켓플레이스 응답도 결국 presign해야 하는데(7개 이상의 DTO를
-touch), 혹은 "게시(등록)" 시점에 객체를 공개 프리픽스로 복사/이동하는 실제 기능을 새로 만들어야
-한다. 둘 다 이번 1주 배포 범위보다 크다. **당장은 버킷 전체를 비공개로 두면 등록된 상품 사진이
-마켓플레이스에서 깨진 이미지로 보인다** - 시연 전 아래 중 하나를 정해야 한다(배포 후 확인 필요/
-사용자 결정 필요):
-  1. 등록된 상품 이미지가 쓰는 프리픽스만 버킷 정책으로 공개 read 허용(단, 원본 키가 비공개
-     분석 세션 단계와 같은 키라 완벽한 격리는 아니다 - 세션 ID를 아는 사람만 접근 가능한 수준의
-     보호로 충분하다면 채택 가능).
-  2. 마켓플레이스 응답도 presign(작업량 큼, 이번엔 보류).
+- **공개 마켓플레이스 조회 응답**: 상품 등록 후 `ProductResponse`/`ProductListResponse`, 경매
+  조회(`AuctionQueryService`)·경매 결과(`AuctionResultQueryService`)·주문(`OrderQueryService`)·
+  차순위 제안(`BackupOfferQueryService`) 응답도 이미지 URL을 응답 시점에 presign(TTL 24시간)해
+  내보낸다. 그래서 **버킷 전체를 비공개로 둬도 마켓플레이스 이미지가 깨지지 않는다.** 같은 S3 키가
+  비공개 분석 세션과 공개 상품 등록 후 두 국면에서 재사용되지만, 어느 쪽이든 서명된 URL로만 열린다.
 
 ---
 
@@ -206,10 +197,10 @@ git add/commit/push, PR, Actions 실행, 실제 AWS 자원 생성을 하지 않�
 로컬 파일에만 있다.
 
 **중요**: 4~5단계에서는 EC2에 파일만 준비하고 **API/Worker 컨테이너를 띄우지 않는다.**
-`docker-compose.aws-*.yml`의 `image: ${IMAGE_URI}`가 가리키는 이미지는 8단계(`workflow_dispatch`)
+`docker-compose.aws-*.yml`의 `image: ${IMAGE_URI}`가 가리키는 이미지는 7단계(`workflow_dispatch`)
 에서 빌드돼 ECR에 처음 올라간다 - 그 전에 `docker compose up`을 시도하면 이미지가 없어 실패한다.
 mysql/redis도 사람이 미리 띄울 필요가 없다 - `docker-compose.aws-api.yml`의 `api` 서비스에
-`depends_on`(`service_healthy`)으로 선언돼 있어, 8단계에서 `scripts/aws/deploy.sh`가
+`depends_on`(`service_healthy`)으로 선언돼 있어, 7단계에서 `scripts/aws/deploy.sh`가
 `docker compose up -d --force-recreate api`를 처음 실행할 때 Compose가 mysql/redis부터 띄우고
 헬스체크를 기다린 뒤 api를 기동한다.
 
@@ -230,7 +221,7 @@ mysql/redis도 사람이 미리 띄울 필요가 없다 - `docker-compose.aws-ap
      `docker compose version`이 실패하면(Compose 플러그인 누락) 이후 `scripts/aws/deploy.sh`의
      모든 `docker compose ...` 호출이 실패한다 - 반드시 여기서 확인하고 넘어간다.
    - `/opt/autique/`에 `docker-compose.aws-api.yml`·`Caddyfile` 배치, `.env`(`API_PRIVATE_IP`/
-     `SITE_ADDRESS` - `IMAGE_URI`는 비워두거나 더미 값으로 둔다, 8단계에서 배포 스크립트가 갱신)
+     `SITE_ADDRESS` - `IMAGE_URI`는 비워두거나 더미 값으로 둔다, 7단계에서 배포 스크립트가 갱신)
      작성, `api.env` 채우기(§3 SSM 파라미터 + 리터럴 `SPRING_DATASOURCE_URL`, §3 "EC2에 직접
      두는 값" 참고).
 5. **Worker EC2 파일 준비(컨테이너는 아직 띄우지 않음)**: 같은 방식으로 Docker/Compose 설치 +
@@ -241,7 +232,7 @@ mysql/redis도 사람이 미리 띄울 필요가 없다 - `docker-compose.aws-ap
    - `workflow_dispatch`는 워크플로 파일이 기본 브랜치에 있어야 GitHub UI/CLI에서 실행할 수 있다.
 7. `workflow_dispatch`로 `deploy.yml` **수동 실행**(첫 배포). 테스트 → 이미지 빌드/ECR 푸시 →
    API 배포(SSM이 API EC2에서 `docker compose up -d --force-recreate api` 실행 - mysql/redis가
-   `depends_on`으로 함께 기동되고, `application-api.yml`의 `ddl-auto: update`로 JPA 엔티티 기준
+   `depends_on`으로 함께 기동되고, dev profile(`application-dev.yml`)에서 물려받은 `ddl-auto: update`로 JPA 엔티티 기준
    전체 스키마가 자동 생성된 뒤 `/actuator/health` UP까지 확인) → Worker 배포(API가 UP을 확인한
    **뒤에만** 진행 - `application-worker.yml`의 `ddl-auto: validate`가 스키마 부재 시 기동
    자체를 실패시킨다, 의도된 동작). 둘 중 하나라도 실패하면 이전 last-known-good 이미지로
@@ -252,8 +243,8 @@ mysql/redis도 사람이 미리 띄울 필요가 없다 - `docker-compose.aws-ap
    건드리지 않는다 - API EC2에서 `docker compose -f docker-compose.aws-api.yml up -d caddy`를
    직접 실행한다. `https://<api-공인ip>.sslip.io/actuator/health` 접속 확인(§8 공인 IP 변경
    절차도 참고).
-9. `scripts/aws/smoke-analyze.sh`로 실제 analyze 요청 1건이 COMPLETED까지 이어지는지 확인
-   (자동 게이트와 분리된 이유는 OpenAI 호출 비용).
+9. `scripts/aws/smoke-analyze.sh`로 실제 analyze 요청 1건이 `AWAITING_USER_CONFIRMATION`까지 이어지는지
+   확인(자동 게이트와 분리된 이유는 Vision(Claude) 호출 비용).
 10. 정상 확인 후 repo variable `AUTO_DEPLOY=true` → 이후 main 병합 시 자동 배포로 전환.
 
 **롤백 검증**: `scripts/aws/deploy.sh`는 배포 실패 시 SSM 파라미터의 last-known-good SHA로 API/
@@ -288,10 +279,10 @@ Worker를 함께 되돌린다. 실제로 검증하려면(배포 후 확인 필�
 ## 7. 보안그룹 / 포트 규칙 + 검증
 
 - **API SG 인바운드**: 80·443 from `0.0.0.0/0`(Caddy). **3306·6379는 Worker SG(소스=Worker SG
-  ID)에서만** 허용. 22는 미개방(SSM Session Manager로 관리). 8080·8081은 인바운드 없음(Caddy가
-  같은 호스트에서 로컬 루프백으로만 프록시 - `docker-compose.aws-api.yml`의 `127.0.0.1:8080:8080`
-  등 참고).
-- **Worker SG 인바운드**: 없음(SSM으로만 관리). 아웃바운드는 전체 허용(OpenAI/S3/DB/Redis/ECR).
+  ID)에서만** 허용. 22는 미개방(SSM Session Manager로 관리). 8080·8081은 인바운드 없음. Caddy는 Compose
+  네트워크 안에서 `api:8080`으로 프록시하고(`Caddyfile`), 호스트 포트는 `127.0.0.1`에만 바인딩돼
+  공인 인터페이스로는 열리지 않는다(`docker-compose.aws-api.yml`).
+- **Worker SG 인바운드**: 없음(SSM으로만 관리). 아웃바운드는 전체 허용(Anthropic/OpenAI/S3/DB/Redis/ECR).
 - **3306·6379가 인터넷에 열려 있지 않은지 검증(배포 후 확인 필요)**:
   1. 외부 호스트에서 `nc -vz <api-공인ip> 3306`, `6379` → 타임아웃/거부여야 정상.
   2. `nmap -Pn -p 3306,6379 <api-공인ip>` → filtered/closed.
@@ -356,7 +347,6 @@ EC2를 중지 후 시작하면 **공인 IP만** 바뀐다(Elastic IP를 안 쓰�
 - **AWS 자원 생성·실제 배포·URL 검증**: 로컬 자격증명 만료로 이번 세션에서 수행하지 못했다.
 - **프론트 저장소 없음**: `CORS_ALLOWED_ORIGINS`·카카오 등록 도메인·프론트 API base URL의 실제
   값은 프론트 배포 주소가 나와야 채울 수 있다.
-- **§4의 마켓플레이스 이미지 공개 정책**: 결정 필요(2안 중 택1, 또는 대안 제시).
 - **로그인 사용자별 AI 호출 과금 상한**: `POST /api/products/analyze` 인증 필수화로 익명 남용은
   막았지만, 로그인한 사용자가 반복 호출하는 것까지는 막지 않는다. 필요하면 최소한의 요청 제한
   (새 라이브러리 추가는 승인 필요 - CLAUDE.local.md)을 별도로 검토한다.

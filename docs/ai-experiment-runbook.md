@@ -4,6 +4,10 @@
 결과는 `backend/build/vision-harness/`에 리포트(`.txt`)와 호출 원자료(`-calls.csv`)로 쌓이고,
 실행 조건이 파일명에 들어가 서로 덮어쓰지 않는다.
 
+> 2026-10-01 기준: 이 목록은 2026-09-29 벤더 비교 실측(`ai-vision-agent.md` "벤더 비교 실측")으로 대체됐다.
+> E1(세 단계 동시)·E2(v3)·E5(claude-sonnet-5)와 768px이 운영 기본값(`application.yml`)으로 반영됐다.
+> 하네스 기본값은 여전히 openai / v2 / sequential이라, 아래 E0 명령은 그대로 돌리면 전환 전 기준선이 된다.
+
 목적은 두 가지다.
 
 1. **분석 시간을 실제로 줄일 설정을 고른다.** 지금 사진을 올리고 추천가까지 약 20초이고, 가격 계산은 ms라
@@ -51,6 +55,9 @@ E6:
 ./gradlew test --tests '*GoalParsePromptHarnessTest' '-Dgoal.harness=true' '-Dgoal.harness.model=gpt-4o-mini'
 ./gradlew test --tests '*ListingMatchPromptHarnessTest' '-Dgoal.harness=true' '-Dgoal.harness.model=gpt-4o-mini'
 ```
+
+> 2026-10-01 기준: E6 명령은 지금 조용히 skip된다. `build.gradle`이 테스트 JVM에 `vision.harness*` 프로퍼티만
+> 넘겨 `-Dgoal.harness=true`가 전달되지 않는다. 돌리려면 `build.gradle`에 `goal.harness*` 전달을 추가해야 한다.
 
 토큰 수는 기존 실측(daangn 케이스당 5,873, daangn-multi 케이스당 12,036)에서 계산한 값이다. 비용은 이 토큰 수에
 그때의 모델 단가를 곱해 계산한다. E0~E4만 돌리면 약 110만 토큰이다.
