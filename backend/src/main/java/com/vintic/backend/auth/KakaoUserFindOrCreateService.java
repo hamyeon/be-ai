@@ -10,11 +10,15 @@ import org.springframework.transaction.annotation.Transactional;
 // #75-4C: identity는 kakaoUserId뿐이다 - email/nickname으로 기존 User를 찾거나 연결하지 않는다
 // (account-linking 정책은 이번 범위 밖).
 //
-// AuctionLikeCommandService(#55)와 동일한 패턴: 동시 최초 로그인 race는 uk_users_kakao_user_id
-// UNIQUE 제약이 최종 방어선이다. saveAndFlush()가 그 제약을 위반하면 예외를 그대로 던져 이
-// 트랜잭션만 롤백시킨다(같은 트랜잭션에서 재시도하지 않는다 - #55가 실측한 대로 flush 실패 후
-// 같은 영속성 컨텍스트를 계속 쓰면 안전하지 않다). 진 쪽은 호출자(KakaoLoginService)가
-// getByKakaoUserId()로 완전히 새 트랜잭션에서 이긴 쪽이 커밋한 User를 재조회한다.
+// AuctionLikeCommandService(#55)와 동일한 패턴: 동시 최초 로그인 race는 kakao_user_id의
+// UNIQUE 제약(엔티티에 이름을 명시하지 않아 DB에는 Hibernate가 생성한 해시 이름으로 존재한다 -
+// "uk_users_kakao_user_id"라는 이름의 제약은 실제로 없다)이 최종 방어선이다. saveAndFlush()가
+// 그 제약을 위반하면 예외를 그대로 던져 이 트랜잭션만 롤백시킨다(같은 트랜잭션에서 재시도하지
+// 않는다 - #55가 실측한 대로 flush 실패 후 같은 영속성 컨텍스트를 계속 쓰면 안전하지 않다). 진
+// 쪽은 호출자(KakaoLoginService)가 getByKakaoUserId()로 완전히 새 트랜잭션에서 이긴 쪽이 커밋한
+// User를 재조회한다 - 단, 호출자는 그 DataIntegrityViolationException이 실제로 kakao_user_id
+// 충돌인지(NOT NULL 위반이나 email UNIQUE 위반이 아닌지)를 먼저 확인한다
+// (KakaoLoginService.isKakaoUserIdUniqueViolation 참고).
 @Service
 @Profile({"dev", "prod"})
 public class KakaoUserFindOrCreateService {

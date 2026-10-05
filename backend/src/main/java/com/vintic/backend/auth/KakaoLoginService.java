@@ -11,6 +11,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
+import java.sql.SQLException;
 import java.time.OffsetDateTime;
 
 // #75-4C: POST /api/auth/kakao의 orchestrator(Controller의 얇은 진입점, ManualBidService/
@@ -75,9 +76,35 @@ public class KakaoLoginService {
         try {
             return kakaoUserFindOrCreateService.findOrCreate(kakaoUserInfo);
         } catch (DataIntegrityViolationException e) {
-            // 동시 최초 로그인 race - uk_users_kakao_user_id가 최종 방어선이다. 진 쪽은 이긴
-            // 쪽이 커밋한 User를 완전히 새 트랜잭션에서 재조회한다(AuctionLikeService와 동일 패턴).
+            // DataIntegrityViolationException은 kakao_user_id UNIQUE 위반뿐 아니라 NOT NULL
+            // 위반, email UNIQUE 위반(서로 다른 kakaoUserId가 같은 email을 가진 경우) 등 전혀
+            // 다른 원인도 같은 타입으로 감싼다 - 무조건 "동시 최초 로그인 race에서 졌다"로 해석하면
+            // 안 된다(실제 장애: nickname NOT NULL 위반을 이 race로 오판해 재조회가 빈 결과를
+            // 반환하고 엉뚱한 IllegalStateException이 500으로 노출됨).
+            //
+            // kakao_user_id 자체의 UNIQUE 충돌로 확인된 경우에만 재조회한다 - 이긴 쪽이 커밋한
+            // User를 완전히 새 트랜잭션에서 읽는다(AuctionLikeService와 동일 패턴). 그 외에는
+            // 원본 예외를 그대로 전파해 실제 DB 오류가 드러나게 한다.
+            if (!isKakaoUserIdUniqueViolation(e, kakaoUserInfo.kakaoUserId())) {
+                throw e;
+            }
             return kakaoUserFindOrCreateService.getByKakaoUserId(kakaoUserInfo.kakaoUserId());
         }
+    }
+
+    // User에는 명시적으로 이름 붙인 UNIQUE 제약이 없어(uk_users_kakao_user_id는 실제 DB에
+    // 존재하지 않는다 - Hibernate가 해시 기반 이름을 자동 생성한다) 제약 이름으로는 판별할 수
+    // 없다. 대신 MySQL이 중복 키 오류(1062)에 항상 그대로 echo하는 "충돌한 값"이 지금 로그인
+    // 시도 중인 kakaoUserId와 같은지로 판별한다 - email UNIQUE 위반(충돌 값이 email 문자열)과
+    // 명확히 구분된다.
+    private boolean isKakaoUserIdUniqueViolation(DataIntegrityViolationException e, Long kakaoUserId) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SQLException sqlException) {
+                return sqlException.getErrorCode() == 1062
+                        && sqlException.getMessage() != null
+                        && sqlException.getMessage().contains("Duplicate entry '" + kakaoUserId + "'");
+            }
+        }
+        return false;
     }
 }
