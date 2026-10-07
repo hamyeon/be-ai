@@ -392,7 +392,7 @@ class AiTrackE2EMySqlIT {
                 """.formatted(analysisId);
 
         mockMvc.perform(post("/api/products/calculate-price")
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                        .contentType(MediaType.APPLICATION_JSON).content(body).header("X-User-Id", sellerId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.recommendedPrice").value(0))
@@ -413,7 +413,7 @@ class AiTrackE2EMySqlIT {
                 """.formatted(analysisId);
 
         mockMvc.perform(post("/api/products/calculate-price")
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                        .contentType(MediaType.APPLICATION_JSON).content(body).header("X-User-Id", sellerId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.recommendedPrice").value(org.hamcrest.Matchers.greaterThan(0)))
                 .andExpect(jsonPath("$.data.reason",
@@ -430,21 +430,46 @@ class AiTrackE2EMySqlIT {
                 """.formatted(analysisId);
 
         mockMvc.perform(post("/api/products/calculate-price")
-                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isOk());
+                .contentType(MediaType.APPLICATION_JSON).content(body).header("X-User-Id", sellerId)).andExpect(status().isOk());
 
         mockMvc.perform(post("/api/products/calculate-price")
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                        .contentType(MediaType.APPLICATION_JSON).content(body).header("X-User-Id", sellerId))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value(40003));
     }
 
     @Test
-    @DisplayName("존재하지 않는 분석 세션은 40402를 반환한다")
-    void 없는_세션을_조회하면_40402다() throws Exception {
-        // #46에서 경매 쪽이 40401로 옮겨오면서 번호가 겹쳐 40402로 분리했다.
+    @DisplayName("가격 계산은 로그인한 세션 소유자만 할 수 있다")
+    void 인증이_없거나_남의_세션이면_가격_계산이_거부된다() throws Exception {
+        Long analysisId = awaitingConfirmationSession();
+        String body = """
+                {"analysisId": %d, "brand": "Nike", "modelName": "Dunk Low", "color": "Panda",
+                 "size": 270, "conditionGrade": "A", "componentStatus": "FULL"}
+                """.formatted(analysisId);
+
+        mockMvc.perform(post("/api/products/calculate-price")
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/products/calculate-price")
+                        .contentType(MediaType.APPLICATION_JSON).content(body).header("X-User-Id", buyerId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value(40408));
+
+        // 거부된 요청이 세션을 소모하지 않았으므로 소유자는 그대로 계산할 수 있다.
+        mockMvc.perform(post("/api/products/calculate-price")
+                        .contentType(MediaType.APPLICATION_JSON).content(body).header("X-User-Id", sellerId))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 분석 세션은 40408을 반환한다")
+    void 없는_세션을_조회하면_40408이다() throws Exception {
+        // #46에서 경매 쪽이 40401로 옮겨오면서 40402로 분리했는데, 40402는 ORDER_NOT_FOUND로
+        // 확정된 번호라 Order 도메인과 다시 겹쳐 40408로 옮겼다.
         mockMvc.perform(get("/api/products/analyze/{taskId}", 999_999L).header("X-User-Id", sellerId))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value(40402));
+                .andExpect(jsonPath("$.error.code").value(40408));
     }
 
     @Test

@@ -108,10 +108,14 @@ public class GlobalExceptionHandler {
     //
     // 옮기는 쪽을 이 예외로 정한 이유는 #46 FINAL contract가 40401=AUCTION_NOT_FOUND를
     // 확정했기 때문이다. 경매 쪽을 되돌리면 그 계약을 깨게 된다.
+    //
+    // 그런데 FINAL contract는 40402=ORDER_NOT_FOUND도 확정해 두었고, Order 도메인이 들어오면서
+    // OrderNotFoundException이 40402를 쓰기 시작해 같은 충돌이 다시 났다. 이번에도 계약에 없는
+    // 이 예외 쪽을 빈 번호(40408)로 옮긴다.
     @ExceptionHandler(AnalysisSessionNotFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleAnalysisSessionNotFoundException(AnalysisSessionNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(ApiResponse.fail(40402, e.getMessage()));
+                .body(ApiResponse.fail(40408, e.getMessage()));
     }
 
     // 잘못된 분석 상태에서의 요청 (400 Bad Request)

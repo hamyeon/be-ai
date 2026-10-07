@@ -25,6 +25,8 @@
 - `POST /api/products/analyze`는 2026-10-01부터 로그인이 필요하다(`JwtSecurityConfig` anonymous 목록에서 제거,
   다른 사용자의 분석 조회는 404). 호출마다 유료 Vision API(케이스당 약 $0.05)를 부르는데 사용자별 호출 제한은
   아직 없어, 로그인한 사용자는 제한 없이 비용을 쓸 수 있다.
+- `POST /api/products/calculate-price`도 2026-10-07부터 로그인이 필요하다. 그전에는 익명으로 열려 있고 소유자 검증도 없어,
+  순차 증가하는 `analysisId`로 남의 세션을 `COMPLETED`로 만들어 소유자의 가격 계산을 막을 수 있었다(다른 사용자의 세션은 404).
 - OpenAI 크레딧이 소진된 상태다. Vision은 Claude로 옮겼지만 Goal 파서·Matcher·임베딩은 아직 OpenAI다.
   파서는 규칙 기반으로 대체되고(경고 부착), 임베딩 실패는 상품 등록을 막지 않는다. **Matcher는 대체 없이 실패 = 후보 제외**라
   Agent가 아무 경매에도 참여하지 못한다. 충전 전까지는 `PURCHASE_LISTING_MATCHER=rule`(실측 97%·거짓 양성 0)로 둔다.
@@ -50,6 +52,7 @@
 | 2026-09-29 | **Vision 기본 벤더를 Claude Sonnet 5로 전환**(#106). GPT-4o·Claude Haiku 4.5·Sonnet 5·Opus 5 실측 비교. 사진 1장 18건 10.3 → 9.0초, 사진 여러 장 14건 14.9 → 11.4초, 등급 정확도 동일·모델명/색상 향상. 768px·v3·세 단계 동시·effort low. §3 |
 | 2026-09-29 | 문서 본문 갱신: 맨 위 "지금 상태" 추가, §3 Vision 성능표를 Sonnet 5 기준으로, 구성품 계수(§4-4)·서버 추정가(§4-5)·Purchase Agent(§6) 절 신설, 당근 수집 중단 반영. #109·#110·#112 머지 상태 반영, OpenAI 크레딧 소진 시 Matcher 위험 명시 |
 | 2026-10-01 | 문서 정합성 점검: analyze 인증 필수 반영(비로그인 차단, 타인 분석 조회 404), 관련 AI 문서들(`ai-vision-agent`, `ai-async-analysis`, `ai-purchase-agent` 등)을 현재 코드 기준으로 갱신 |
+| 2026-10-07 | **분석 세션 없음 에러 코드 40402 → 40408**. 40402는 경매 API 계약상 `ORDER_NOT_FOUND`라 주문 404와 번호가 겹쳐 프론트가 구분할 수 없었다. HTTP 상태(404)는 그대로, `GET /api/products/analyze/{taskId}`·가격 계산 등 분석 세션 조회 실패 응답의 `error.code`만 바뀐다 |
 
 ---
 
@@ -172,6 +175,11 @@ Vision 3단계 분석 (Sonnet 5)       ┌ used_market_prices          모델 �
 환각 방지 장치: Structured Outputs(json_schema+strict), 근거(evidence) 없는
 필드는 검증기가 null 처리, 공식 컬러웨이명은 라벨에 없으면 금지, 모르면
 UNKNOWN/null(기권이 오답보다 낫다 — 기권은 사용자 확인으로 메워진다).
+
+사용자 확인 여부(`needsUserConfirmation`)는 3단계 모델의 판단만 믿지 않는다. 동시 실행이라 3단계는 2단계가
+사이즈를 못 읽은 걸 모르고 `false`를 낼 수 있어서(2026-10-07 프론트 실측), 브랜드·모델명·색상·사이즈 중 하나라도
+비었거나 등급이 UNKNOWN이거나 경고가 하나라도 있으면 서버가 `true`로 켠다. `warnings`는 화면에 그대로
+노출되는 사용자용 문구다("사이즈: 사이즈 라벨 보이지 않음" 형태 — 단계 번호·스키마 필드명은 붙이지 않는다).
 
 ### 3-2. 요청이 흐르는 길
 

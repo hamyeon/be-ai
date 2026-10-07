@@ -31,6 +31,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
@@ -58,6 +59,16 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
 
     private static final String PROMPT_CATEGORY = "vision";
     private static final int TOTAL_STAGES = 3;
+    private static final Map<String, String> UNREADABLE_FIELD_LABELS = Map.of(
+            "brand", "브랜드",
+            "modelName", "모델명",
+            "color", "색상",
+            "size", "사이즈",
+            "sizeLabelText", "사이즈",
+            "modelCode", "모델 코드",
+            "boxIncluded", "박스 포함 여부",
+            "conditionGrade", "상품 상태"
+    );
     // 동시 실행이면 앞 단계 결과가 없다. 프롬프트는 "앞 단계 결과가 텍스트로 주어진다"고 말하므로
     // 빈 맥락으로 보내면 모델이 없는 결과를 찾거나 지어낼 수 있다. 없다고 명시한다.
     private static final String NO_PREVIOUS_STAGE_CONTEXT =
@@ -364,9 +375,9 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
         addAll(evidence, condition.evidence());
 
         List<String> warnings = new ArrayList<>();
-        addUnreadable(warnings, "1단계", silhouette.unreadable());
-        addUnreadable(warnings, "2단계", label.unreadable());
-        addUnreadable(warnings, "3단계", condition.unreadable());
+        addUnreadable(warnings, silhouette.unreadable());
+        addUnreadable(warnings, label.unreadable());
+        addUnreadable(warnings, condition.unreadable());
 
         return new VisionAnalysisResult(
                 brand,
@@ -391,12 +402,23 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
         }
     }
 
-    private void addUnreadable(List<String> warnings, String stageLabel, List<VisionUnreadable> unreadable) {
+    // warnings는 화면에 그대로 나간다. 예전에는 "2단계 size: ..."처럼 단계 번호와 스키마 필드명을 붙였는데,
+    // 사용자에게는 의미 없는 내부 표기라 뺀다. reason은 프롬프트가 사용자용 한국어(20자 이내)로 받는 문구다.
+    // 필드명은 아는 것만 한국어로 바꿔 앞에 붙이고, 3단계의 부위명(outsole 등)처럼 모르는 것은 reason만 남긴다.
+    // 단계를 동시에 돌리면 같은 사유가 여러 단계에서 올 수 있어 겹치는 문구는 한 번만 넣는다.
+    private void addUnreadable(List<String> warnings, List<VisionUnreadable> unreadable) {
         if (unreadable == null) {
             return;
         }
         for (VisionUnreadable item : unreadable) {
-            warnings.add("%s %s: %s".formatted(stageLabel, item.field(), item.reason()));
+            if (item == null || item.reason() == null || item.reason().isBlank()) {
+                continue;
+            }
+            String label = UNREADABLE_FIELD_LABELS.get(item.field());
+            String warning = label == null ? item.reason() : "%s: %s".formatted(label, item.reason());
+            if (!warnings.contains(warning)) {
+                warnings.add(warning);
+            }
         }
     }
 

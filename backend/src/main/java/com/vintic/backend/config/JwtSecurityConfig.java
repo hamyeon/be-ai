@@ -28,7 +28,6 @@ import java.util.List;
 //   GET  /api/auctions/{auctionId}/similar
 //   GET  /api/recommendations/auctions
 //   GET  /api/curations
-//   POST /api/products/calculate-price
 //   GET  /api/products
 // 그 외 전부(POST /api/products 포함) authenticated() - 나머지 required endpoint를 개별
 // 나열하지 않고 anyRequest()로 처리한다(§0-A 기준 이 시점에 새 endpoint가 추가되지 않았다는
@@ -38,6 +37,10 @@ import java.util.List;
 // anonymous 목록에서 제거했다 - analyze는 유료 OpenAI Vision 호출을 트리거하므로, 인증 없는 외부
 // 시연 주소에서는 익명 남용을 막기 위해 로그인을 요구한다(ProductAnalysisSession.userId 소유자
 // 검증과 짝을 이룬다 - ProductAnalyzeService.getStatus() 참고).
+//
+// 같은 이유로 POST /api/products/calculate-price도 anonymous에서 제거했다(2026-10) - analyze만
+// 막고 이건 열어두면, 순차 증가하는 analysisId로 남의 세션을 COMPLETED로 만들어(세션당 1회 계산)
+// 소유자의 가격 계산을 막을 수 있었다. ProductPricingService.calculatePrice()의 소유자 검증과 짝을 이룬다.
 //
 // 같은 배포 작업에서 발견: management.server.port(기본 8081)로 actuator를 분리해도 이 필터체인이
 // 그 포트의 요청에도 적용된다(로컬에서 실측 확인 - management.server.port를 달리 줘도 별도
@@ -65,10 +68,6 @@ public class JwtSecurityConfig {
             "/api/recommendations/auctions",
             "/api/curations",
             "/api/products"
-    };
-
-    private static final String[] ANONYMOUS_POST_PATHS = {
-            "/api/products/calculate-price"
     };
 
     // 공개 AWS 시연 배포에서 브라우저 프론트(다른 오리진)가 이 API를 호출하려면 필요하다 - 로컬
@@ -128,7 +127,6 @@ public class JwtSecurityConfig {
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers(HttpMethod.GET, ANONYMOUS_GET_PATHS).permitAll()
-                        .requestMatchers(HttpMethod.POST, ANONYMOUS_POST_PATHS).permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

@@ -13,7 +13,8 @@ import java.util.List;
 //
 // "근거를 대라"를 프롬프트로만 지시하면 지켜질 때도 있고 아닐 때도 있다. 그래서 응답을 받은 뒤
 // 코드에서 한 번 더 거른다. 근거가 없는 필드는 값을 지우고 사유를 warnings에 남긴 뒤
-// needsUserConfirmation을 켜서, 사용자가 직접 확인하는 흐름으로 넘긴다.
+// needsUserConfirmation을 켜서, 사용자가 직접 확인하는 흐름으로 넘긴다. warnings는 화면에 그대로
+// 노출되므로 사용자에게 할 말로 쓴다.
 //
 // 값을 지우는 게 손해처럼 보일 수 있지만, 확인되지 않은 사이즈를 그대로 넘겨 가격까지 계산되는 것보다
 // 비워두고 물어보는 쪽이 낫다.
@@ -27,19 +28,19 @@ public class VisionEvidenceValidator {
 
         String brand = result.brand();
         if (brand != null && !hasEvidence(evidence, "brand")) {
-            warnings.add("브랜드를 뒷받침할 근거가 응답에 없어 값을 비웠습니다.");
+            warnings.add("브랜드를 사진에서 확인하지 못했어요. 직접 입력해 주세요.");
             brand = null;
         }
 
         String modelName = result.modelName();
         if (modelName != null && !hasEvidence(evidence, "modelName")) {
-            warnings.add("모델명을 뒷받침할 근거가 응답에 없어 값을 비웠습니다.");
+            warnings.add("모델명을 사진에서 확인하지 못했어요. 직접 입력해 주세요.");
             modelName = null;
         }
 
         String color = result.color();
         if (color != null && !hasEvidence(evidence, "color")) {
-            warnings.add("색상을 뒷받침할 근거가 응답에 없어 값을 비웠습니다.");
+            warnings.add("색상을 사진에서 확인하지 못했어요. 직접 입력해 주세요.");
             color = null;
         }
 
@@ -47,20 +48,20 @@ public class VisionEvidenceValidator {
         // 사진에는 크기 기준이 없어서 눈대중 추정은 원리적으로 불가능하기 때문이다.
         Integer size = result.size();
         if (size != null && !hasReadTextEvidence(evidence, "size")) {
-            warnings.add("사이즈 표기를 읽어낸 근거가 없어 값을 비웠습니다. 라벨이나 밑창 사진을 추가해 주세요.");
+            warnings.add("사이즈 표기를 읽지 못했어요. 라벨이나 밑창 사진을 추가하거나 직접 입력해 주세요.");
             size = null;
         }
 
         Boolean boxIncluded = result.boxIncluded();
         if (boxIncluded != null && !hasEvidence(evidence, "boxIncluded")) {
-            warnings.add("박스 포함 여부를 뒷받침할 근거가 응답에 없어 값을 비웠습니다.");
+            warnings.add("박스 포함 여부를 사진에서 확인하지 못했어요. 직접 선택해 주세요.");
             boxIncluded = null;
         }
 
         ConditionGrade conditionGrade = result.conditionGrade();
         if (conditionGrade != null && conditionGrade != ConditionGrade.UNKNOWN
                 && !hasEvidence(evidence, "conditionGrade")) {
-            warnings.add("컨디션 등급을 뒷받침할 근거가 응답에 없어 UNKNOWN으로 되돌렸습니다.");
+            warnings.add("상품 상태 등급을 사진에서 판단하지 못했어요. 직접 선택해 주세요.");
             conditionGrade = ConditionGrade.UNKNOWN;
         }
 
@@ -73,7 +74,13 @@ public class VisionEvidenceValidator {
             log.warn("근거가 없어 제거된 Vision 필드가 있습니다. 제거된 필드 수={}", droppedFieldCount);
         }
 
-        boolean needsUserConfirmation = Boolean.TRUE.equals(result.needsUserConfirmation()) || droppedSomething;
+        // 모델의 자기 판단(3단계 needsUserConfirmation)만 믿으면 안 된다. 단계를 동시에 돌리면 3단계는
+        // 2단계가 사이즈를 못 읽은 걸 모른 채 false를 낼 수 있다. 처음부터 null로 온 값은 위에서 "지운" 것으로
+        // 세지 않으므로, 가격 계산에 필요한 값이 비었거나 경고가 하나라도 있으면 여기서 켠다.
+        boolean missingRequiredField = brand == null || modelName == null || color == null || size == null
+                || conditionGrade == null || conditionGrade == ConditionGrade.UNKNOWN;
+        boolean needsUserConfirmation = Boolean.TRUE.equals(result.needsUserConfirmation()) || droppedSomething
+                || missingRequiredField || !warnings.isEmpty();
 
         return new VisionAnalysisResult(
                 brand, modelName, color, size,

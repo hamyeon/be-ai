@@ -28,6 +28,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -76,7 +77,7 @@ class ProductPricingServiceTest {
 
         ProductPricingService sut = new ProductPricingService(pricingService, sessionRepository, failureRecorder, objectMapper);
 
-        CalculatePriceResponse response = sut.calculatePrice(request());
+        CalculatePriceResponse response = sut.calculatePrice(request(), 1L);
 
         assertThat(response.recommendedPrice()).isEqualTo(300000);
         assertThat(response.kreamMatches().get(0).source()).isEqualTo("KREAM");
@@ -90,8 +91,21 @@ class ProductPricingServiceTest {
 
         ProductPricingService sut = new ProductPricingService(pricingService, sessionRepository, failureRecorder, objectMapper);
 
-        assertThatThrownBy(() -> sut.calculatePrice(request()))
+        assertThatThrownBy(() -> sut.calculatePrice(request(), 1L))
                 .isInstanceOf(AnalysisSessionNotFoundException.class);
+    }
+
+    @Test
+    void 다른_사용자의_세션이면_존재하지_않을_때와_같은_예외를_던지고_상태를_바꾸지_않는다() {
+        ProductAnalysisSession session = awaitingConfirmationSession();
+        when(sessionRepository.findById(1L)).thenReturn(Optional.of(session));
+
+        ProductPricingService sut = new ProductPricingService(pricingService, sessionRepository, failureRecorder, objectMapper);
+
+        assertThatThrownBy(() -> sut.calculatePrice(request(), 2L))
+                .isInstanceOf(AnalysisSessionNotFoundException.class);
+        assertThat(session.getStatus()).isEqualTo(AnalysisStatus.AWAITING_USER_CONFIRMATION);
+        verifyNoInteractions(pricingService);
     }
 
     @Test
@@ -103,7 +117,7 @@ class ProductPricingServiceTest {
 
         ProductPricingService sut = new ProductPricingService(pricingService, sessionRepository, failureRecorder, objectMapper);
 
-        assertThatThrownBy(() -> sut.calculatePrice(request()))
+        assertThatThrownBy(() -> sut.calculatePrice(request(), 1L))
                 .isInstanceOf(AiApiException.class)
                 .hasMessage("시세 데이터를 불러오는 중 오류가 발생했습니다.");
 
@@ -121,7 +135,7 @@ class ProductPricingServiceTest {
 
         ProductPricingService sut = new ProductPricingService(pricingService, sessionRepository, failureRecorder, objectMapper);
 
-        assertThatThrownBy(() -> sut.calculatePrice(request()))
+        assertThatThrownBy(() -> sut.calculatePrice(request(), 1L))
                 .isInstanceOf(AiApiException.class)
                 .hasMessage("원래 Pricing 실패");
     }
@@ -138,7 +152,7 @@ class ProductPricingServiceTest {
 
         ProductPricingService sut = new ProductPricingService(pricingService, sessionRepository, failureRecorder, failingObjectMapper);
 
-        assertThatThrownBy(() -> sut.calculatePrice(request()))
+        assertThatThrownBy(() -> sut.calculatePrice(request(), 1L))
                 .isInstanceOf(AiApiException.class);
 
         assertThat(session.getStatus()).isEqualTo(AnalysisStatus.AWAITING_USER_CONFIRMATION);
