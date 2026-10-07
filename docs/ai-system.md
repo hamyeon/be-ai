@@ -25,6 +25,8 @@
 - `POST /api/products/analyze`는 2026-10-01부터 로그인이 필요하다(`JwtSecurityConfig` anonymous 목록에서 제거,
   다른 사용자의 분석 조회는 404). 호출마다 유료 Vision API(케이스당 약 $0.05)를 부르는데 사용자별 호출 제한은
   아직 없어, 로그인한 사용자는 제한 없이 비용을 쓸 수 있다.
+- `POST /api/products/calculate-price`도 2026-10-07부터 로그인이 필요하다. 그전에는 익명으로 열려 있고 소유자 검증도 없어,
+  순차 증가하는 `analysisId`로 남의 세션을 `COMPLETED`로 만들어 소유자의 가격 계산을 막을 수 있었다(다른 사용자의 세션은 404).
 - OpenAI 크레딧이 소진된 상태다. Vision은 Claude로 옮겼지만 Goal 파서·Matcher·임베딩은 아직 OpenAI다.
   파서는 규칙 기반으로 대체되고(경고 부착), 임베딩 실패는 상품 등록을 막지 않는다. **Matcher는 대체 없이 실패 = 후보 제외**라
   Agent가 아무 경매에도 참여하지 못한다. 충전 전까지는 `PURCHASE_LISTING_MATCHER=rule`(실측 97%·거짓 양성 0)로 둔다.

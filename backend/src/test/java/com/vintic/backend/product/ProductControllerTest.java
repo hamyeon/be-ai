@@ -58,11 +58,12 @@ class ProductControllerTest {
                 List.of(matchedPrice), List.of()
         );
 
-        when(productPricingService.calculatePrice(any())).thenReturn(response);
+        when(productPricingService.calculatePrice(any(), eq(1L))).thenReturn(response);
 
         mockMvc.perform(post("/api/products/calculate-price")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
+                        .content(objectMapper.writeValueAsString(request))
+                        .requestAttr("currentUserId", 1L))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.recommendedPrice").value(300000))

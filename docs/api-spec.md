@@ -108,7 +108,10 @@ Base URL : http://44.193.0.36:8080
 
 ```
 Content-Type: multipart/form-data
+Authorization: Bearer {accessToken}
 ```
+
+로그인이 필요한 API입니다. `Authorization` 헤더가 없거나 토큰이 유효하지 않으면 `401 Unauthorized`가 반환됩니다.
 
 ### Request Body
 
@@ -246,6 +249,14 @@ CREATED
 ---
 
 ## Request ✔️
+
+### Request Header
+
+```http
+Authorization: Bearer {accessToken}
+```
+
+로그인이 필요한 API입니다. 분석을 요청한 본인의 세션만 조회할 수 있으며, 다른 사용자의 `taskId`를 조회하면 `404 Not Found`가 반환됩니다.
 
 ### Path Variable
 
@@ -570,6 +581,7 @@ AWAITING_USER_CONFIRMATION
 
 ```http
 Content-Type: application/json
+Authorization: Bearer {accessToken}
 ```
 
 ### Request Body
@@ -807,9 +819,26 @@ Vision 분석이 아직 진행 중인 경우뿐만 아니라, 이미 가격 계�
 
 ---
 
+### 401 Unauthorized - 로그인하지 않은 요청
+
+`Authorization` 헤더가 없거나 토큰이 유효하지 않은 경우 반환됩니다.
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": 40101,
+    "message": "인증이 필요합니다."
+  }
+}
+```
+
+---
+
 ### 404 Not Found - 존재하지 않는 분석 세션
 
-요청한 `analysisId`에 해당하는 분석 세션이 존재하지 않는 경우 반환됩니다.
+요청한 `analysisId`에 해당하는 분석 세션이 존재하지 않거나, 다른 사용자가 만든 분석 세션인 경우 반환됩니다. 다른 사용자의 세션 여부를 노출하지 않기 위해 두 경우를 같은 응답으로 처리합니다.
 
 ```json
 {
