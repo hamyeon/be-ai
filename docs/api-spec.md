@@ -697,15 +697,15 @@ Authorization: Bearer {accessToken}
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
 | `recommendedPrice` | `Integer` | 최종 추천 판매가 |
-| `baseMarketPrice` | `Integer` | KREAM/eBay 시세를 반영하여 계산한 기준 시세 |
-| `kreamAveragePrice` | `Integer` | 조회된 KREAM 유사 상품의 평균 가격 |
-| `ebayAveragePrice` | `Integer` | 조회된 eBay 유사 상품의 평균 가격 |
+| `baseMarketPrice` | `Integer` | 기준 시세. 1순위면 중고 실거래 중앙값, 2순위면 KREAM 평균가 |
+| `kreamAveragePrice` | `Integer` | KREAM 유사 상품 평균가. 1순위 경로에서는 `0` |
+| `ebayAveragePrice` | `Integer` | eBay 유사 매물 평균가. **참고용이며 추천가 계산에는 쓰지 않음**. 1순위 경로에서는 `0` |
 | `minRecommendedPrice` | `Integer` | 추천 판매가 범위의 최솟값 |
 | `maxRecommendedPrice` | `Integer` | 추천 판매가 범위의 최댓값 |
 | `priceRange` | `String` | 사용자에게 표시할 추천 가격 범위 |
 | `reason` | `String` | 시세 및 상태 반영 기준을 포함한 추천가 산정 설명 |
-| `kreamMatches` | 객체 배열 | 추천가 계산에 사용된 KREAM 유사 거래 목록 |
-| `ebayMatches` | 객체 배열 | 추천가 계산에 사용된 eBay 유사 거래 목록 |
+| `kreamMatches` | 객체 배열 | 추천가 계산에 사용된 KREAM 유사 거래 목록. 1순위 경로에서는 빈 배열 |
+| `ebayMatches` | 객체 배열 | eBay 유사 매물 목록(참고용). 1순위 경로에서는 빈 배열 |
 
 ### 시세 Match 객체
 
@@ -740,7 +740,7 @@ API 요청 자체는 정상적으로 처리되었으므로 `200 OK`가 반환되
     "minRecommendedPrice": 0,
     "maxRecommendedPrice": 0,
     "priceRange": "시세 정보 없음",
-    "reason": "입력한 브랜드, 모델명, 색상, 사이즈와 일치하는 KREAM/eBay 시세 데이터를 찾지 못했습니다. 추천 가격 산정을 위해서는 유사 거래 데이터가 추가로 필요합니다.",
+    "reason": "입력한 브랜드, 모델명, 색상, 사이즈와 일치하는 시세 데이터를 찾지 못했습니다. 추천 가격 산정을 위해서는 유사 거래 데이터가 추가로 필요합니다.",
     "kreamMatches": [],
     "ebayMatches": []
   },
@@ -749,6 +749,12 @@ API 요청 자체는 정상적으로 처리되었으므로 `200 OK`가 반환되
 ```
 
 이 경우에도 가격 계산 요청 자체는 완료된 것으로 처리되어 분석 세션 상태는 `COMPLETED`로 변경됩니다.
+
+국내 시세(중고 실거래·KREAM)는 없고 eBay 매물만 있는 경우에도 추천가는 `0`이지만, `ebayAveragePrice`와 `ebayMatches`는 참고용으로 채워져 내려갑니다. 이때 `reason`은 다음과 같습니다.
+
+```text
+국내 시세(중고 실거래·KREAM)를 찾지 못했습니다. eBay 해외 매물은 확인되지만 국내 실거래와 차이가 커 추천가 근거로 쓰지 않았으며, 참고로만 표시합니다.
+```
 
 ---
 
@@ -852,6 +858,23 @@ Vision 분석이 아직 진행 중인 경우뿐만 아니라, 이미 가격 계�
 ```
 
 공통 응답 DTO를 적용하여 모든 응답을 `success`, `data`, `error` 형식으로 반환합니다.
+
+---
+
+### 500 Internal Server Error - 가격 계산 중 서버 오류
+
+가격 계산 도중 예상하지 못한 오류가 발생한 경우 반환됩니다. 분석 세션은 `PRICING_FAILED` 상태가 되며, 같은 `analysisId`로 다시 계산할 수 없습니다.
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": 50001,
+    "message": "서버 내부 오류: ..."
+  }
+}
+```
 
 ---
 
