@@ -72,19 +72,33 @@ public class JwtSecurityConfig {
 
     // 공개 AWS 시연 배포에서 브라우저 프론트(다른 오리진)가 이 API를 호출하려면 필요하다 - 로컬
     // 개발(같은 오리진 또는 CORS를 신경 쓰지 않는 도구로 호출)에서는 비워두면 된다. 인증이 쿠키가
-    // 아니라 Authorization 헤더(Bearer JWT) 기반이라 allowCredentials는 필요 없다 - 켜면 오히려
-    // allowedOrigins에 "*"를 못 쓰게 만드는 제약만 추가된다.
+    // 아니라 Authorization 헤더(Bearer JWT) 기반이라 allowCredentials는 필요 없다.
+    //
+    // setAllowedOriginPatterns()를 쓴다(setAllowedOrigins()가 아니다) - LAN에서 접속하는 기기마다
+    // IP가 달라(예: http://192.168.1.23:5173, http://192.168.0.7:5173) 정확히 일치하는 origin을
+    // 전부 나열할 수 없다. 패턴 문자열의 "*"만 임의 길이 와일드카드로 동작하고("*" 없는 항목,
+    // 예: http://localhost:5173/capacitor://localhost/https://localhost는 정확히 그 문자열만
+    // 매칭한다) - 리터럴 "*" 하나로 전체 오리진을 여는 것과는 다르다(아래 검증으로 막는다).
     @Value("${cors.allowed-origins:}")
     private String allowedOrigins;
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration configuration = new CorsConfiguration();
-        List<String> origins = Arrays.stream(allowedOrigins.split(","))
+        List<String> originPatterns = Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim)
                 .filter(origin -> !origin.isEmpty())
                 .toList();
-        configuration.setAllowedOrigins(origins);
+        // 전체 오리진 허용("*")은 금지한다 - 설정 실수로 들어오면 기동 시점에 바로 실패시켜
+        // 조용히 전체 공개로 넘어가지 않게 한다(S3Config의 반쪽짜리 설정 거부와 동일 원칙).
+        if (originPatterns.contains("*")) {
+            throw new IllegalStateException(
+                    "cors.allowed-origins(CORS_ALLOWED_ORIGINS)에 전체 허용(\"*\")은 사용할 수 없습니다 - "
+                            + "허용할 origin을 명시적으로 나열하세요."
+            );
+        }
+
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOriginPatterns(originPatterns);
         configuration.setAllowedMethods(List.of("GET", "POST", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key"));
         configuration.setAllowCredentials(false);
