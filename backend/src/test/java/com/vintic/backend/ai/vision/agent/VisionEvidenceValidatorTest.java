@@ -96,11 +96,10 @@ class VisionEvidenceValidatorTest {
 
     @Test
     void 앞_단계가_넘긴_경고가_있어도_제거된_필드만_새_경고로_붙는다() {
-        // 로그와 needsUserConfirmation 판정이 "이번에 지운 것"을 기준으로 움직여야 한다.
         VisionAnalysisResult withCarriedWarnings = new VisionAnalysisResult(
                 "Nike", null, null, null, null, ConditionGrade.UNKNOWN, null,
                 null, false,
-                List.of("2단계 size: 라벨이 안 보입니다.", "3단계 outsole: 밑창 사진이 없습니다."),
+                List.of("사이즈: 라벨이 안 보입니다.", "밑창 사진이 없습니다."),
                 List.of(), List.of(), List.of(evidence("brand", 0, null)));
 
         VisionAnalysisResult result = sut.enforce(withCarriedWarnings, 1);
@@ -108,18 +107,65 @@ class VisionEvidenceValidatorTest {
         // brand는 근거가 있어 살아남았으니 새로 붙는 경고가 없다
         assertThat(result.brand()).isEqualTo("Nike");
         assertThat(result.warnings()).hasSize(2);
-        assertThat(result.needsUserConfirmation()).isFalse();
+    }
+
+    @Test
+    void 처음부터_비어_온_필수값이_있으면_모델이_false라고_해도_사용자_확인이_필요하다() {
+        // 단계를 동시에 돌리면 3단계는 2단계가 사이즈를 못 읽은 걸 모르고 false를 낸다.
+        // 지운 값이 없어도(처음부터 null) 가격 계산에 필요한 값이 비었으면 켜야 한다.
+        VisionAnalysisResult sizeMissing = new VisionAnalysisResult(
+                "Nike", "Air Force 1", "White", null, "설명", ConditionGrade.B, true,
+                0.8, false, List.of(), List.of(), List.of(), List.of(
+                        evidence("brand", 0, null),
+                        evidence("modelName", 0, null),
+                        evidence("color", 0, null),
+                        evidence("boxIncluded", 0, null),
+                        evidence("conditionGrade", 0, null)));
+
+        VisionAnalysisResult result = sut.enforce(sizeMissing, 1);
+
+        assertThat(result.warnings()).isEmpty();
+        assertThat(result.needsUserConfirmation()).isTrue();
+    }
+
+    @Test
+    void 등급이_UNKNOWN이면_사용자_확인이_필요하다() {
+        VisionAnalysisResult unknownGrade = new VisionAnalysisResult(
+                "Nike", "Air Force 1", "White", 270, "설명", ConditionGrade.UNKNOWN, true,
+                0.8, false, List.of(), List.of(), List.of(), List.of(
+                        evidence("brand", 0, null),
+                        evidence("modelName", 0, null),
+                        evidence("color", 0, null),
+                        evidence("size", 0, "270"),
+                        evidence("boxIncluded", 0, null)));
+
+        assertThat(sut.enforce(unknownGrade, 1).needsUserConfirmation()).isTrue();
+    }
+
+    @Test
+    void 필수값이_다_있어도_경고가_있으면_사용자_확인이_필요하다() {
+        VisionAnalysisResult withWarning = new VisionAnalysisResult(
+                "Nike", "Air Force 1", "White", 270, "설명", ConditionGrade.B, true,
+                0.8, false, List.of("밑창 사진이 없습니다."), List.of(), List.of(), List.of(
+                        evidence("brand", 0, null),
+                        evidence("modelName", 0, null),
+                        evidence("color", 0, null),
+                        evidence("size", 0, "270"),
+                        evidence("boxIncluded", 0, null),
+                        evidence("conditionGrade", 0, null)));
+
+        assertThat(sut.enforce(withWarning, 1).needsUserConfirmation()).isTrue();
     }
 
     @Test
     void 원래_있던_경고는_유지한다() {
         VisionAnalysisResult withWarning = new VisionAnalysisResult(
                 "Nike", null, null, null, null, ConditionGrade.UNKNOWN, null,
-                null, false, List.of("3단계 outsole: 밑창 사진이 없습니다."), List.of(), List.of(), List.of());
+                null, false, List.of("밑창 사진이 없습니다."), List.of(), List.of(), List.of());
 
         VisionAnalysisResult result = sut.enforce(withWarning, 1);
 
-        assertThat(result.warnings()).contains("3단계 outsole: 밑창 사진이 없습니다.");
+        assertThat(result.warnings()).contains("밑창 사진이 없습니다.");
         assertThat(result.brand()).isNull();
         assertThat(result.warnings()).hasSize(2);
     }

@@ -226,7 +226,11 @@ class StagedVisionAnalysisServiceTest {
         VisionAnalysisResult result = newService().analyze(new VisionAnalysisRequest(IMAGE_URLS));
 
         assertThat(result.size()).isNull();
-        assertThat(result.warnings()).anyMatch(warning -> warning.contains("사이즈 라벨이 사진에 없습니다."));
+        // 화면에 그대로 나가는 문구라 단계 번호·스키마 필드명 같은 내부 표기가 없어야 한다
+        assertThat(result.warnings()).contains("사이즈: 사이즈 라벨이 사진에 없습니다.");
+        assertThat(result.warnings()).noneMatch(warning -> warning.contains("단계") || warning.contains("size"));
+        // 3단계는 false로 답했지만 2단계가 사이즈를 못 읽었으므로 사용자 확인이 필요하다
+        assertThat(result.needsUserConfirmation()).isTrue();
         assertThat(result.brand()).isEqualTo("Nike");  // 다른 단계 결과는 영향받지 않는다
     }
 
