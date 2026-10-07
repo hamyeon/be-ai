@@ -67,9 +67,10 @@ Base URL : http://44.193.0.36:8080
 | 403 | 40303 | 낙찰자가 아닌 사용자의 낙찰 포기 시도 |
 | 404 | 40400 | 존재하지 않는 경로 (URL 오타 등) |
 | 404 | 40401 | 존재하지 않는 경매 |
-| 404 | 40402 | 존재하지 않는 분석 세션 |
+| 404 | 40402 | 존재하지 않는 주문 |
 | 404 | 40403 | 존재하지 않는 차순위 제안 |
 | 404 | 40404 | 등록된 자동입찰 없음 |
+| 404 | 40408 | 존재하지 않는 분석 세션 |
 | 409 | 40901 | 이미 현재 최고입찰자인 사용자의 추가 입찰 시도 |
 | 409 | 40902 | 아직 시작되지 않은 경매에 대한 입찰 시도 |
 | 409 | 40903 | 종료/취소된 경매에 대한 입찰 시도 |
@@ -477,7 +478,7 @@ Vision 분석 과정에서 충분한 근거를 확인하지 못한 항목은 `nu
   "success": false,
   "data": null,
   "error": {
-    "code": 40402,
+    "code": 40408,
     "message": "분석 세션을 찾을 수 없습니다. analysisId: 999"
   }
 }
@@ -815,7 +816,7 @@ Vision 분석이 아직 진행 중인 경우뿐만 아니라, 이미 가격 계�
   "success": false,
   "data": null,
   "error": {
-    "code": 40402,
+    "code": 40408,
     "message": "분석 세션을 찾을 수 없습니다. analysisId: 999"
   }
 }
@@ -923,7 +924,7 @@ Vision 분석이 아직 진행 중인 경우뿐만 아니라, 이미 가격 계�
   "success": false,
   "data": null,
   "error": {
-    "code": 40402,
+    "code": 40401,
     "message": "존재하지 않는 경매입니다. auctionId: 999"
   }
 }
@@ -1047,7 +1048,7 @@ GET /api/auctions/1/bids?page=1&size=20&order=latest
   "success": false,
   "data": null,
   "error": {
-    "code": 40402,
+    "code": 40401,
     "message": "존재하지 않는 경매입니다. auctionId: 999"
   }
 }
@@ -1249,7 +1250,7 @@ amount >= currentPrice + bidIncrement
   "success": false,
   "data": null,
   "error": {
-    "code": 40402,
+    "code": 40401,
     "message": "존재하지 않는 경매입니다. auctionId: 999"
   }
 }

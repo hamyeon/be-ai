@@ -50,6 +50,7 @@
 | 2026-09-29 | **Vision 기본 벤더를 Claude Sonnet 5로 전환**(#106). GPT-4o·Claude Haiku 4.5·Sonnet 5·Opus 5 실측 비교. 사진 1장 18건 10.3 → 9.0초, 사진 여러 장 14건 14.9 → 11.4초, 등급 정확도 동일·모델명/색상 향상. 768px·v3·세 단계 동시·effort low. §3 |
 | 2026-09-29 | 문서 본문 갱신: 맨 위 "지금 상태" 추가, §3 Vision 성능표를 Sonnet 5 기준으로, 구성품 계수(§4-4)·서버 추정가(§4-5)·Purchase Agent(§6) 절 신설, 당근 수집 중단 반영. #109·#110·#112 머지 상태 반영, OpenAI 크레딧 소진 시 Matcher 위험 명시 |
 | 2026-10-01 | 문서 정합성 점검: analyze 인증 필수 반영(비로그인 차단, 타인 분석 조회 404), 관련 AI 문서들(`ai-vision-agent`, `ai-async-analysis`, `ai-purchase-agent` 등)을 현재 코드 기준으로 갱신 |
+| 2026-10-07 | **분석 세션 없음 에러 코드 40402 → 40408**. 40402는 경매 API 계약상 `ORDER_NOT_FOUND`라 주문 404와 번호가 겹쳐 프론트가 구분할 수 없었다. HTTP 상태(404)는 그대로, `GET /api/products/analyze/{taskId}`·가격 계산 등 분석 세션 조회 실패 응답의 `error.code`만 바뀐다 |
 
 ---
 

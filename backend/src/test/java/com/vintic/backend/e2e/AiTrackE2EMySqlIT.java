@@ -439,12 +439,13 @@ class AiTrackE2EMySqlIT {
     }
 
     @Test
-    @DisplayName("존재하지 않는 분석 세션은 40402를 반환한다")
-    void 없는_세션을_조회하면_40402다() throws Exception {
-        // #46에서 경매 쪽이 40401로 옮겨오면서 번호가 겹쳐 40402로 분리했다.
+    @DisplayName("존재하지 않는 분석 세션은 40408을 반환한다")
+    void 없는_세션을_조회하면_40408이다() throws Exception {
+        // #46에서 경매 쪽이 40401로 옮겨오면서 40402로 분리했는데, 40402는 ORDER_NOT_FOUND로
+        // 확정된 번호라 Order 도메인과 다시 겹쳐 40408로 옮겼다.
         mockMvc.perform(get("/api/products/analyze/{taskId}", 999_999L).header("X-User-Id", sellerId))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value(40402));
+                .andExpect(jsonPath("$.error.code").value(40408));
     }
 
     @Test
