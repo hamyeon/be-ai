@@ -34,9 +34,10 @@ public class ProductController {
 
     @PostMapping("/calculate-price")
     public ResponseEntity<ApiResponse<CalculatePriceResponse>> calculatePrice(
-            @Valid @RequestBody CalculatePriceRequest request
+            @Valid @RequestBody CalculatePriceRequest request,
+            @RequestAttribute("currentUserId") Long currentUserId
     ) {
-        CalculatePriceResponse response = productPricingService.calculatePrice(request);
+        CalculatePriceResponse response = productPricingService.calculatePrice(request, currentUserId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

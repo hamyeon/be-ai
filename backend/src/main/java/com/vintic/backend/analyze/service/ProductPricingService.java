@@ -31,11 +31,18 @@ public class ProductPricingService {
     private final AnalysisFailureRecorder failureRecorder;
     private final ObjectMapper objectMapper;
 
-    public CalculatePriceResponse calculatePrice(CalculatePriceRequest request) {
+    public CalculatePriceResponse calculatePrice(CalculatePriceRequest request, Long userId) {
         ProductAnalysisSession session = sessionRepository.findById(request.analysisId())
                 .orElseThrow(() -> new AnalysisSessionNotFoundException(
                         "분석 세션을 찾을 수 없습니다. analysisId: " + request.analysisId()
                 ));
+
+        // analysisId는 순차 증가값이라 추측이 쉽다. 소유자 검증이 없으면 남의 세션을 COMPLETED로
+        // 만들어(세션당 1회 계산) 진짜 소유자의 가격 계산을 막을 수 있다. getStatus()와 같은 이유로
+        // 타인의 세션도 존재하지 않을 때와 같은 404로 응답한다.
+        if (!session.isOwnedBy(userId)) {
+            throw new AnalysisSessionNotFoundException("분석 세션을 찾을 수 없습니다. analysisId: " + request.analysisId());
+        }
 
         PricingRequest pricingRequest = new PricingRequest(
                 request.brand(),
