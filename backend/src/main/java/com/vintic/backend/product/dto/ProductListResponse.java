@@ -11,6 +11,7 @@ public record ProductListResponse(
         String thumbnailImageUrl,
         String brand,
         String modelName,
+        String conditionGrade,
         Integer sellingPrice,
         LocalDateTime createdAt
 ) {
@@ -28,6 +29,7 @@ public record ProductListResponse(
                 thumbnailImageUrl,
                 product.getBrand(),
                 product.getModel(),
+                product.getConditionGrade(),
                 product.getFinalPrice(),
                 product.getCreatedAt()
         );
