@@ -19,4 +19,15 @@ public class VisionImageProperties {
 
     // 분석용 사본의 긴 변 최대 길이(px). 0 이하면 리사이즈하지 않는다.
     private int maxEdge = 768;
+
+    // 사진을 벤더에 어떻게 넘길지. URL이면 벤더 서버가 S3에서 직접 가져가고(단계마다 따로),
+    // BASE64면 서버가 한 번 받아 요청에 실어 보낸다(VisionImageLoader 참고). 빠른 쪽은 하네스로 잰다.
+    // 단계별 max-edge(vision.stage.*.max-edge)를 쓰는 단계는 이 값과 무관하게 base64로 간다 - 줄인 사본은
+    // 서버에만 있기 때문이다.
+    private Transport transport = Transport.URL;
+
+    public enum Transport {
+        URL,
+        BASE64
+    }
 }

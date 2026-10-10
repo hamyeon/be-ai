@@ -55,6 +55,18 @@ public class VisionStageProperties {
         // 응답이 여기 걸려 잘리면 JSON 파싱이 실패한다. 단계마다 응답 길이가 달라 따로 둔다.
         private int maxOutputTokens;
 
+        // 아래 셋은 단계별 비용·시간 실험용이다. 비워 두면(null/0) 지금 동작 그대로다.
+        //
+        // model: 이 단계만 다른 모델로 부른다(예: 실루엣만 Haiku). 비우면 vision.model.
+        //   같은 provider의 모델이어야 한다 - 클라이언트는 provider당 하나다.
+        private String model;
+        // maxEdge: 이 단계에 보낼 사진의 긴 변(px). 0이면 분석용 사본(vision.image.max-edge) 그대로.
+        //   Claude는 detail 옵션이 없어서, 해상도를 단계별로 다르게 하려면 줄인 사본을 직접 만들어 보내야 한다.
+        private int maxEdge;
+        // maxImages: 이 단계에 앞에서부터 몇 장만 보낼지. 0이면 전부. 업로드 순서상 앞쪽이 전체 사진이라는
+        //   가정에 기댄 근사치다 - 사진 종류(정면/라벨/밑창)를 받게 되면 그걸로 고르는 게 맞다.
+        private int maxImages;
+
         public Stage() {
         }
 

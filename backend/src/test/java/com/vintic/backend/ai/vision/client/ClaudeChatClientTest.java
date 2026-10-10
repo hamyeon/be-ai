@@ -86,6 +86,21 @@ class ClaudeChatClientTest {
     }
 
     @Test
+    void data_URL_이미지는_base64_source로_보낸다() {
+        // 서버가 사진을 받아 실어 보낼 때(VisionImageLoader) URL 대신 data URL이 온다.
+        VisionChatRequest request = new VisionChatRequest("claude-opus-5", "system prompt", null,
+                List.of("data:image/jpeg;base64,/9j/AAAA", "https://example.com/b.jpg"),
+                VisionImageDetail.LOW, null, 900);
+
+        List<ContentBlockParam> blocks = newClient(propertiesWithKey()).buildParams(request)
+                .messages().get(0).content().asBlockParams();
+
+        assertThat(blocks.get(0).asImage().source().asBase64().mediaType().asString()).isEqualTo("image/jpeg");
+        assertThat(blocks.get(0).asImage().source().asBase64().data()).isEqualTo("/9j/AAAA");
+        assertThat(blocks.get(1).asImage().source().asUrl().url()).isEqualTo("https://example.com/b.jpg");
+    }
+
+    @Test
     void 응답_스키마는_output_config_format에_JSON_Schema_그대로_실린다() {
         MessageCreateParams params = newClient(propertiesWithKey())
                 .buildParams(request(null, new VisionChatRequest.ResponseSchema("vision_test", SCHEMA_JSON)));
