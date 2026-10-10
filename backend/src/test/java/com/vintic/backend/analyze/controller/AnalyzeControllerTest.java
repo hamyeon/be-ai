@@ -2,6 +2,7 @@ package com.vintic.backend.analyze.controller;
 
 import com.vintic.backend.analyze.dto.AnalysisStatusResponse;
 import com.vintic.backend.analyze.dto.AnalyzeAcceptedResponse;
+import com.vintic.backend.analyze.dto.AnalyzeCancelResponse;
 import com.vintic.backend.analyze.service.ProductAnalyzeService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +18,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -85,6 +87,19 @@ class AnalyzeControllerTest {
                 .andExpect(jsonPath("$.data.confidence").value(0.82))
                 // 판단 근거는 폴링 응답에 싣지 않는다
                 .andExpect(jsonPath("$.data.evidence").doesNotExist())
+                .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
+    @Test
+    void 취소_요청은_CANCELLED_상태를_반환한다() throws Exception {
+        AnalyzeCancelResponse response = new AnalyzeCancelResponse(1L, "CANCELLED");
+        when(productAnalyzeService.cancel(1L, 2L)).thenReturn(response);
+
+        mockMvc.perform(post("/api/products/analyze/{taskId}/cancel", 1L).requestAttr("currentUserId", 2L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.analysisId").value(1))
+                .andExpect(jsonPath("$.data.status").value("CANCELLED"))
                 .andExpect(jsonPath("$.error").doesNotExist());
     }
 }

@@ -65,4 +65,38 @@ class ProductAnalysisSessionRepositoryTest {
         assertThat(found.getFailureStage()).isEqualTo(AnalysisFailureStage.IMAGE_UPLOAD);
         assertThat(found.getFailureMessage()).isEqualTo("S3 업로드 실패");
     }
+
+    @Test
+    void 취소된_세션의_CANCELLED_상태와_취소시각이_저장되고_결과_필드는_비워진다() {
+        // #127: 신규 상태(CANCELLED)와 신규 컬럼(cancelled_at)이 ddl-auto:update로 정상
+        // 매핑되는지, 결과 필드 null 처리가 실제로 저장/재조회에서도 유지되는지 확인한다.
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
+        session.markQueued();
+        session.claimVisionProcessing("test-token");
+        session.completeVision("test-token", "{\"brand\":\"Nike\"}");
+
+        session.cancel();
+        ProductAnalysisSession saved = sessionRepository.save(session);
+        sessionRepository.flush();
+
+        ProductAnalysisSession found = sessionRepository.findById(saved.getId()).orElseThrow();
+
+        assertThat(found.getStatus()).isEqualTo(AnalysisStatus.CANCELLED);
+        assertThat(found.getCancelledAt()).isNotNull();
+        assertThat(found.getVisionResultJson()).isNull();
+    }
+
+    @Test
+    void 등록에_확정_사용된_세션의_등록시각이_저장된다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
+        session.markQueued();
+
+        session.confirmRegistration();
+        ProductAnalysisSession saved = sessionRepository.save(session);
+        sessionRepository.flush();
+
+        ProductAnalysisSession found = sessionRepository.findById(saved.getId()).orElseThrow();
+
+        assertThat(found.getRegisteredAt()).isNotNull();
+    }
 }

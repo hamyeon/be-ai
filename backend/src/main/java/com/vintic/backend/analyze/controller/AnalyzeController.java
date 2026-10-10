@@ -2,6 +2,7 @@ package com.vintic.backend.analyze.controller;
 
 import com.vintic.backend.analyze.dto.AnalysisStatusResponse;
 import com.vintic.backend.analyze.dto.AnalyzeAcceptedResponse;
+import com.vintic.backend.analyze.dto.AnalyzeCancelResponse;
 import com.vintic.backend.analyze.service.ProductAnalyzeService;
 import com.vintic.backend.common.dto.ApiResponse;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +39,16 @@ public class AnalyzeController {
             @RequestAttribute("currentUserId") Long userId
     ) {
         AnalysisStatusResponse response = productAnalyzeService.getStatus(taskId, userId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    // #127: 이미지 분석 화면의 X 버튼. 반복 호출해도 같은 성공 응답(status="CANCELLED")을 받는다.
+    @PostMapping("/analyze/{taskId}/cancel")
+    public ResponseEntity<ApiResponse<AnalyzeCancelResponse>> cancelAnalysis(
+            @PathVariable Long taskId,
+            @RequestAttribute("currentUserId") Long userId
+    ) {
+        AnalyzeCancelResponse response = productAnalyzeService.cancel(taskId, userId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 }
