@@ -69,6 +69,14 @@
 | `VISION_DETAIL_SILHOUETTE` | `low` | 1단계(전체 형태) 이미지 해상도 (OpenAI 전용) |
 | `VISION_DETAIL_LABEL` | `high` | 2단계(라벨/로고) 해상도 (OpenAI 전용) |
 | `VISION_DETAIL_CONDITION` | `high` | 3단계(오염/마모) 해상도 (OpenAI 전용) |
+| `VISION_SILHOUETTE_MODEL` | `claude-haiku-5-5` | 1단계만 쓸 모델. 비우면 `VISION_MODEL`. `VISION_PROVIDER`와 벤더가 다른 모델이면 무시된다 |
+| `VISION_LABEL_MODEL` | (비움) | 2단계만 쓸 모델. 비워서 `VISION_MODEL`(Sonnet 5)을 쓴다 |
+| `VISION_CONDITION_MODEL` | `claude-haiku-5-5` | 3단계만 쓸 모델. 되돌릴 때는 `claude-sonnet-5` |
+| `VISION_{SILHOUETTE,LABEL,CONDITION}_MAX_EDGE` | `0` | 그 단계만 줄여 보낼 긴 변(px). 0이면 분석용 사본(768px) 그대로. 실험용 |
+| `VISION_{SILHOUETTE,LABEL,CONDITION}_MAX_IMAGES` | `0` | 그 단계에 앞에서부터 보낼 사진 수. 0이면 전부. 실험용 |
+| `VISION_IMAGE_TRANSPORT` | `url` | `base64`면 Worker가 사진을 받아 요청에 실어 보낸다. 실험용 |
+
+Haiku도 Anthropic 모델이라 `ANTHROPIC_API_KEY` 하나로 Sonnet과 같이 호출된다. 추가할 키는 없다.
 
 전부 재배포 없이 조정할 수 있게 빼뒀다. 벤더·모델 선택 근거는 `docs/ai-vision-agent.md`의
 "벤더 비교 실측" 절 참고. Goal 파서·Matcher·임베딩은 여전히 OpenAI라 `OPENAI_API_KEY`도 계속 필요하다.
