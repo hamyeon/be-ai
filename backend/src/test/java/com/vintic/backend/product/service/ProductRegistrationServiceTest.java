@@ -1,7 +1,11 @@
 package com.vintic.backend.product.service;
 
+import com.vintic.backend.analyze.domain.ProductAnalysisSession;
+import com.vintic.backend.analyze.domain.ProductAnalysisSessionRepository;
 import com.vintic.backend.auction.domain.Auction;
 import com.vintic.backend.auction.repository.AuctionRepository;
+import com.vintic.backend.common.exception.AnalysisSessionNotFoundException;
+import com.vintic.backend.common.exception.InvalidAnalysisStatusException;
 import com.vintic.backend.common.exception.InvalidAuctionTimeException;
 import com.vintic.backend.common.exception.UserNotFoundException;
 import com.vintic.backend.common.util.BidIncrementPolicy;
@@ -57,11 +61,15 @@ class ProductRegistrationServiceTest {
     private AuctionRepository auctionRepository;
 
     @Mock
+    private ProductAnalysisSessionRepository sessionRepository;
+
+    @Mock
     private S3UrlPresigner s3UrlPresigner;
 
     private ProductRegistrationService sut;
 
     private final CreateProductRequest request = new CreateProductRequest(
+            1L,
             List.of("https://example.com/a.jpg", "https://example.com/b.jpg", "https://example.com/c.jpg"),
             "Nike", "Dunk Low", "Panda", 270, "B", "PARTIAL",
             300000, 350000, "285,000원 ~ 315,000원", 290000, "사유", "설명",
@@ -73,13 +81,22 @@ class ProductRegistrationServiceTest {
         // 검증에 영향을 주지 않는다(S3UrlPresignerTest가 presign 동작을 검증한다).
         lenient().when(s3UrlPresigner.presign(anyString(), any())).thenAnswer(invocation -> invocation.getArgument(0));
         sut = new ProductRegistrationService(
-                productRepository, userRepository, productVectorService, auctionRepository, FIXED_CLOCK, s3UrlPresigner
+                productRepository, userRepository, productVectorService, auctionRepository, sessionRepository,
+                FIXED_CLOCK, s3UrlPresigner
         );
+    }
+
+    // #127: 등록에 쓸 수 있는(아직 취소/등록 확정되지 않은) 분석 세션을 흉내낸다.
+    private ProductAnalysisSession registrableSession() {
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
+        session.markQueued();
+        return session;
     }
 
     private void stubHappyPath() {
         User seller = User.register("seller@vintic.local", "seller", null);
         when(userRepository.findById(1L)).thenReturn(Optional.of(seller));
+        when(sessionRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(registrableSession()));
         when(productRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(auctionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
     }
@@ -129,9 +146,11 @@ class ProductRegistrationServiceTest {
         initSut();
         User seller = User.register("seller@vintic.local", "seller", null);
         when(userRepository.findById(1L)).thenReturn(Optional.of(seller));
+        when(sessionRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(registrableSession()));
         when(productRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         CreateProductRequest invalid = new CreateProductRequest(
+                request.analysisId(),
                 request.imageUrls(), request.brand(), request.modelName(), request.color(), request.size(),
                 request.conditionGrade(), request.componentStatus(), request.recommendedPrice(),
                 request.baseMarketPrice(), request.priceRange(), request.sellingPrice(), request.reason(),
@@ -162,5 +181,62 @@ class ProductRegistrationServiceTest {
         sut.createProduct(request, 1L);
 
         verify(productVectorService).refresh(any());
+    }
+
+    @Test
+    void 분석_세션이_없으면_상품_등록이_거절되고_상품이_저장되지_않는다() {
+        initSut();
+        User seller = User.register("seller@vintic.local", "seller", null);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(seller));
+        when(sessionRepository.findByIdForUpdate(1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> sut.createProduct(request, 1L))
+                .isInstanceOf(AnalysisSessionNotFoundException.class);
+
+        verify(productRepository, never()).save(any());
+    }
+
+    @Test
+    void 타인의_분석_세션으로_상품_등록을_시도하면_존재하지_않는_것과_동일하게_거절된다() {
+        initSut();
+        User seller = User.register("seller@vintic.local", "seller", null);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(seller));
+        // analysisId 1L은 2L이 소유한 세션이다.
+        when(sessionRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ProductAnalysisSession.create(2L)));
+
+        assertThatThrownBy(() -> sut.createProduct(request, 1L))
+                .isInstanceOf(AnalysisSessionNotFoundException.class);
+
+        verify(productRepository, never()).save(any());
+    }
+
+    @Test
+    void 취소된_분석_세션으로는_상품_등록이_거절된다() {
+        initSut();
+        User seller = User.register("seller@vintic.local", "seller", null);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(seller));
+        ProductAnalysisSession cancelled = registrableSession();
+        cancelled.cancel();
+        when(sessionRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(cancelled));
+
+        assertThatThrownBy(() -> sut.createProduct(request, 1L))
+                .isInstanceOf(InvalidAnalysisStatusException.class);
+
+        verify(productRepository, never()).save(any());
+    }
+
+    @Test
+    void 이미_다른_상품_등록에_사용된_분석_세션으로는_다시_등록할_수_없다() {
+        initSut();
+        User seller = User.register("seller@vintic.local", "seller", null);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(seller));
+        ProductAnalysisSession alreadyUsed = registrableSession();
+        alreadyUsed.confirmRegistration();
+        when(sessionRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(alreadyUsed));
+
+        assertThatThrownBy(() -> sut.createProduct(request, 1L))
+                .isInstanceOf(InvalidAnalysisStatusException.class);
+
+        verify(productRepository, never()).save(any());
     }
 }

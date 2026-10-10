@@ -99,6 +99,18 @@ public class ProductAnalysisSession {
     private LocalDateTime startedAt;
     private LocalDateTime completedAt;
 
+    // #127: 사용자가 취소한 시각. null이면 취소되지 않은 세션이다.
+    private LocalDateTime cancelledAt;
+
+    // #127: 이 세션이 상품 등록(ProductRegistrationService.createProduct)에 "확정 사용"된 시각.
+    // AnalysisStatus.COMPLETED(Pricing 완료)와는 별개 개념이다 - COMPLETED 이후에도 사용자가
+    // 등록을 미루거나 포기할 수 있고, 그동안은 여전히 취소가 가능해야 하기 때문이다. null이면
+    // 아직 어떤 상품 등록에도 쓰이지 않았다는 뜻이고, 세션당 최대 한 번만 채워진다(같은 세션으로
+    // 상품을 두 번 등록할 수 없다). cancel()과 confirmRegistration()이 같은 행 잠금
+    // (ProductAnalysisSessionRepository.findByIdForUpdate) 안에서 이 필드와 status를 함께 확인해
+    // 취소 확정과 등록 확정 중 먼저 커밋된 쪽이 이긴다.
+    private LocalDateTime registeredAt;
+
     protected ProductAnalysisSession() {
     }
 
@@ -235,15 +247,74 @@ public class ProductAnalysisSession {
         this.confirmedInputJson = confirmedInputJson;
     }
 
+    // #127: PRICING_PROCESSING 중 사용자가 취소하면 상태가 PRICING_PROCESSING을 벗어나므로, 그
+    // 사이 외부 Pricing 호출이 뒤늦게 성공해도 이 가드가 막아 결과가 저장되지 않는다
+    // (PricingAttemptCoordinator가 같은 행 잠금 안에서 호출한다 - completeVision과 동일한 원칙).
     public void completePricing(String pricingResultJson) {
+        if (status != AnalysisStatus.PRICING_PROCESSING) {
+            throw new InvalidAnalysisStatusException(
+                    "Pricing을 완료할 수 없는 분석 상태입니다. 현재 상태: " + status
+            );
+        }
         this.pricingResultJson = pricingResultJson;
         this.status = AnalysisStatus.COMPLETED;
         this.completedAt = LocalDateTime.now();
     }
 
+    // completePricing과 같은 이유로 가드를 둔다 - 취소된 뒤 도착한 Pricing 실패 응답이
+    // CANCELLED를 PRICING_FAILED로 되돌리면 안 된다.
     public void failPricing(String message) {
+        if (status != AnalysisStatus.PRICING_PROCESSING) {
+            throw new InvalidAnalysisStatusException(
+                    "Pricing 실패를 기록할 수 없는 분석 상태입니다. 현재 상태: " + status
+            );
+        }
         this.status = AnalysisStatus.PRICING_FAILED;
         this.failureStage = AnalysisFailureStage.PRICING;
         this.failureMessage = message;
+    }
+
+    // #127: 사용자가 이미지 분석 화면에서 X를 눌러 취소한다. 이미 상품 등록에 확정 사용된
+    // 세션(registeredAt != null)은 등록된 상품·경매를 건드리지 않기 위해 취소를 거절한다.
+    // 그 밖에는 상태와 무관하게(QUEUED든 VISION_PROCESSING이든 COMPLETED든 이미 실패한
+    // 세션이든) 취소할 수 있다 - COMPLETED는 Pricing 완료일 뿐 등록 확정이 아니므로 막을
+    // 이유가 없다. 이미 CANCELLED면 같은 성공 상태를 그대로 반환하도록 아무 것도 하지 않는다
+    // (반복 취소 멱등). vision/pricing 관련 중간·최종 결과를 모두 비우고 처리 토큰을
+    // 무효화한다 - status가 더 이상 VISION_PROCESSING/QUEUED/PRICING_PROCESSING이 아니게 되므로
+    // claim/reclaim/complete/failVision/completePricing/failPricing의 기존 상태 가드가 토큰 값과
+    // 무관하게 이 시점 이후의 모든 시도를 ALREADY_FINALIZED로 자동 분류한다.
+    public void cancel() {
+        if (status == AnalysisStatus.CANCELLED) {
+            return;
+        }
+        if (registeredAt != null) {
+            throw new InvalidAnalysisStatusException(
+                    "이미 상품 등록에 사용된 분석 세션은 취소할 수 없습니다. 현재 상태: " + status
+            );
+        }
+        this.status = AnalysisStatus.CANCELLED;
+        this.visionResultJson = null;
+        this.visionProgressJson = null;
+        this.confirmedInputJson = null;
+        this.pricingResultJson = null;
+        this.visionProcessingToken = null;
+        this.cancelledAt = LocalDateTime.now();
+    }
+
+    // #127: ProductRegistrationService.createProduct()가 같은 행 잠금 안에서 호출해 이 세션을
+    // "등록에 확정 사용됨"으로 표시한다. 취소된 세션은 등록에 쓸 수 없고, 이미 다른 상품 등록에
+    // 쓰인 세션(registeredAt != null)도 재사용할 수 없다(세션당 상품 1개) - 이 메서드가 던지는
+    // 예외로 호출부(ProductRegistrationService) 트랜잭션 전체가 롤백되어 Product/Auction도
+    // 저장되지 않는다.
+    public void confirmRegistration() {
+        if (status == AnalysisStatus.CANCELLED) {
+            throw new InvalidAnalysisStatusException(
+                    "취소된 분석 세션은 상품 등록에 사용할 수 없습니다. 현재 상태: " + status
+            );
+        }
+        if (registeredAt != null) {
+            throw new InvalidAnalysisStatusException("이미 다른 상품 등록에 사용된 분석 세션입니다.");
+        }
+        this.registeredAt = LocalDateTime.now();
     }
 }

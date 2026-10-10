@@ -1,8 +1,11 @@
 package com.vintic.backend.product.service;
 
+import com.vintic.backend.analyze.domain.ProductAnalysisSession;
+import com.vintic.backend.analyze.domain.ProductAnalysisSessionRepository;
 import com.vintic.backend.auction.domain.Auction;
 import com.vintic.backend.auction.repository.AuctionRepository;
 import com.vintic.backend.auction.service.AuctionSchedulePolicy;
+import com.vintic.backend.common.exception.AnalysisSessionNotFoundException;
 import com.vintic.backend.common.exception.UserNotFoundException;
 import com.vintic.backend.common.util.BidIncrementPolicy;
 import com.vintic.backend.common.util.S3UrlPresigner;
@@ -40,6 +43,7 @@ public class ProductRegistrationService {
     private final UserRepository userRepository;
     private final ProductVectorService productVectorService;
     private final AuctionRepository auctionRepository;
+    private final ProductAnalysisSessionRepository sessionRepository;
     private final Clock clock;
     private final S3UrlPresigner s3UrlPresigner;
 
@@ -48,6 +52,7 @@ public class ProductRegistrationService {
             UserRepository userRepository,
             ProductVectorService productVectorService,
             AuctionRepository auctionRepository,
+            ProductAnalysisSessionRepository sessionRepository,
             Clock clock,
             S3UrlPresigner s3UrlPresigner
     ) {
@@ -55,6 +60,7 @@ public class ProductRegistrationService {
         this.userRepository = userRepository;
         this.productVectorService = productVectorService;
         this.auctionRepository = auctionRepository;
+        this.sessionRepository = sessionRepository;
         this.clock = clock;
         this.s3UrlPresigner = s3UrlPresigner;
     }
@@ -63,6 +69,23 @@ public class ProductRegistrationService {
     public ProductResponse createProduct(CreateProductRequest request, Long sellerId) {
         User seller = userRepository.findById(sellerId)
                 .orElseThrow(() -> new UserNotFoundException("존재하지 않는 사용자입니다: " + sellerId));
+
+        // #127: 세션을 잠근(findByIdForUpdate) 채로 소유권·취소 여부·중복 등록 여부를 확인하고
+        // "등록에 확정 사용됨"으로 표시한다 - 이 메서드 전체가 하나의 트랜잭션이므로, 아래에서
+        // AuctionSchedulePolicy 검증 등으로 등록이 실패하면 이 확정 표시도 함께 롤백된다(세션은
+        // 여전히 취소/재사용 가능한 상태로 남는다). 같은 행 잠금을 ProductAnalyzeService.cancel()도
+        // 쓰므로, 취소와 등록 중 먼저 커밋되는 쪽이 그대로 확정된다.
+        ProductAnalysisSession session = sessionRepository.findByIdForUpdate(request.analysisId())
+                .orElseThrow(() -> new AnalysisSessionNotFoundException(
+                        "분석 세션을 찾을 수 없습니다. analysisId: " + request.analysisId()
+                ));
+        if (!session.isOwnedBy(sellerId)) {
+            throw new AnalysisSessionNotFoundException(
+                    "분석 세션을 찾을 수 없습니다. analysisId: " + request.analysisId()
+            );
+        }
+        session.confirmRegistration();
+        sessionRepository.save(session);
 
         Product product = new Product(
                 seller,

@@ -11,5 +11,6 @@ public enum AnalysisStatus {
     IMAGE_UPLOAD_FAILED,
     QUEUE_FAILED,
     VISION_FAILED,
-    PRICING_FAILED
+    PRICING_FAILED,
+    CANCELLED
 }

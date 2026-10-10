@@ -1,5 +1,7 @@
 package com.vintic.backend.product;
 
+import com.vintic.backend.analyze.domain.ProductAnalysisSession;
+import com.vintic.backend.analyze.domain.ProductAnalysisSessionRepository;
 import com.vintic.backend.auction.repository.AuctionRepository;
 import com.vintic.backend.common.dto.ApiResponse;
 import com.vintic.backend.product.dto.ProductResponse;
@@ -87,11 +89,23 @@ class ProductAuctionRegistrationAtomicityMySqlIT {
     @Autowired
     private AuctionRepository auctionRepository;
 
+    @Autowired
+    private ProductAnalysisSessionRepository sessionRepository;
+
+    // #127: CreateProductRequest.analysisId가 필수가 됐고, 세션은 한 번 등록에 쓰이면
+    // (confirmRegistration()) 재사용할 수 없다 - requestEntity()를 호출할 때마다(테스트마다)
+    // 그 userId 소유의 새 세션을 만든다. confirmRegistration()의 조건은 "취소되지 않았고 아직
+    // 등록에 안 쓰였음"뿐이라, 방금 만든(CREATED) 세션으로도 충분하다 - 이 테스트의 관심사는
+    // 경매 시간 검증 실패 시 Product/세션 확정이 함께 롤백되는지이므로, 세션 쪽은 최소 구성이면
+    // 된다.
     private HttpEntity<Map<String, Object>> requestEntity(Long userId, OffsetDateTime startAt, OffsetDateTime endAt) {
+        Long analysisId = sessionRepository.save(ProductAnalysisSession.create(userId)).getId();
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("X-User-Id", String.valueOf(userId));
         Map<String, Object> body = new java.util.HashMap<>();
+        body.put("analysisId", analysisId);
         body.put("imageUrls", List.of("https://example.com/a.jpg", "https://example.com/b.jpg", "https://example.com/c.jpg"));
         body.put("brand", "Nike");
         body.put("modelName", "Dunk Low Atomicity Marker");

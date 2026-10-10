@@ -354,3 +354,131 @@ EC2를 중지 후 시작하면 **공인 IP만** 바뀐다(Elastic IP를 안 쓰�
   낮추지 않는다.
 - **CloudWatch 로그 수집**: 이번 범위에 포함하지 않았다 - 필요하면 `awslogs` 로깅 드라이버를
   compose에 추가하는 후속 작업으로 남긴다.
+
+---
+
+## 12. #127: 분석 세션 취소 기능 배포 절차
+
+`product_analysis_session`에 `CANCELLED` 상태와 `cancelled_at`/`registered_at` 컬럼이 추가됐다.
+이 기능은 **DB 마이그레이션 적용(사람이 직접) → Worker 검증 완료 → API 배포**(이 둘은
+`scripts/aws/deploy.sh`가 자동으로 이 순서·조건을 지킨다) **→ 프론트 연동(별도 작업)** 순서로
+내보낸다.
+
+### 0) 자동 배포 파이프라인이 실제로 보장하는 것
+
+`scripts/aws/deploy.sh`를 아래처럼 바꿔, 자동 배포 1회 실행 안에서 이 순서와 안전장치가 항상
+지켜지게 했다(코드로 강제 - 사람이 순서를 기억해야 하는 절차가 아니다):
+
+- **사전 검증 게이트(컨테이너 교체 전, 읽기 전용)**: API EC2 위 MySQL에 SSM으로 접속해
+  `product_analysis_session`의 `cancelled_at`/`registered_at` 컬럼 존재와 `status` ENUM의
+  `CANCELLED` 포함 여부를 `information_schema`로만 확인한다(`ALTER`를 전혀 실행하지 않는다).
+  **셋 중 하나라도 불충족이면(컬럼만 있고 ENUM이 이전 정의인 경우 포함) API/Worker 컨테이너를
+  하나도 바꾸지 않고 배포 자체를 중단**한다(종료 코드 4). DB 접속 실패·쿼리 실패도 동일하게
+  실패로 처리한다. 실패 메시지는 아래 1)의 SQL을 먼저 적용하라고 안내한다.
+- **배포 순서**: 게이트를 통과하면 `deploy_and_verify()`가 **Worker를 먼저** 배포하고
+  `/actuator/health` UP까지 확인한 뒤에만 **API**를 배포한다. Worker 배포·검증이 실패하면
+  즉시 중단하고 API는 전혀 시도하지 않는다(기존 이미지 태그 처리·헬스체크·실패 시 롤백 로직은
+  그대로 - Worker/API 두 역할을 같은 순서로 롤백한다).
+
+이 변경은 실제로 수정·검증됐다(§12 끝의 "검증 내역" 참고) - 아래 1)~3)은 그 위에서 사람이 할
+일만 남은 절차다.
+
+### 1) DB 마이그레이션 적용 (배포 파이프라인 외부, 사람이 직접)
+
+SQL 파일: `backend/scripts/migrations/127-cancel-image-analysis.sql` (검증 내역은 파일 상단
+주석 참고 - mysql:8.4.10 컨테이너에 #127 이전 스키마를 기존 행과 함께 재현한 뒤 이 SQL을
+그대로 적용/재실행해 확인했다).
+
+**이 파일은 `DELIMITER`를 포함한 mysql CLI 전용 스크립트다.** JDBC로 직접 실행하거나 내용을
+한 줄로 합쳐 `-e`로 넘기면 안 되고, `mysql` 클라이언트가 파일을 그대로 읽게 해야(`mysql ... <
+파일`) `DELIMITER` 재정의가 올바르게 적용된다.
+
+```bash
+# AWS 시연 환경: API EC2에서 (MySQL은 API EC2 위 컨테이너, docker-compose.aws-api.yml 참고)
+cd /opt/autique
+docker compose -f docker-compose.aws-api.yml exec -T mysql \
+  mysql -uroot -p"$MYSQL_ROOT_PASSWORD" autique \
+  < backend/scripts/migrations/127-cancel-image-analysis.sql
+# $MYSQL_ROOT_PASSWORD는 /opt/autique/api.env의 값(source api.env로 불러오거나 직접 입력)
+```
+
+```bash
+# 로컬 개발 환경
+docker exec -i autique-local-mysql \
+  mysql -uroot -p"${MYSQL_ROOT_PASSWORD:-localpw}" autique_local \
+  < backend/scripts/migrations/127-cancel-image-analysis.sql
+```
+
+적용 후 바로 확인:
+```sql
+SHOW CREATE TABLE product_analysis_session\G
+-- cancelled_at, registered_at 컬럼이 있는지
+-- status ENUM 허용값 목록에 'CANCELLED'가 포함돼 있는지
+```
+
+### 2) Worker가 먼저 배포되고 검증된다 (자동, `deploy_and_verify()`가 보장)
+
+`AnalysisStatus`는 `@Enumerated(EnumType.STRING)`으로 저장된다. 구 버전 Worker의
+`AnalysisStatus` enum에는 `CANCELLED` 상수가 없으므로, API가 먼저 취소를 허용해
+`status='CANCELLED'`인 행이 생기면 구 Worker가 그 행을 `claim`/`reclaim`하려고 읽는 순간
+(`findByIdForUpdate`) Hibernate가 `IllegalArgumentException: No enum constant ...CANCELLED`로
+하이드레이션에 실패한다. `deploy_and_verify()`가 Worker를 먼저 배포해 `/actuator/health` UP을
+확인한 뒤에만 API를 배포하므로(실패 시 API 미시도), 이 창은 자동 배포 경로에서는 생기지 않는다.
+
+### 3) API 배포 뒤, 프론트 연동은 별도로 맞춘다
+
+`CreateProductRequest.analysisId`가 `@NotNull`로 추가됐다. **이 백엔드 파이프라인 수정은
+API/Worker 배포 순서와 DB 사전 검증만 다룬다 - 프론트가 `analysisId`를 보내도록 바꾸는 작업,
+X 버튼을 취소 API에 연결하는 작업은 이 파이프라인과 무관하게 별도로 배포해야 한다.** 새 API가
+공개됐는데 프론트가 아직 `analysisId`를 보내지 않으면 `POST /api/products`가 전부 400으로
+실패한다 - API 배포와 프론트 배포 사이의 공백을 최소화하도록 운영자가 직접 맞춘다(§6 참고, 이
+파이프라인은 프론트를 배포하지 않는다).
+
+### 4) 자동 롤백과 이미지 호환성
+
+배포 실패 시 자동 롤백은 `backend/Dockerfile`의 `com.autique.compat.analysis-cancellation="supported"`
+라벨이 있는 이미지로만 수행된다(DB에 CANCELLED 행이 있는지 조회해서 판정하지 않는다 - 지금
+시도 중인 배포가 막 그 행을 만들었을 수 있어서다). 라벨이 없거나, 값이 다르거나, pull/inspect
+자체가 실패하면 비호환으로 간주해 **API/Worker 컨테이너를 하나도 바꾸지 않고** 배포를 실패로
+끝낸다(기존 종료 코드 규칙 그대로 - last-known-good도 갱신되지 않는다).
+
+- **#127을 처음 배포할 때**: 기존 last-known-good가 #127 이전(라벨 없음) 이미지라서, 이 첫 배포가
+  실패하면 자동 롤백이 차단된다. 복구는 되돌리기가 아니라 **앞으로 고치기** - #127이 포함된(라벨
+  있는) 이미지를 다시 배포해 성공시킨다.
+- **#127이 성공적으로 배포돼 last-known-good가 라벨 있는 이미지로 바뀐 뒤**: 그 이후의 배포
+  실패는 평소처럼 자동 롤백된다(롤백 대상도 라벨 있는 이미지이므로 통과).
+- **차단됐을 때의 복구**: 로그의 `ROLLBACK_BLOCKED`/`ROLLBACK_BLOCKED_INCOMPATIBLE`를 확인하고,
+  `backend/Dockerfile`을 포함한 현재 코드로 새로 빌드한(라벨이 있는) 이미지를 다시 배포한다.
+  취소 데이터를 지우거나 상태를 되돌리거나 스키마를 되돌려서 해결하지 않는다.
+
+### 검증 내역 (이번에 실제로 확인한 것)
+
+- `bash -n scripts/aws/deploy.sh` 통과.
+- 사전 검증 게이트의 SQL/판정 로직을 `scripts/aws/deploy.sh`에서 그대로 추출해 로컬
+  mysql:8.4.10 컨테이너로 3가지 스키마 상태에 대해 확인: (1) #127 이전 스키마 → 실패
+  (`missing_columns`), (2) `cancelled_at`/`registered_at`만 추가되고 ENUM은 이전 정의인 상태
+  → 실패(`status_enum_missing_CANCELLED`, 컬럼만 있는 상태도 실패로 판정되는 것을 확인), (3)
+  `backend/scripts/migrations/127-cancel-image-analysis.sql` 적용 후 → 성공.
+- `deploy_and_verify()`/`verify_schema_migration_applied()`를 스크립트에서 그대로 추출해
+  `run_ssm_script`만 스텁으로 바꾼 로컬 하네스로 제어 흐름 확인: Worker 배포 실패 시 API 배포
+  호출 자체가 일어나지 않음, Worker 성공 시에만 API가 Worker보다 뒤에 호출됨, schema-check
+  실패 시 마이그레이션 SQL 경로를 안내하는 메시지와 함께 1을 반환함.
+- `check_rollback_image_compatibility()`를 스크립트에서 그대로 추출해 로컬 Docker 레지스트리
+  (`registry:2`, ECR 인증만 스텁)에 올린 테스트 이미지 2개(라벨 있음/없음)로 확인: 라벨 있는
+  이미지 → 허용, 라벨 없는 이미지 → 차단(`<missing>`), 존재하지 않는 태그(pull 실패) → 차단,
+  ECR 로그인 실패 → 차단. 이어서 전체 롤백 블록을 그대로 추출해 호환성 판정 결과별 통합 동작도
+  확인: 비호환 판정 시 `deploy_and_verify`(컨테이너 교체)가 전혀 호출되지 않고 last-known-good도
+  갱신되지 않은 채 exit 2로 끝남, 호환 판정이면 기존처럼 재배포가 시도되고 그 성공/실패 처리는
+  변경 전과 동일함(exit 1/exit 2).
+- 실제 AWS(SSM/EC2)나 운영 DB에는 연결하지 않았다 - 전부 로컬 Docker/스텁 함수로 검증했다.
+
+### 적용 후 확인 항목
+
+- [ ] `product_analysis_session`에 `cancelled_at`, `registered_at` 컬럼 존재
+- [ ] `status` ENUM 허용값 목록에 `CANCELLED` 포함 (`SHOW CREATE TABLE`) - 둘 다 충족해야
+  자동 배포의 사전 검증 게이트를 통과한다(컬럼만 있고 ENUM이 이전 정의인 상태는 게이트가 실패로
+  판정한다)
+- [ ] Worker `/actuator/health` UP (신규 코드로 기동, API보다 먼저 확인됨)
+- [ ] API `/actuator/health` UP (신규 코드로 기동)
+- [ ] 프론트: 상품 등록 요청에 `analysisId` 전달 확인, X 버튼 → 취소 API 연동 확인(이 파이프라인
+  과 별개로 프론트 쪽에서 직접 확인해야 한다)

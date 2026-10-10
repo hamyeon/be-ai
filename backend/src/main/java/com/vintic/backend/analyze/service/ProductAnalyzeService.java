@@ -9,6 +9,7 @@ import com.vintic.backend.analyze.domain.ProductAnalysisSession;
 import com.vintic.backend.analyze.domain.ProductAnalysisSessionRepository;
 import com.vintic.backend.analyze.dto.AnalysisStatusResponse;
 import com.vintic.backend.analyze.dto.AnalyzeAcceptedResponse;
+import com.vintic.backend.analyze.dto.AnalyzeCancelResponse;
 import com.vintic.backend.analyze.queue.AnalysisTaskMessage;
 import com.vintic.backend.analyze.queue.AnalysisTaskProducer;
 import com.vintic.backend.common.exception.AnalysisSessionNotFoundException;
@@ -17,6 +18,7 @@ import com.vintic.backend.common.util.S3UrlPresigner;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Duration;
@@ -138,6 +140,31 @@ public class ProductAnalyzeService {
                 session.getFailureStage() != null ? session.getFailureStage().name() : null,
                 session.getFailureMessage()
         );
+    }
+
+    // #127: 이미지 분석 화면의 X 버튼. 행을 잠근(findByIdForUpdate) 채로 소유권과 등록 확정
+    // 여부를 확인하고 상태 전환 + 결과 폐기를 한 트랜잭션에서 커밋한다 - "조회 후 저장" 방식이
+    // 아니라 이 잠금이 ProductRegistrationService.createProduct()의 confirmRegistration() 잠금과
+    // 서로 배타적으로 걸리므로, 등록과 취소 중 먼저 커밋된 쪽이 그대로 확정된다.
+    @Transactional
+    public AnalyzeCancelResponse cancel(Long analysisId, Long userId) {
+        ProductAnalysisSession session = sessionRepository.findByIdForUpdate(analysisId)
+                .orElseThrow(() -> new AnalysisSessionNotFoundException(
+                        "분석 세션을 찾을 수 없습니다. analysisId: " + analysisId
+                ));
+
+        // getStatus()와 같은 이유로 타인의 세션도 존재하지 않을 때와 같은 404로 응답한다.
+        if (!session.isOwnedBy(userId)) {
+            throw new AnalysisSessionNotFoundException("분석 세션을 찾을 수 없습니다. analysisId: " + analysisId);
+        }
+
+        // 이미 CANCELLED면 cancel()이 아무 것도 바꾸지 않고 조용히 반환한다(멱등) - 반복
+        // 호출이어도 save()는 그대로 해도 안전하다(변경된 필드가 없으므로 UPDATE가 비어있거나
+        // 같은 값으로 덮어쓸 뿐이다).
+        session.cancel();
+        sessionRepository.save(session);
+
+        return new AnalyzeCancelResponse(session.getId(), session.getStatus().name());
     }
 
     private <T> List<T> nullToEmpty(List<T> values) {

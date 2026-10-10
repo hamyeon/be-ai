@@ -11,10 +11,12 @@ import com.vintic.backend.analyze.domain.ProductAnalysisSession;
 import com.vintic.backend.analyze.domain.ProductAnalysisSessionRepository;
 import com.vintic.backend.analyze.dto.AnalysisStatusResponse;
 import com.vintic.backend.analyze.dto.AnalyzeAcceptedResponse;
+import com.vintic.backend.analyze.dto.AnalyzeCancelResponse;
 import com.vintic.backend.analyze.queue.AnalysisTaskMessage;
 import com.vintic.backend.analyze.queue.AnalysisTaskProducer;
 import com.vintic.backend.common.exception.AnalysisQueueException;
 import com.vintic.backend.common.exception.AnalysisSessionNotFoundException;
+import com.vintic.backend.common.exception.InvalidAnalysisStatusException;
 import com.vintic.backend.common.exception.InvalidImageException;
 import com.vintic.backend.common.exception.S3UploadException;
 import com.vintic.backend.common.util.S3UrlPresigner;
@@ -332,5 +334,69 @@ class ProductAnalyzeServiceTest {
         assertThat(response.status()).isEqualTo("VISION_FAILED");
         assertThat(response.failureStage()).isEqualTo(AnalysisFailureStage.VISION.name());
         assertThat(response.failureMessage()).isEqualTo("OpenAI 호출 실패");
+    }
+
+    @Test
+    void 대기중인_세션을_취소하면_CANCELLED_상태를_반환한다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create(USER_ID);
+        session.markImageUploaded(List.of("https://bucket.s3.amazonaws.com/shoe.jpg"));
+        session.markQueued();
+        when(sessionRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(session));
+        when(sessionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AnalyzeCancelResponse response = newService().cancel(1L, USER_ID);
+
+        assertThat(response.status()).isEqualTo("CANCELLED");
+        assertThat(session.getVisionResultJson()).isNull();
+    }
+
+    @Test
+    void 이미_취소된_세션을_다시_취소해도_같은_성공_상태를_반환한다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create(USER_ID);
+        session.markQueued();
+        session.cancel();
+        when(sessionRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(session));
+        when(sessionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AnalyzeCancelResponse response = newService().cancel(1L, USER_ID);
+
+        assertThat(response.status()).isEqualTo("CANCELLED");
+    }
+
+    @Test
+    void 세션이_없으면_취소에서_AnalysisSessionNotFoundException을_던진다() {
+        when(sessionRepository.findByIdForUpdate(1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> newService().cancel(1L, USER_ID))
+                .isInstanceOf(AnalysisSessionNotFoundException.class);
+    }
+
+    @Test
+    void 타인의_세션을_취소하면_존재하지_않는_것과_동일하게_예외를_던지고_상태를_바꾸지_않는다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create(USER_ID);
+        session.markQueued();
+        when(sessionRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(session));
+
+        assertThatThrownBy(() -> newService().cancel(1L, OTHER_USER_ID))
+                .isInstanceOf(AnalysisSessionNotFoundException.class);
+        assertThat(session.getStatus()).isEqualTo(AnalysisStatus.QUEUED);
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    void 이미_상품_등록에_확정_사용된_세션은_취소를_거절한다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create(USER_ID);
+        session.markQueued();
+        session.claimVisionProcessing("test-token");
+        session.completeVision("test-token", "{}");
+        session.startPricing();
+        session.completePricing("{}");
+        session.confirmRegistration(); // 상품 등록 완료를 흉내낸다
+
+        when(sessionRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(session));
+
+        assertThatThrownBy(() -> newService().cancel(1L, USER_ID))
+                .isInstanceOf(InvalidAnalysisStatusException.class);
+        assertThat(session.getStatus()).isEqualTo(AnalysisStatus.COMPLETED);
     }
 }

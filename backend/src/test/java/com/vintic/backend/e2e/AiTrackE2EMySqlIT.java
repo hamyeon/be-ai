@@ -170,11 +170,12 @@ class AiTrackE2EMySqlIT {
 
     // 경매 시작/종료 시각은 AuctionSchedulePolicy.validate()가 강제한다: 시작은 현재 이후,
     // 진행시간은 최소 1시간(MIN_DURATION) - 완화하지 않고 그 정책을 그대로 만족시키는 값을 만든다.
-    private String productJson(String brand, String model, String color) {
+    private String productJson(String brand, String model, String color, Long analysisId) {
         OffsetDateTime startAt = OffsetDateTime.now().plusMinutes(10);
         OffsetDateTime endAt = startAt.plusHours(2);
         return """
                 {
+                  "analysisId": %d,
                   "imageUrls": ["https://example.com/a.jpg","https://example.com/b.jpg","https://example.com/c.jpg"],
                   "brand": "%s", "modelName": "%s", "color": "%s", "size": 270,
                   "conditionGrade": "A", "componentStatus": "FULL",
@@ -186,10 +187,18 @@ class AiTrackE2EMySqlIT {
                   "auctionEndAt": "%s"
                 }
                 """.formatted(
-                brand, model, color,
+                analysisId, brand, model, color,
                 startAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
                 endAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
         );
+    }
+
+    // #127: CreateProductRequest.analysisId가 필수가 됐고, 세션은 한 번 등록에 쓰이면
+    // (confirmRegistration()) 재사용할 수 없다 - registerProduct()를 호출할 때마다 새 세션을
+    // 만든다. confirmRegistration()의 조건은 "취소되지 않았고 아직 등록에 안 쓰였음"뿐이라,
+    // Vision/Pricing을 거치지 않은 방금 만든(CREATED) 세션으로도 충분하다.
+    private Long newRegistrableSession() {
+        return sessionRepository.save(ProductAnalysisSession.create(sellerId)).getId();
     }
 
     // #상품+첫 경매 등록(6bda509)부터는 POST /api/products 자체가 첫 경매까지 한 트랜잭션으로
@@ -200,10 +209,11 @@ class AiTrackE2EMySqlIT {
     }
 
     private RegisteredProduct registerProduct(String brand, String model, String color) throws Exception {
+        Long analysisId = newRegistrableSession();
         String body = mockMvc.perform(post("/api/products")
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("X-User-Id", sellerId)
-                        .content(productJson(brand, model, color)))
+                        .content(productJson(brand, model, color, analysisId)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         var data = objectMapper.readTree(body).path("data");
