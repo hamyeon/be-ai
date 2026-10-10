@@ -511,6 +511,8 @@ class StagedVisionAnalysisServiceTest {
                 .thenAnswer(invocation -> "data:image/jpeg;base64,small-"
                         + ((VisionImageLoader.LoadedImage) invocation.getArgument(0)).sourceUrl().charAt(20));
 
+        VisionProviderProperties providerProperties = new VisionProviderProperties();
+        providerProperties.setProvider(VisionProviderProperties.Provider.CLAUDE);
         VisionStageProperties properties = new VisionStageProperties();
         properties.getSilhouette().setModel("claude-haiku-5-5");
         properties.getSilhouette().setMaxEdge(512);
@@ -519,18 +521,35 @@ class StagedVisionAnalysisServiceTest {
 
         new StagedVisionAnalysisService(
                 visionClient, new ObjectMapper(), new VisionEvidenceValidator(), new PromptTemplateLoader(),
-                properties, new VisionProviderProperties(), aiCallLogger, stageExecutor,
+                properties, providerProperties, aiCallLogger, stageExecutor,
                 loader, new VisionImageProperties())
                 .analyze(new VisionAnalysisRequest(urls));
 
         List<VisionChatRequest> requests = capturedRequests();
         assertThat(requests.get(0).model()).isEqualTo("claude-haiku-5-5");
         assertThat(requests.get(0).imageUrls()).containsExactly("data:image/jpeg;base64,small-a");
-        assertThat(requests.get(1).model()).isEqualTo(new VisionProviderProperties().resolvedModel());
+        assertThat(requests.get(1).model()).isEqualTo(providerProperties.resolvedModel());
         assertThat(requests.get(1).imageUrls()).isEqualTo(urls);
         assertThat(requests.get(2).imageUrls()).isEqualTo(urls);
         // 호출 기록의 모델도 단계별 모델이어야 비용을 단계별로 나눠 볼 수 있다.
         assertThat(capturedLogs(3).get(0).getModelName()).isEqualTo("claude-haiku-5-5");
+    }
+
+    @Test
+    void 단계_모델이_provider와_맞지_않으면_무시하고_기본_모델을_쓴다() {
+        // 운영 기본값이 실루엣=Haiku라서 VISION_PROVIDER=openai로 되돌리면 Claude 모델명이 OpenAI로 갈 수 있다.
+        VisionProviderProperties providerProperties = new VisionProviderProperties();
+        providerProperties.setProvider(VisionProviderProperties.Provider.OPENAI);
+        VisionStageProperties properties = new VisionStageProperties();
+        properties.getSilhouette().setModel("claude-haiku-5-5");
+        stubAllStages();
+
+        new StagedVisionAnalysisService(
+                visionClient, new ObjectMapper(), new VisionEvidenceValidator(), new PromptTemplateLoader(),
+                properties, providerProperties, aiCallLogger, stageExecutor, imageLoader, new VisionImageProperties())
+                .analyze(new VisionAnalysisRequest(IMAGE_URLS));
+
+        assertThat(capturedRequests()).allSatisfy(request -> assertThat(request.model()).isEqualTo("gpt-4o"));
     }
 
     @Test

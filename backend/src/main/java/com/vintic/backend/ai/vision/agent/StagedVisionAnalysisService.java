@@ -85,6 +85,7 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
     private final String promptVersion;
     private final ChatCompletionClient visionClient;
     private final String modelName;
+    private final VisionProviderProperties.Provider provider;
     private final ObjectMapper objectMapper;
     private final VisionEvidenceValidator evidenceValidator;
     private final AiCallLogger aiCallLogger;
@@ -111,6 +112,7 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
     ) {
         this.visionClient = visionClient;
         this.modelName = providerProperties.resolvedModel();
+        this.provider = providerProperties.getProvider();
         this.objectMapper = objectMapper;
         this.evidenceValidator = evidenceValidator;
         this.aiCallLogger = aiCallLogger;
@@ -290,13 +292,28 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
         }
     }
 
+    // 단계 모델이 비었거나 지금 provider의 모델이 아니면 vision.model을 쓴다. 운영 기본값이 실루엣=Haiku라서,
+    // VISION_PROVIDER=openai로 되돌릴 때 Claude 모델명이 OpenAI로 넘어가 모든 분석이 실패하는 일을 막는다.
+    private String resolveStageModel(String stageName, String configured) {
+        if (configured == null || configured.isBlank()) {
+            return modelName;
+        }
+        String model = configured.trim();
+        boolean claudeModel = model.startsWith("claude-");
+        if (claudeModel != (provider == VisionProviderProperties.Provider.CLAUDE)) {
+            log.warn("Vision {} 단계 모델 {}은 provider={}의 모델이 아니라 무시하고 {}을 씁니다.",
+                    stageName, model, provider, modelName);
+            return modelName;
+        }
+        return model;
+    }
+
     private Stage loadStage(PromptTemplateLoader loader, String name, VisionStageProperties.Stage settings) {
         PromptTemplate template = loader.load(PROMPT_CATEGORY, name, promptVersion);
         String schemaJson = loader.loadSchema(PROMPT_CATEGORY, name, promptVersion);
         // json_schema.name은 영숫자와 밑줄만 허용된다.
         String schemaName = "vision_%s_%s".formatted(name.replace('-', '_'), promptVersion);
-        String stageModel = settings.getModel() == null || settings.getModel().isBlank()
-                ? modelName : settings.getModel().trim();
+        String stageModel = resolveStageModel(name, settings.getModel());
         return new Stage(
                 template,
                 new VisionChatRequest.ResponseSchema(schemaName, schemaJson),

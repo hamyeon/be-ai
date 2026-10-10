@@ -82,9 +82,11 @@ vision:
     parallel-pool-size: ${VISION_STAGE_PARALLEL_POOL_SIZE:6}
     silhouette:
       detail: ${VISION_DETAIL_SILHOUETTE:low}
-      # 단계별 실험 스위치. 비우면(0) 지금 동작 그대로다(VisionStageProperties.Stage 참고).
-      # model: 이 단계만 다른 모델, max-edge: 이 단계만 줄여 보낼 긴 변(px), max-images: 앞에서부터 보낼 장수.
-      model: ${VISION_SILHOUETTE_MODEL:}
+      # 단계별 스위치(VisionStageProperties.Stage 참고). model: 이 단계만 다른 모델, max-edge: 이 단계만 줄여
+      # 보낼 긴 변(px, 0=그대로), max-images: 앞에서부터 보낼 장수(0=전부).
+      # 실루엣만 Haiku 5.5다(2026-10-10 하네스, ai-vision-agent.md): 정확도 유지, 분석 비용 -31%, 실루엣 6.0 -> 4.0초.
+      # provider와 맞지 않는 모델(openai인데 claude-*)은 무시되고 vision.model을 쓴다. 되돌릴 때는 VISION_SILHOUETTE_MODEL=claude-sonnet-5.
+      model: ${VISION_SILHOUETTE_MODEL:claude-haiku-5-5}
       max-edge: ${VISION_SILHOUETTE_MAX_EDGE:0}
       max-images: ${VISION_SILHOUETTE_MAX_IMAGES:0}
       max-output-tokens: 900
