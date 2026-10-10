@@ -14,6 +14,12 @@ import java.util.List;
 // (BidIncrementPolicy.DEFAULT_BID_INCREMENT 고정, 판매자가 설정하지 않음).
 public record CreateProductRequest(
 
+        // #127: 이 상품 등록이 사용하는 분석 세션(analysisId/taskId와 동일한 값). 서버가 이 세션을
+        // 잠그고 소유권·취소 여부·중복 등록 여부를 확인한 뒤 "등록에 확정 사용됨"으로 표시한다 -
+        // 생략하면 취소된 세션으로도 등록이 가능해지므로 필수로 받는다.
+        @NotNull(message = "분석 세션 ID는 필수입니다.")
+        Long analysisId,
+
         @NotNull(message = "이미지 URL은 필수입니다.")
         @Size(min = 3, max = 4, message = "이미지 URL은 최소 3개, 최대 4개까지 등록할 수 있습니다.")
         List<@NotBlank(message = "이미지 URL은 비어 있을 수 없습니다.") String> imageUrls,

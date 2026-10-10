@@ -80,6 +80,7 @@ class ProductControllerTest {
         OffsetDateTime startAt = OffsetDateTime.now().plusHours(2);
         OffsetDateTime endAt = startAt.plusHours(1);
         CreateProductRequest request = new CreateProductRequest(
+                1L,
                 List.of("https://example.com/a.jpg", "https://example.com/b.jpg", "https://example.com/c.jpg"),
                 "Nike", "Dunk Low", "Panda", 270, "B", "PARTIAL",
                 300000, 350000, "285,000원 ~ 315,000원", 290000, "사유", "설명",

@@ -57,13 +57,6 @@ public class AnalysisFailureRecorder {
         return VisionAttemptOutcome.COMMITTED;
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void recordPricingFailure(Long sessionId, String message) {
-        ProductAnalysisSession session = findSession(sessionId);
-        session.failPricing(message);
-        sessionRepository.save(session);
-    }
-
     private ProductAnalysisSession findSession(Long sessionId) {
         return sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new AnalysisSessionNotFoundException(

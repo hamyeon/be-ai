@@ -2,6 +2,8 @@ package com.vintic.backend.e2e;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.ai.search.embedding.EmbeddingClient;
+import com.vintic.backend.analyze.domain.ProductAnalysisSession;
+import com.vintic.backend.analyze.domain.ProductAnalysisSessionRepository;
 import com.vintic.backend.analyze.queue.AnalysisTaskProducer;
 import com.vintic.backend.analyze.service.S3UploaderService;
 import com.vintic.backend.auction.domain.Auction;
@@ -111,6 +113,9 @@ class FullFlowE2EMySqlIT {
     private UserActivityLogRepository activityLogRepository;
 
     @Autowired
+    private ProductAnalysisSessionRepository sessionRepository;
+
+    @Autowired
     private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     // 스케줄러가 부르는 서비스를 직접 호출한다
@@ -177,17 +182,27 @@ class FullFlowE2EMySqlIT {
     private record RegisteredProduct(Long productId, Long auctionId) {
     }
 
+    // #127: CreateProductRequest.analysisId가 필수가 됐고, 세션은 한 번 등록에 쓰이면
+    // (confirmRegistration()) 재사용할 수 없다 - registerProduct()를 호출할 때마다 새 세션을
+    // 만든다. confirmRegistration()의 조건은 "취소되지 않았고 아직 등록에 안 쓰였음"뿐이라,
+    // Vision/Pricing을 거치지 않은 방금 만든(CREATED) 세션으로도 충분하다.
+    private Long newRegistrableSession() {
+        return sessionRepository.save(ProductAnalysisSession.create(sellerId)).getId();
+    }
+
     private RegisteredProduct registerProduct() throws Exception {
         // 여기서 넣는 시작/종료 시각은 AuctionSchedulePolicy.validate()를 만족시키기 위한
         // 값일 뿐이다 - markAuctionLive()가 곧바로 LIVE 상태와 실제 테스트용 시각으로
         // 덮어쓴다(정책 완화 없이 그대로 만족시킨 뒤 갈아치운다).
         OffsetDateTime start = OffsetDateTime.now().plusMinutes(10);
         OffsetDateTime end = start.plusHours(2);
+        Long analysisId = newRegistrableSession();
         String body = mockMvc.perform(post("/api/products")
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("X-User-Id", sellerId)
                         .content("""
                                 {
+                                  "analysisId": %d,
                                   "imageUrls": ["https://example.com/a.jpg","https://example.com/b.jpg","https://example.com/c.jpg"],
                                   "brand": "Nike", "modelName": "Dunk Low", "color": "Panda", "size": 270,
                                   "conditionGrade": "A", "componentStatus": "FULL",
@@ -199,6 +214,7 @@ class FullFlowE2EMySqlIT {
                                   "auctionEndAt": "%s"
                                 }
                                 """.formatted(
+                                analysisId,
                                 start.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
                                 end.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
                         )))

@@ -306,4 +306,123 @@ class ProductAnalysisSessionTest {
         assertThat(session.getFailureStage()).isEqualTo(AnalysisFailureStage.PRICING);
         assertThat(session.getFailureMessage()).isEqualTo("시세 데이터 없음");
     }
+
+    @Test
+    void PRICING_PROCESSING이_아닌_상태에서_completePricing을_호출하면_예외가_발생한다() {
+        // #127: 취소되어 PRICING_PROCESSING을 벗어난 뒤 늦게 도착한 Pricing 성공 응답을 흉내낸다.
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
+        session.markQueued();
+        session.claimVisionProcessing(TOKEN_A);
+        session.completeVision(TOKEN_A, "{}");
+        session.startPricing();
+        session.cancel();
+
+        assertThatThrownBy(() -> session.completePricing("{\"recommendedPrice\":300000}"))
+                .isInstanceOf(InvalidAnalysisStatusException.class);
+        assertThat(session.getStatus()).isEqualTo(AnalysisStatus.CANCELLED);
+        assertThat(session.getPricingResultJson()).isNull();
+    }
+
+    @Test
+    void PRICING_PROCESSING이_아닌_상태에서_failPricing을_호출하면_예외가_발생한다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
+        session.markQueued();
+        session.claimVisionProcessing(TOKEN_A);
+        session.completeVision(TOKEN_A, "{}");
+        session.startPricing();
+        session.cancel();
+
+        assertThatThrownBy(() -> session.failPricing("시세 데이터 없음"))
+                .isInstanceOf(InvalidAnalysisStatusException.class);
+        assertThat(session.getStatus()).isEqualTo(AnalysisStatus.CANCELLED);
+        assertThat(session.getFailureStage()).isNull();
+    }
+
+    @Test
+    void QUEUED_상태의_세션을_취소하면_CANCELLED_상태이고_취소시각이_기록된다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
+        session.markQueued();
+
+        session.cancel();
+
+        assertThat(session.getStatus()).isEqualTo(AnalysisStatus.CANCELLED);
+        assertThat(session.getCancelledAt()).isNotNull();
+    }
+
+    @Test
+    void VISION_PROCESSING_중에_취소하면_처리_토큰과_진행_결과가_비워진다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
+        session.markQueued();
+        session.claimVisionProcessing(TOKEN_A);
+        session.recordVisionProgress("{\"completedStages\":1}");
+
+        session.cancel();
+
+        assertThat(session.getStatus()).isEqualTo(AnalysisStatus.CANCELLED);
+        assertThat(session.getVisionProcessingToken()).isNull();
+        assertThat(session.getVisionProgressJson()).isNull();
+    }
+
+    @Test
+    void Pricing_완료후에도_등록에_확정_사용되기_전이면_취소할_수_있고_결과가_모두_비워진다() {
+        // COMPLETED는 Pricing 완료일 뿐 상품 등록 확정이 아니므로 취소 대상이어야 한다.
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
+        session.markQueued();
+        session.claimVisionProcessing(TOKEN_A);
+        session.completeVision(TOKEN_A, "{\"brand\":\"Nike\"}");
+        session.startPricing();
+        session.recordConfirmedInput("{\"brand\":\"Nike\"}");
+        session.completePricing("{\"recommendedPrice\":300000}");
+
+        session.cancel();
+
+        assertThat(session.getStatus()).isEqualTo(AnalysisStatus.CANCELLED);
+        assertThat(session.getVisionResultJson()).isNull();
+        assertThat(session.getConfirmedInputJson()).isNull();
+        assertThat(session.getPricingResultJson()).isNull();
+    }
+
+    @Test
+    void 반복_취소해도_같은_CANCELLED_상태를_유지한다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
+        session.markQueued();
+        session.cancel();
+        var firstCancelledAt = session.getCancelledAt();
+
+        session.cancel();
+
+        assertThat(session.getStatus()).isEqualTo(AnalysisStatus.CANCELLED);
+        assertThat(session.getCancelledAt()).isEqualTo(firstCancelledAt);
+    }
+
+    @Test
+    void 이미_상품_등록에_확정_사용된_세션은_취소할_수_없다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
+        session.markQueued();
+        session.confirmRegistration();
+
+        assertThatThrownBy(session::cancel)
+                .isInstanceOf(InvalidAnalysisStatusException.class);
+        assertThat(session.getStatus()).isEqualTo(AnalysisStatus.QUEUED);
+    }
+
+    @Test
+    void 취소된_세션은_등록에_확정_사용할_수_없다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
+        session.markQueued();
+        session.cancel();
+
+        assertThatThrownBy(session::confirmRegistration)
+                .isInstanceOf(InvalidAnalysisStatusException.class);
+    }
+
+    @Test
+    void 같은_세션으로_두_번_등록을_확정할_수_없다() {
+        ProductAnalysisSession session = ProductAnalysisSession.create(1L);
+        session.markQueued();
+        session.confirmRegistration();
+
+        assertThatThrownBy(session::confirmRegistration)
+                .isInstanceOf(InvalidAnalysisStatusException.class);
+    }
 }
