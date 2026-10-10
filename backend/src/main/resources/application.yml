@@ -65,6 +65,9 @@ vision:
   # 0 이하로 두면 리사이즈하지 않는다(원본 그대로 분석).
   image:
     max-edge: ${VISION_IMAGE_MAX_EDGE:768}
+    # url(기본): 벤더 서버가 S3 presigned URL로 사진을 직접 가져간다(단계마다 따로).
+    # base64: 서버가 한 번 받아 요청에 실어 보낸다. 빠른 쪽은 하네스로 잰다(VisionImageLoader).
+    transport: ${VISION_IMAGE_TRANSPORT:url}
 
   # 3단계 분석의 단계별 호출 옵션.
   # detail은 정확도와 비용을 정면으로 맞바꾸는 값이다 - low는 이미지를 512px로 줄여 고정 비용만 쓰고,
@@ -79,12 +82,26 @@ vision:
     parallel-pool-size: ${VISION_STAGE_PARALLEL_POOL_SIZE:6}
     silhouette:
       detail: ${VISION_DETAIL_SILHOUETTE:low}
+      # 단계별 스위치(VisionStageProperties.Stage 참고). model: 이 단계만 다른 모델, max-edge: 이 단계만 줄여
+      # 보낼 긴 변(px, 0=그대로), max-images: 앞에서부터 보낼 장수(0=전부).
+      # 실루엣·상태 단계는 Haiku 5.5, 라벨만 vision.model(Sonnet 5)이다(2026-10-10 하네스, ai-vision-agent.md).
+      # 사진 3~6장 셋에서 등급·브랜드 정확도 유지, 분석 시간 7.3 -> 4.7초, 분석 1건 비용 약 70원 -> 25원.
+      # provider와 맞지 않는 모델(openai인데 claude-*)은 무시되고 vision.model을 쓴다. 되돌릴 때는 VISION_*_MODEL=claude-sonnet-5.
+      model: ${VISION_SILHOUETTE_MODEL:claude-haiku-5-5}
+      max-edge: ${VISION_SILHOUETTE_MAX_EDGE:0}
+      max-images: ${VISION_SILHOUETTE_MAX_IMAGES:0}
       max-output-tokens: 900
     label:
       detail: ${VISION_DETAIL_LABEL:high}
+      model: ${VISION_LABEL_MODEL:}
+      max-edge: ${VISION_LABEL_MAX_EDGE:0}
+      max-images: ${VISION_LABEL_MAX_IMAGES:0}
       max-output-tokens: 900
     condition:
       detail: ${VISION_DETAIL_CONDITION:high}
+      model: ${VISION_CONDITION_MODEL:claude-haiku-5-5}
+      max-edge: ${VISION_CONDITION_MAX_EDGE:0}
+      max-images: ${VISION_CONDITION_MAX_IMAGES:0}
       max-output-tokens: 1400
 
 # Purchase Agent(#95) - 자연어 구매 목표 파서.

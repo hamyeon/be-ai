@@ -20,6 +20,8 @@ import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
 import com.vintic.backend.ai.vision.dto.VisionEvidence;
 import com.vintic.backend.ai.vision.dto.VisionProgress;
 import com.vintic.backend.ai.vision.dto.VisionUnreadable;
+import com.vintic.backend.ai.vision.image.VisionImageLoader;
+import com.vintic.backend.ai.vision.image.VisionImageProperties;
 import com.vintic.backend.ai.vision.service.VisionAnalysisService;
 import com.vintic.backend.ai.vision.service.VisionProgressListener;
 import com.vintic.backend.common.exception.AiApiException;
@@ -30,6 +32,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -49,6 +52,10 @@ import java.util.concurrent.Executor;
 // 텅 라벨의 작은 글자는 더 높은 해상도가 필요하다(분석용 사본은 긴 변 768px로 줄여 보낸다, vision.image.max-edge).
 // 한 호출로 묶으면 전체를 비싼 쪽에 맞춰야 한다.
 // 이미지를 세 번 보내는 만큼 비용이 늘어나는데, 그만한 값을 하는지는 하네스로 확인한다.
+//
+// 단계별 실험 스위치(vision.stage.*.model / max-edge / max-images, vision.image.transport)를 켜면
+// 단계마다 다른 모델·해상도·사진 장수로 부른다. 줄인 사본이나 base64가 필요하면 분석 시작 때 사진을
+// 한 번 받아 단계들이 나눠 쓴다(VisionImageLoader). 전부 꺼져 있으면 사진을 받지 않고 URL을 그대로 넘긴다.
 //
 // 어느 벤더·모델을 부를지는 여기서 모른다. ChatCompletionClient는 VisionClientConfig가 vision.provider로
 // 고른 빈이고, 모델명은 vision.model이다. 같은 코드로 OpenAI와 Claude를 하네스에서 비교하기 위해서다.
@@ -78,11 +85,14 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
     private final String promptVersion;
     private final ChatCompletionClient visionClient;
     private final String modelName;
+    private final VisionProviderProperties.Provider provider;
     private final ObjectMapper objectMapper;
     private final VisionEvidenceValidator evidenceValidator;
     private final AiCallLogger aiCallLogger;
     private final VisionStageProperties.ExecutionMode executionMode;
     private final Executor stageExecutor;
+    private final VisionImageLoader imageLoader;
+    private final VisionImageProperties.Transport imageTransport;
 
     private final Stage silhouetteStage;
     private final Stage labelStage;
@@ -96,25 +106,30 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
             VisionStageProperties stageProperties,
             VisionProviderProperties providerProperties,
             AiCallLogger aiCallLogger,
-            @Qualifier(VisionStageExecutorConfig.VISION_STAGE_EXECUTOR) Executor stageExecutor
+            @Qualifier(VisionStageExecutorConfig.VISION_STAGE_EXECUTOR) Executor stageExecutor,
+            VisionImageLoader imageLoader,
+            VisionImageProperties imageProperties
     ) {
         this.visionClient = visionClient;
         this.modelName = providerProperties.resolvedModel();
+        this.provider = providerProperties.getProvider();
         this.objectMapper = objectMapper;
         this.evidenceValidator = evidenceValidator;
         this.aiCallLogger = aiCallLogger;
         this.promptVersion = providerProperties.getPromptVersion();
         this.executionMode = stageProperties.getExecutionMode();
         this.stageExecutor = stageExecutor;
+        this.imageLoader = imageLoader;
+        this.imageTransport = imageProperties.getTransport();
 
         // 프롬프트/스키마는 배포 중에 바뀌지 않으므로 기동 시 한 번만 읽어서 들고 있는다.
         this.silhouetteStage = loadStage(promptTemplateLoader, "silhouette", stageProperties.getSilhouette());
         this.labelStage = loadStage(promptTemplateLoader, "label", stageProperties.getLabel());
         this.conditionStage = loadStage(promptTemplateLoader, "condition", stageProperties.getCondition());
 
-        log.info("Vision 단계 설정 - model={}, promptVersion={}, silhouette={}, label={}, condition={}, executionMode={}",
-                modelName, promptVersion, silhouetteStage.detail().value(), labelStage.detail().value(),
-                conditionStage.detail().value(), executionMode);
+        log.info("Vision 단계 설정 - model={}, promptVersion={}, silhouette={}, label={}, condition={}, executionMode={}, imageTransport={}",
+                modelName, promptVersion, silhouetteStage.describe(), labelStage.describe(),
+                conditionStage.describe(), executionMode, imageTransport);
     }
 
     @Override
@@ -132,46 +147,48 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
         // 한 분석 안에서 진행 알림이 뒤로 가지 않게 한다. 동시 실행이면 2단계 알림이 1단계보다 먼저 나갈 수 있다.
         ProgressNotifier notifier = new ProgressNotifier(progressListener, imageUrls.size());
 
+        StageImages images = prepareImages(imageUrls);
+
         StageResults results = switch (executionMode) {
-            case SEQUENTIAL -> runSequentially(imageUrls, analysisId, notifier);
-            case PARALLEL_LABEL_CONDITION -> runLabelAndConditionTogether(imageUrls, analysisId, notifier);
-            case ALL_PARALLEL -> runAllTogether(imageUrls, analysisId, notifier);
+            case SEQUENTIAL -> runSequentially(images, analysisId, notifier);
+            case PARALLEL_LABEL_CONDITION -> runLabelAndConditionTogether(images, analysisId, notifier);
+            case ALL_PARALLEL -> runAllTogether(images, analysisId, notifier);
         };
 
         return evidenceValidator.enforce(
                 merge(results.silhouette(), results.label(), results.condition()), imageUrls.size());
     }
 
-    private StageResults runSequentially(List<String> imageUrls, Long analysisId, ProgressNotifier notifier) {
+    private StageResults runSequentially(StageImages images, Long analysisId, ProgressNotifier notifier) {
         SilhouetteStageResult silhouette =
-                call(silhouetteStage, null, imageUrls, analysisId, SilhouetteStageResult.class);
+                call(silhouetteStage, null, images, analysisId, SilhouetteStageResult.class);
         notifier.stageCompleted(1, silhouette, null);
 
         LabelStageResult label = call(labelStage, contextOf("1단계(전체 형태) 결과", silhouette),
-                imageUrls, analysisId, LabelStageResult.class);
+                images, analysisId, LabelStageResult.class);
         notifier.stageCompleted(2, silhouette, label);
 
         ConditionStageResult condition = call(conditionStage,
                 contextOf("1단계(전체 형태) 결과", silhouette) + contextOf("2단계(라벨/로고) 결과", label),
-                imageUrls, analysisId, ConditionStageResult.class);
+                images, analysisId, ConditionStageResult.class);
         return new StageResults(silhouette, label, condition);
     }
 
     // 1단계 뒤에 2·3단계를 동시에 부른다(#106). 분석 한 건이 2단계 시간(약 3~4초)만큼 빨라지는 대신,
     // 3단계는 2단계가 읽어낸 라벨 값을 못 받고 1단계 결과만 맥락으로 받는다.
-    private StageResults runLabelAndConditionTogether(List<String> imageUrls, Long analysisId, ProgressNotifier notifier) {
+    private StageResults runLabelAndConditionTogether(StageImages images, Long analysisId, ProgressNotifier notifier) {
         SilhouetteStageResult silhouette =
-                call(silhouetteStage, null, imageUrls, analysisId, SilhouetteStageResult.class);
+                call(silhouetteStage, null, images, analysisId, SilhouetteStageResult.class);
         notifier.stageCompleted(1, silhouette, null);
         String silhouetteContext = contextOf("1단계(전체 형태) 결과", silhouette);
 
         CompletableFuture<LabelStageResult> labelFuture = CompletableFuture.supplyAsync(() -> {
-            LabelStageResult label = call(labelStage, silhouetteContext, imageUrls, analysisId, LabelStageResult.class);
+            LabelStageResult label = call(labelStage, silhouetteContext, images, analysisId, LabelStageResult.class);
             notifier.stageCompleted(2, silhouette, label);
             return label;
         }, stageExecutor);
         CompletableFuture<ConditionStageResult> conditionFuture = CompletableFuture.supplyAsync(
-                () -> call(conditionStage, silhouetteContext, imageUrls, analysisId, ConditionStageResult.class),
+                () -> call(conditionStage, silhouetteContext, images, analysisId, ConditionStageResult.class),
                 stageExecutor);
 
         awaitAll(labelFuture, conditionFuture);
@@ -180,13 +197,13 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
 
     // 세 단계를 한꺼번에 부른다(#106). 분석 시간이 세 단계의 합이 아니라 가장 느린 한 단계에 가까워진다.
     // 어느 단계도 앞 단계 결과를 맥락으로 받지 못한다. 합치는 규칙(라벨 우선, 없으면 1단계 값)은 그대로다.
-    private StageResults runAllTogether(List<String> imageUrls, Long analysisId, ProgressNotifier notifier) {
+    private StageResults runAllTogether(StageImages images, Long analysisId, ProgressNotifier notifier) {
         CompletableFuture<SilhouetteStageResult> silhouetteFuture = CompletableFuture.supplyAsync(
-                () -> call(silhouetteStage, null, imageUrls, analysisId, SilhouetteStageResult.class), stageExecutor);
+                () -> call(silhouetteStage, null, images, analysisId, SilhouetteStageResult.class), stageExecutor);
         CompletableFuture<LabelStageResult> labelFuture = CompletableFuture.supplyAsync(
-                () -> call(labelStage, NO_PREVIOUS_STAGE_CONTEXT, imageUrls, analysisId, LabelStageResult.class), stageExecutor);
+                () -> call(labelStage, NO_PREVIOUS_STAGE_CONTEXT, images, analysisId, LabelStageResult.class), stageExecutor);
         CompletableFuture<ConditionStageResult> conditionFuture = CompletableFuture.supplyAsync(
-                () -> call(conditionStage, NO_PREVIOUS_STAGE_CONTEXT, imageUrls, analysisId, ConditionStageResult.class), stageExecutor);
+                () -> call(conditionStage, NO_PREVIOUS_STAGE_CONTEXT, images, analysisId, ConditionStageResult.class), stageExecutor);
 
         // 잠정 결과는 1단계가 있어야 만들 수 있다. 라벨이 먼저 끝나면 1단계를 기다렸다가 2단계로 바로 알린다.
         silhouetteFuture.thenAccept(silhouette -> notifier.stageCompleted(1, silhouette, null));
@@ -275,25 +292,45 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
         }
     }
 
+    // 단계 모델이 비었거나 지금 provider의 모델이 아니면 vision.model을 쓴다. 운영 기본값이 실루엣=Haiku라서,
+    // VISION_PROVIDER=openai로 되돌릴 때 Claude 모델명이 OpenAI로 넘어가 모든 분석이 실패하는 일을 막는다.
+    private String resolveStageModel(String stageName, String configured) {
+        if (configured == null || configured.isBlank()) {
+            return modelName;
+        }
+        String model = configured.trim();
+        boolean claudeModel = model.startsWith("claude-");
+        if (claudeModel != (provider == VisionProviderProperties.Provider.CLAUDE)) {
+            log.warn("Vision {} 단계 모델 {}은 provider={}의 모델이 아니라 무시하고 {}을 씁니다.",
+                    stageName, model, provider, modelName);
+            return modelName;
+        }
+        return model;
+    }
+
     private Stage loadStage(PromptTemplateLoader loader, String name, VisionStageProperties.Stage settings) {
         PromptTemplate template = loader.load(PROMPT_CATEGORY, name, promptVersion);
         String schemaJson = loader.loadSchema(PROMPT_CATEGORY, name, promptVersion);
         // json_schema.name은 영숫자와 밑줄만 허용된다.
         String schemaName = "vision_%s_%s".formatted(name.replace('-', '_'), promptVersion);
+        String stageModel = resolveStageModel(name, settings.getModel());
         return new Stage(
                 template,
                 new VisionChatRequest.ResponseSchema(schemaName, schemaJson),
                 settings.getDetail(),
-                settings.getMaxOutputTokens()
+                settings.getMaxOutputTokens(),
+                stageModel,
+                Math.max(0, settings.getMaxEdge()),
+                Math.max(0, settings.getMaxImages())
         );
     }
 
-    private <T> T call(Stage stage, String userText, List<String> imageUrls, Long analysisId, Class<T> resultType) {
+    private <T> T call(Stage stage, String userText, StageImages images, Long analysisId, Class<T> resultType) {
         VisionChatRequest request = new VisionChatRequest(
-                modelName,
+                stage.model(),
                 stage.template().content(),
                 userText,
-                imageUrls,
+                images.of(stage),
                 stage.detail(),
                 stage.responseSchema(),
                 stage.maxOutputTokens()
@@ -311,8 +348,8 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
             throw e;
         }
 
-        log.info("Vision 단계 완료 - stage={}, detail={}, promptTokens={}, completionTokens={}, latencyMs={}",
-                stage.template().name(), stage.detail().value(),
+        log.info("Vision 단계 완료 - stage={}, model={}, detail={}, promptTokens={}, completionTokens={}, latencyMs={}",
+                stage.template().name(), stage.model(), stage.detail().value(),
                 response.promptTokens(), response.completionTokens(), response.latencyMs());
 
         try {
@@ -346,7 +383,7 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
     }
 
     private AiCallLog.Builder logBuilder(Stage stage, Long analysisId, String requestSummary) {
-        return AiCallLog.builder(AiCallType.VISION, modelName)
+        return AiCallLog.builder(AiCallType.VISION, stage.model())
                 .stage(stage.template().name())
                 .promptVersion(promptVersion)
                 .analysisId(analysisId)
@@ -430,7 +467,62 @@ public class StagedVisionAnalysisService implements VisionAnalysisService {
             PromptTemplate template,
             VisionChatRequest.ResponseSchema responseSchema,
             VisionImageDetail detail,
-            int maxOutputTokens
+            int maxOutputTokens,
+            String model,
+            // 0이면 분석용 사본 그대로
+            int maxEdge,
+            // 0이면 전부
+            int maxImages
     ) {
+
+        String describe() {
+            return "%s(model=%s, maxEdge=%d, maxImages=%d)".formatted(detail.value(), model, maxEdge, maxImages);
+        }
+    }
+
+    // 사진을 받아야 하는지 정한다. base64 전달이거나 따로 줄여 보내는 단계가 있으면 받는다.
+    // 받은 사진은 단계들이 나눠 쓰고, 같은 크기는 한 번만 줄인다.
+    private StageImages prepareImages(List<String> imageUrls) {
+        boolean base64 = imageTransport == VisionImageProperties.Transport.BASE64;
+        boolean anyResize = silhouetteStage.maxEdge() > 0 || labelStage.maxEdge() > 0 || conditionStage.maxEdge() > 0;
+        if (!base64 && !anyResize) {
+            return new StageImages(imageUrls, null, false);
+        }
+
+        long startedAt = System.currentTimeMillis();
+        List<VisionImageLoader.LoadedImage> loaded = imageLoader.load(imageUrls);
+        log.info("Vision 분석용 사진 수신 - imageCount={}, latencyMs={}", imageUrls.size(), System.currentTimeMillis() - startedAt);
+        return new StageImages(imageUrls, loaded, base64);
+    }
+
+    // 분석 한 건이 단계별로 보낼 사진. 동시 실행이면 여러 스레드가 부르므로 of()를 동기화한다.
+    private final class StageImages {
+
+        private final List<String> imageUrls;
+        // null이면 사진을 받지 않았다 - 모든 단계가 URL을 그대로 쓴다.
+        private final List<VisionImageLoader.LoadedImage> loaded;
+        private final boolean base64;
+        // 긴 변(0 = 그대로) -> 사진별 입력값. 같은 크기를 쓰는 단계끼리 인코딩을 나눠 쓴다.
+        private final Map<Integer, List<String>> encodedByMaxEdge = new HashMap<>();
+
+        private StageImages(List<String> imageUrls, List<VisionImageLoader.LoadedImage> loaded, boolean base64) {
+            this.imageUrls = imageUrls;
+            this.loaded = loaded;
+            this.base64 = base64;
+        }
+
+        synchronized List<String> of(Stage stage) {
+            List<String> inputs;
+            if (loaded == null || (!base64 && stage.maxEdge() == 0)) {
+                inputs = imageUrls;
+            } else {
+                inputs = encodedByMaxEdge.computeIfAbsent(stage.maxEdge(),
+                        maxEdge -> loaded.stream().map(image -> imageLoader.toImageInput(image, maxEdge)).toList());
+            }
+            if (stage.maxImages() > 0 && inputs.size() > stage.maxImages()) {
+                return inputs.subList(0, stage.maxImages());
+            }
+            return inputs;
+        }
     }
 }

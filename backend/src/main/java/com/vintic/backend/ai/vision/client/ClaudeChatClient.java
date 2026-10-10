@@ -5,6 +5,7 @@ import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.anthropic.core.JsonValue;
 import com.anthropic.errors.AnthropicException;
 import com.anthropic.errors.AnthropicServiceException;
+import com.anthropic.models.messages.Base64ImageSource;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.ContentBlockParam;
 import com.anthropic.models.messages.ImageBlockParam;
@@ -31,8 +32,10 @@ import java.util.Map;
 // OpenAiVisionClient와 같은 요청/응답 값 객체를 받고 돌려주므로 호출부(Vision 3단계, Goal 파서,
 // Matcher)는 어느 벤더인지 모른다. 벤더별 차이는 전부 이 클래스 안에 갇힌다:
 //
+//  - 이미지 전달: http(s) URL은 url source로, data URL(data:image/...;base64,...)은 base64 source로 보낸다.
+//    data URL은 서버가 사진을 직접 받아 실어 보낼 때 온다(VisionImageLoader). OpenAI는 data URL을 그대로 받는다.
 //  - 이미지 해상도(detail): Claude에는 대응 파라미터가 없다. 긴 변 약 1568px로 자동 축소되고
-//    토큰은 픽셀 수에 비례한다. 그래서 detail은 무시하고 URL을 그대로 보낸다. OpenAI의
+//    토큰은 픽셀 수에 비례한다. 그래서 detail은 무시한다. 단계별로 해상도를 낮추려면 줄인 사본을 보낸다. OpenAI의
 //    low(512px 고정)와 같은 조건이 아니라는 점은 하네스 비교 때 감안해야 한다 - OpenAI 쪽을
 //    -Dvision.harness.detail=high로 맞춰 재는 게 공정하다.
 //  - Structured Outputs: output_config.format(json_schema). 스키마 파일은 표준 JSON Schema라
@@ -101,7 +104,7 @@ public class ClaudeChatClient implements ChatCompletionClient {
             content.add(ContentBlockParam.ofText(TextBlockParam.builder().text(request.userText()).build()));
         }
         for (String imageUrl : request.imageUrls()) {
-            content.add(ContentBlockParam.ofImage(ImageBlockParam.builder().urlSource(imageUrl).build()));
+            content.add(ContentBlockParam.ofImage(toImageBlock(imageUrl)));
         }
         if (content.isEmpty()) {
             // Messages API는 빈 user 메시지를 거부한다. 텍스트도 이미지도 없으면 시스템 프롬프트만으로
@@ -109,6 +112,27 @@ public class ClaudeChatClient implements ChatCompletionClient {
             content.add(ContentBlockParam.ofText(TextBlockParam.builder().text("Respond as instructed.").build()));
         }
         return content;
+    }
+
+    private static final String DATA_URL_PREFIX = "data:";
+    private static final String BASE64_MARKER = ";base64,";
+
+    private ImageBlockParam toImageBlock(String imageUrl) {
+        if (!imageUrl.startsWith(DATA_URL_PREFIX)) {
+            return ImageBlockParam.builder().urlSource(imageUrl).build();
+        }
+        int marker = imageUrl.indexOf(BASE64_MARKER);
+        if (marker < 0) {
+            throw new AiApiException("base64가 아닌 data URL은 보낼 수 없습니다.");
+        }
+        String mediaType = imageUrl.substring(DATA_URL_PREFIX.length(), marker);
+        String data = imageUrl.substring(marker + BASE64_MARKER.length());
+        return ImageBlockParam.builder()
+                .source(Base64ImageSource.builder()
+                        .mediaType(Base64ImageSource.MediaType.of(mediaType))
+                        .data(data)
+                        .build())
+                .build();
     }
 
     private OutputConfig buildOutputConfig(VisionChatRequest.ResponseSchema responseSchema) {

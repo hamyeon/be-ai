@@ -14,6 +14,9 @@ import com.vintic.backend.ai.vision.dto.ConditionGrade;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisRequest;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
 import com.vintic.backend.ai.vision.dto.VisionProgress;
+import com.vintic.backend.ai.vision.image.ImageResizer;
+import com.vintic.backend.ai.vision.image.VisionImageLoader;
+import com.vintic.backend.ai.vision.image.VisionImageProperties;
 import com.vintic.backend.common.exception.AiApiException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -51,8 +54,11 @@ class StagedVisionAnalysisServiceTest {
         return new StagedVisionAnalysisService(
                 visionClient, new ObjectMapper(), new VisionEvidenceValidator(),
                 new PromptTemplateLoader(), stageProperties, new VisionProviderProperties(), aiCallLogger,
-                stageExecutor);
+                stageExecutor, imageLoader, new VisionImageProperties());
     }
+
+    // 실험 스위치가 꺼진 기본 설정에서는 사진을 받지 않는다. 받는 경로는 VisionImageLoaderTest가 본다.
+    private final VisionImageLoader imageLoader = new VisionImageLoader(new ImageResizer());
 
     // 기본은 호출한 스레드에서 그대로 돌린다. 진짜 동시 실행이 필요한 테스트만 스레드 풀을 넣는다.
     private Executor stageExecutor = Runnable::run;
@@ -312,7 +318,8 @@ class StagedVisionAnalysisServiceTest {
 
         new StagedVisionAnalysisService(
                 visionClient, new ObjectMapper(), new VisionEvidenceValidator(), new PromptTemplateLoader(),
-                new VisionStageProperties(), providerProperties, aiCallLogger, stageExecutor)
+                new VisionStageProperties(), providerProperties, aiCallLogger, stageExecutor,
+                imageLoader, new VisionImageProperties())
                 .analyze(new VisionAnalysisRequest(IMAGE_URLS));
 
         List<VisionChatRequest> requests = capturedRequests();
@@ -476,6 +483,97 @@ class StagedVisionAnalysisServiceTest {
     // "기록 실패가 분석을 막지 않는다"는 AiCallLoggerTest에서 검증한다.
     // record()가 어떤 경우에도 예외를 던지지 않는 게 AiCallLogger의 계약이라,
     // 호출부마다 방어 코드를 두는 대신 계약을 지키는 쪽을 테스트한다.
+
+    @Test
+    void 실험_스위치가_꺼져_있으면_사진을_받지_않고_URL을_그대로_넘긴다() {
+        VisionImageLoader loader = org.mockito.Mockito.mock(VisionImageLoader.class);
+        stubAllStages();
+
+        new StagedVisionAnalysisService(
+                visionClient, new ObjectMapper(), new VisionEvidenceValidator(), new PromptTemplateLoader(),
+                new VisionStageProperties(), new VisionProviderProperties(), aiCallLogger, stageExecutor,
+                loader, new VisionImageProperties())
+                .analyze(new VisionAnalysisRequest(IMAGE_URLS));
+
+        org.mockito.Mockito.verifyNoInteractions(loader);
+        assertThat(capturedRequests()).allSatisfy(request -> assertThat(request.imageUrls()).isEqualTo(IMAGE_URLS));
+    }
+
+    @Test
+    void 단계별_모델_긴변_장수를_설정하면_그_단계만_바뀐다() {
+        // 실루엣만 작은 모델·작은 사진·앞 1장으로 보내는 실험. 나머지 단계는 원래 URL과 기본 모델 그대로여야 한다.
+        List<String> urls = List.of("https://example.com/a.jpg", "https://example.com/b.jpg");
+        VisionImageLoader loader = org.mockito.Mockito.mock(VisionImageLoader.class);
+        List<VisionImageLoader.LoadedImage> loaded = urls.stream()
+                .map(url -> new VisionImageLoader.LoadedImage(url, new byte[]{1})).toList();
+        when(loader.load(urls)).thenReturn(loaded);
+        when(loader.toImageInput(any(), org.mockito.ArgumentMatchers.eq(512)))
+                .thenAnswer(invocation -> "data:image/jpeg;base64,small-"
+                        + ((VisionImageLoader.LoadedImage) invocation.getArgument(0)).sourceUrl().charAt(20));
+
+        VisionProviderProperties providerProperties = new VisionProviderProperties();
+        providerProperties.setProvider(VisionProviderProperties.Provider.CLAUDE);
+        VisionStageProperties properties = new VisionStageProperties();
+        properties.getSilhouette().setModel("claude-haiku-5-5");
+        properties.getSilhouette().setMaxEdge(512);
+        properties.getSilhouette().setMaxImages(1);
+        stubAllStages();
+
+        new StagedVisionAnalysisService(
+                visionClient, new ObjectMapper(), new VisionEvidenceValidator(), new PromptTemplateLoader(),
+                properties, providerProperties, aiCallLogger, stageExecutor,
+                loader, new VisionImageProperties())
+                .analyze(new VisionAnalysisRequest(urls));
+
+        List<VisionChatRequest> requests = capturedRequests();
+        assertThat(requests.get(0).model()).isEqualTo("claude-haiku-5-5");
+        assertThat(requests.get(0).imageUrls()).containsExactly("data:image/jpeg;base64,small-a");
+        assertThat(requests.get(1).model()).isEqualTo(providerProperties.resolvedModel());
+        assertThat(requests.get(1).imageUrls()).isEqualTo(urls);
+        assertThat(requests.get(2).imageUrls()).isEqualTo(urls);
+        // 호출 기록의 모델도 단계별 모델이어야 비용을 단계별로 나눠 볼 수 있다.
+        assertThat(capturedLogs(3).get(0).getModelName()).isEqualTo("claude-haiku-5-5");
+    }
+
+    @Test
+    void 단계_모델이_provider와_맞지_않으면_무시하고_기본_모델을_쓴다() {
+        // 운영 기본값이 실루엣=Haiku라서 VISION_PROVIDER=openai로 되돌리면 Claude 모델명이 OpenAI로 갈 수 있다.
+        VisionProviderProperties providerProperties = new VisionProviderProperties();
+        providerProperties.setProvider(VisionProviderProperties.Provider.OPENAI);
+        VisionStageProperties properties = new VisionStageProperties();
+        properties.getSilhouette().setModel("claude-haiku-5-5");
+        stubAllStages();
+
+        new StagedVisionAnalysisService(
+                visionClient, new ObjectMapper(), new VisionEvidenceValidator(), new PromptTemplateLoader(),
+                properties, providerProperties, aiCallLogger, stageExecutor, imageLoader, new VisionImageProperties())
+                .analyze(new VisionAnalysisRequest(IMAGE_URLS));
+
+        assertThat(capturedRequests()).allSatisfy(request -> assertThat(request.model()).isEqualTo("gpt-4o"));
+    }
+
+    @Test
+    void base64_전달이면_모든_단계가_한_번_받은_사진을_나눠_쓴다() {
+        VisionImageLoader loader = org.mockito.Mockito.mock(VisionImageLoader.class);
+        VisionImageLoader.LoadedImage image = new VisionImageLoader.LoadedImage(IMAGE_URLS.get(0), new byte[]{1});
+        when(loader.load(IMAGE_URLS)).thenReturn(List.of(image));
+        when(loader.toImageInput(image, 0)).thenReturn("data:image/jpeg;base64,full");
+        VisionImageProperties imageProperties = new VisionImageProperties();
+        imageProperties.setTransport(VisionImageProperties.Transport.BASE64);
+        stubAllStages();
+
+        new StagedVisionAnalysisService(
+                visionClient, new ObjectMapper(), new VisionEvidenceValidator(), new PromptTemplateLoader(),
+                new VisionStageProperties(), new VisionProviderProperties(), aiCallLogger, stageExecutor,
+                loader, imageProperties)
+                .analyze(new VisionAnalysisRequest(IMAGE_URLS));
+
+        assertThat(capturedRequests()).allSatisfy(request ->
+                assertThat(request.imageUrls()).containsExactly("data:image/jpeg;base64,full"));
+        verify(loader, times(1)).load(IMAGE_URLS);
+        // 같은 크기는 한 번만 인코딩한다.
+        verify(loader, times(1)).toImageInput(image, 0);
+    }
 
     private List<AiCallLog> capturedLogs(int expectedCount) {
         ArgumentCaptor<AiCallLog> captor = ArgumentCaptor.forClass(AiCallLog.class);

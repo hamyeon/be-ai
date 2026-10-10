@@ -14,6 +14,9 @@ import com.vintic.backend.ai.vision.client.VisionImageDetail;
 import com.vintic.backend.ai.vision.client.VisionProviderProperties;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisRequest;
 import com.vintic.backend.ai.vision.dto.VisionAnalysisResult;
+import com.vintic.backend.ai.vision.image.ImageResizer;
+import com.vintic.backend.ai.vision.image.VisionImageLoader;
+import com.vintic.backend.ai.vision.image.VisionImageProperties;
 import com.vintic.backend.ai.vision.service.OpenAiVisionAnalysisService;
 import com.vintic.backend.ai.vision.service.VisionAnalysisService;
 import org.junit.jupiter.api.Assumptions;
@@ -60,6 +63,11 @@ import java.util.function.Function;
  *          응답 생성 시간이 출력 토큰 수에 비례하므로 분석 시간을 줄일 후보다.
  * execution 단계 실행 방식: sequential(기본) | parallel_label_condition | all_parallel.
  *          동시 실행은 분석 시간이 줄어드는 대신 뒤 단계가 앞 단계 결과를 못 받는다 - 정확도가 유지되는지 본다.
+ * image-transport url(기본) | base64. base64면 서버가 사진을 한 번 받아 요청에 실어 보낸다(받는 시간 포함해 잰다).
+ * {stage}-model / {stage}-max-edge / {stage}-max-images  stage = silhouette | label | condition.
+ *          단계별 모델, 그 단계만 줄여 보낼 긴 변(px), 앞에서부터 보낼 사진 장수. 예:
+ *          -Dvision.harness.silhouette-model=claude-haiku-5-5 -Dvision.harness.silhouette-max-edge=512
+ *          설정한 것만 리포트 이름과 라벨에 붙는다.
  * detail   OpenAI 전용. Claude에는 대응 파라미터가 없어 원본 해상도로 간다 - 벤더를 공정하게 비교하려면
  *          OpenAI 쪽을 -Dvision.harness.detail=high로 맞춘다.
  *
@@ -78,6 +86,8 @@ class VisionPromptHarnessTest {
     private static final String DETAIL_PROPERTY = "vision.harness.detail";
     private static final String EXECUTION_PROPERTY = "vision.harness.execution";
     private static final String PROMPT_VERSION_PROPERTY = "vision.harness.prompt-version";
+    private static final String IMAGE_TRANSPORT_PROPERTY = "vision.harness.image-transport";
+    private static final List<String> STAGES = List.of("silhouette", "label", "condition");
     private static final Path REPORT_DIRECTORY = Path.of("build", "vision-harness");
 
     private enum Agent {
@@ -127,10 +137,10 @@ class VisionPromptHarnessTest {
                 }
 
                 String detailLabel = System.getProperty(DETAIL_PROPERTY, "기본(low/high/high)");
-                String label = "provider=%s, model=%s, prompt=%s, set=%s, agent=%s, image=%s, detail=%s, execution=%s"
+                String label = "provider=%s, model=%s, prompt=%s, set=%s, agent=%s, image=%s, detail=%s, execution=%s%s"
                         .formatted(providerProperties.getProvider(), providerProperties.resolvedModel(),
                                 providerProperties.getPromptVersion(), fixtureSet, agent, variant, detailLabel,
-                                executionMode());
+                                executionMode(), experimentOptions().isEmpty() ? "" : ", " + String.join(", ", experimentOptions()));
                 VisionHarnessReport report = VisionHarnessReport.aggregate(
                         label, caseScores, visionClient.usage(), callsByCase);
                 System.out.println(report.toText());
@@ -213,8 +223,9 @@ class VisionPromptHarnessTest {
             case V2 -> new StagedVisionAnalysisService(
                     visionClient, objectMapper, new VisionEvidenceValidator(), promptTemplateLoader,
                     stageProperties(), providerProperties, org.mockito.Mockito.mock(AiCallLogger.class),
-                    // 2·3단계 동시 실행을 잴 때 실제로 겹쳐서 돌아야 하므로 진짜 스레드를 쓴다.
-                    Executors.newFixedThreadPool(2));
+                    // 동시 실행을 잴 때 실제로 겹쳐서 돌아야 하므로 진짜 스레드를 쓴다. ALL_PARALLEL이 3개를 쓴다.
+                    Executors.newFixedThreadPool(3),
+                    new VisionImageLoader(new ImageResizer()), imageProperties());
         };
     }
 
@@ -223,6 +234,9 @@ class VisionPromptHarnessTest {
     private VisionStageProperties stageProperties() {
         VisionStageProperties properties = new VisionStageProperties();
         properties.setExecutionMode(executionMode());
+        applyStageOptions("silhouette", properties.getSilhouette());
+        applyStageOptions("label", properties.getLabel());
+        applyStageOptions("condition", properties.getCondition());
         String configured = System.getProperty(DETAIL_PROPERTY);
         if (configured == null || configured.isBlank()) {
             return properties;
@@ -232,6 +246,54 @@ class VisionPromptHarnessTest {
         properties.getLabel().setDetail(detail);
         properties.getCondition().setDetail(detail);
         return properties;
+    }
+
+    // -Dvision.harness.{stage}-model / -max-edge / -max-images
+    private void applyStageOptions(String stage, VisionStageProperties.Stage settings) {
+        String model = stageOption(stage, "model");
+        if (model != null) {
+            settings.setModel(model);
+        }
+        String maxEdge = stageOption(stage, "max-edge");
+        if (maxEdge != null) {
+            settings.setMaxEdge(Integer.parseInt(maxEdge));
+        }
+        String maxImages = stageOption(stage, "max-images");
+        if (maxImages != null) {
+            settings.setMaxImages(Integer.parseInt(maxImages));
+        }
+    }
+
+    private String stageOption(String stage, String option) {
+        String value = System.getProperty("vision.harness.%s-%s".formatted(stage, option));
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private VisionImageProperties imageProperties() {
+        VisionImageProperties properties = new VisionImageProperties();
+        String transport = System.getProperty(IMAGE_TRANSPORT_PROPERTY);
+        if (transport != null && !transport.isBlank()) {
+            properties.setTransport(VisionImageProperties.Transport.valueOf(transport.trim().toUpperCase()));
+        }
+        return properties;
+    }
+
+    // 실험 옵션 중 설정한 것만 "silhouette-model=claude-haiku-5-5" 꼴로 모은다. 리포트 라벨과 파일명에 쓴다.
+    private List<String> experimentOptions() {
+        List<String> options = new ArrayList<>();
+        String transport = System.getProperty(IMAGE_TRANSPORT_PROPERTY);
+        if (transport != null && !transport.isBlank()) {
+            options.add("transport=" + transport.trim().toLowerCase());
+        }
+        for (String stage : STAGES) {
+            for (String option : List.of("model", "max-edge", "max-images")) {
+                String value = stageOption(stage, option);
+                if (value != null) {
+                    options.add("%s-%s=%s".formatted(stage, option, value));
+                }
+            }
+        }
+        return options;
     }
 
     // -Dvision.harness.execution=sequential | parallel_label_condition | all_parallel (대소문자·하이픈 무관)
@@ -262,9 +324,13 @@ class VisionPromptHarnessTest {
         // 프롬프트 v2 리포트 이름은 그대로 두고(과거 리포트와 이어 볼 수 있게), v3부터 이름에 붙인다.
         String promptSuffix = "v2".equals(providerProperties.getPromptVersion())
                 ? "" : "-prompt_" + providerProperties.getPromptVersion();
-        String baseName = "%s%s-%s-%s-detail_%s%s%s".formatted(
+        // 실험 옵션도 이름에 붙인다. 붙이지 않으면 Haiku/512px 회차가 기준 회차 리포트를 덮어쓴다.
+        String experimentSuffix = experimentOptions().stream()
+                .map(option -> "-" + option.replace('=', '_').replace("max-", "max"))
+                .reduce("", String::concat);
+        String baseName = "%s%s-%s-%s-detail_%s%s%s%s".formatted(
                 modelPrefix, fixtureSet, agent.name().toLowerCase(), variant.name().toLowerCase(),
-                detailSuffix, promptSuffix, executionSuffix);
+                detailSuffix, promptSuffix, executionSuffix, experimentSuffix);
         Path reportPath = REPORT_DIRECTORY.resolve(baseName + ".txt");
         Files.writeString(reportPath, report.toText(), StandardCharsets.UTF_8);
         System.out.println("리포트 저장: " + reportPath.toAbsolutePath());

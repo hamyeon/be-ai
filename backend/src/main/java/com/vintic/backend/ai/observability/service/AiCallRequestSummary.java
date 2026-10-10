@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vintic.backend.ai.vision.client.VisionChatRequest;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 // 호출 기록에 남길 요청 요약을 만든다.
@@ -25,11 +26,28 @@ public final class AiCallRequestSummary {
         summary.put("detail", request.detail().value());
         summary.put("maxOutputTokens", request.maxOutputTokens());
         summary.put("imageCount", request.imageUrls() == null ? 0 : request.imageUrls().size());
-        summary.put("imageUrls", request.imageUrls());
+        summary.put("imageUrls", redactInlineImages(request.imageUrls()));
         // 이전 단계 결과를 맥락으로 넘긴 텍스트. 단계 간 값이 어떻게 전달됐는지 보려면 필요하다.
         summary.put("userText", request.userText());
         summary.put("schemaName", request.responseSchema() == null ? null : request.responseSchema().name());
         return write(summary, objectMapper);
+    }
+
+    // 서버가 사진을 base64로 실어 보내면(VisionImageLoader) imageUrls에 data URL이 온다. 장당 수백 KB라
+    // 그대로 남기면 호출 기록 한 줄이 MB 단위가 된다. 형식과 크기만 남긴다.
+    private static List<String> redactInlineImages(List<String> imageUrls) {
+        if (imageUrls == null) {
+            return null;
+        }
+        return imageUrls.stream().map(url -> {
+            if (url == null || !url.startsWith("data:")) {
+                return url;
+            }
+            int comma = url.indexOf(',');
+            String header = comma < 0 ? "data:" : url.substring(0, comma);
+            int base64Length = comma < 0 ? url.length() : url.length() - comma - 1;
+            return "%s,(%dKB)".formatted(header, base64Length * 3 / 4 / 1024);
+        }).toList();
     }
 
     public static String ofEmbedding(String model, String input, ObjectMapper objectMapper) {
